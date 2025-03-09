@@ -2,6 +2,7 @@ use atomic_float::AtomicF64;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{ClockSamples, ClockSeconds, MusicalTime, MusicalTransport},
+    collector::Collector,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
@@ -378,7 +379,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// This must be called reguarly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        firewheel_core::collector::collect();
+        firewheel_core::collector::GlobalCollector.collect();
 
         for msg in self.from_processor_rx.pop_iter() {
             match msg {
@@ -650,7 +651,7 @@ impl<B: AudioBackend> Drop for FirewheelCtx<B> {
             }
         }
 
-        firewheel_core::collector::collect();
+        firewheel_core::collector::GlobalCollector.collect();
     }
 }
 

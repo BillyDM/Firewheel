@@ -34,7 +34,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test -j 1 --locked --workspace --all-features --all-targets
+          cargo test --locked --workspace --all-features --all-targets
 
   # Check formatting.
   format:
