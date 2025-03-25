@@ -37,10 +37,12 @@ impl App for DemoApp {
             ui.label("Default VolumePan FX Chain");
 
             if ui.button("Play").clicked() {
+                self.audio_system.sampler_node.start_or_restart(None);
+
                 // The `worker_id` can be later used to reference this piece of work being done.
-                let _worker_id = self.audio_system.sampler_pool_1.play(
-                    self.audio_system.sampler_node.clone(),
-                    None, // No delay
+                let _worker_id = self.audio_system.sampler_pool_1.new_worker(
+                    &self.audio_system.sampler_node,
+                    true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {
                         // While we don't change these parameters in this example, in a typical app
@@ -55,12 +57,9 @@ impl App for DemoApp {
                 );
             }
 
-            let num_active_works = self
-                .audio_system
-                .sampler_pool_1
-                .poll(&self.audio_system.cx)
-                .num_active_workers;
+            self.audio_system.sampler_pool_1.poll(&self.audio_system.cx);
 
+            let num_active_works = self.audio_system.sampler_pool_1.num_active_workers();
             ui.label(format!("Num active workers: {}", num_active_works));
 
             ui.separator();
@@ -68,10 +67,12 @@ impl App for DemoApp {
             ui.label("Custom FX Chain");
 
             if ui.button("Play").clicked() {
+                self.audio_system.sampler_node.start_or_restart(None);
+
                 // The `worker_id` can be later used to reference this piece of work being done.
-                let _worker_id = self.audio_system.sampler_pool_2.play(
-                    self.audio_system.sampler_node.clone(),
-                    None, // No delay
+                let _worker_id = self.audio_system.sampler_pool_2.new_worker(
+                    &self.audio_system.sampler_node,
+                    true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
                     |fx_chain_state, cx| {
                         // While we don't change these parameters in this example, in a typical app
@@ -89,12 +90,9 @@ impl App for DemoApp {
                 );
             }
 
-            let num_active_works = self
-                .audio_system
-                .sampler_pool_2
-                .poll(&self.audio_system.cx)
-                .num_active_workers;
+            self.audio_system.sampler_pool_2.poll(&self.audio_system.cx);
 
+            let num_active_works = self.audio_system.sampler_pool_2.num_active_workers();
             ui.label(format!("Num active workers: {}", num_active_works));
         });
 

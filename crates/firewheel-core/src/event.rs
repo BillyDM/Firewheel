@@ -2,7 +2,7 @@ use core::any::Any;
 
 pub use glam::{Vec2, Vec3};
 
-use crate::{clock::EventDelay, diff::ParamPath, dsp::volume::Volume, node::NodeID};
+use crate::{diff::ParamPath, dsp::volume::Volume, node::NodeID};
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEvent {
@@ -21,10 +21,6 @@ pub enum NodeEventType {
         /// The path to the parameter.
         path: ParamPath,
     },
-    /// A command to control the current sequence in a node.
-    ///
-    /// This only has an effect on certain nodes.
-    SequenceCommand(SequenceCommand),
     /// Custom event type.
     Custom(Box<dyn Any + Send + Sync>),
     /// Custom event type stored on the stack as raw bytes.
@@ -97,25 +93,6 @@ param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
 param_data_from!(Vec2, Vector2D);
 param_data_from!(Vec3, Vector3D);
-
-/// A command to control the current sequence in a node.
-///
-/// This only has an effect on certain nodes.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SequenceCommand {
-    /// Start/restart the current sequence.
-    StartOrRestart {
-        /// The exact moment when the sequence should start. Set to `None`
-        /// to start as soon as the event is received.
-        delay: Option<EventDelay>,
-    },
-    /// Pause the current sequence.
-    Pause,
-    /// Resume the current sequence.
-    Resume,
-    /// Stop the current sequence.
-    Stop,
-}
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {

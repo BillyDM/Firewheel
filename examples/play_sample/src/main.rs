@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    nodes::sampler::{PlaybackState, RepeatMode, SamplerNode, SamplerState},
+    nodes::sampler::{RepeatMode, SamplerNode, SamplerState},
     FirewheelContext, Volume,
 };
 use symphonium::SymphoniumLoader;
@@ -47,29 +47,21 @@ fn main() {
             .into_dyn_resource();
 
     sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
-    let event = cx
-        .node_state::<SamplerState>(sampler_id)
-        .unwrap()
-        .sync_params_event(&sampler_node, true);
-    cx.queue_event_for(sampler_id, event);
+    cx.queue_event_for(sampler_id, sampler_node.sync_sequence_event());
 
-    // Alternatively, instead of setting `start_immediately` to `true`, you can
-    // tell the sampler to start playing its sequence like this:
-    //
-    // cx.queue_event_for(
-    //    sampler_id,
-    //    sampler_handle.start_or_restart_event(&sampler_params, EventDelay::Immediate),
-    // );
+    sampler_node.start_or_restart(None);
+    cx.queue_event_for(sampler_id, sampler_node.sync_playback_event());
+
+    // Manually set the shared `stopped` flag. This is needed to account for the delay
+    // between sending a play event and the node's processor receiving that event.
+    cx.node_state::<SamplerState>(sampler_id)
+        .unwrap()
+        .mark_stopped(false);
 
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if cx
-            .node_state::<SamplerState>(sampler_id)
-            .unwrap()
-            .playback_state()
-            == PlaybackState::Stopped
-        {
+        if cx.node_state::<SamplerState>(sampler_id).unwrap().stopped() {
             // Sample has finished playing.
             break;
         }

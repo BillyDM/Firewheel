@@ -515,6 +515,7 @@ pub trait Patch {
 }
 
 /// A path of indices that uniquely describes an arbitrarily nested field.
+#[derive(PartialEq, Eq)]
 pub enum ParamPath {
     Single(u32),
     Multi(ArcGc<SmallVec<[u32; 4]>>),

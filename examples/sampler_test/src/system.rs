@@ -1,10 +1,11 @@
 use firewheel::{
+    diff::Memo,
     dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
     error::UpdateError,
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
-        sampler::{PlaybackState, RepeatMode, SamplerNode, SamplerState, SequenceType},
+        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
     },
     FirewheelContext,
 };
@@ -18,7 +19,7 @@ pub const SAMPLE_PATHS: [&'static str; 4] = [
 ];
 
 struct Sampler {
-    pub params: SamplerNode,
+    pub params: Memo<SamplerNode>,
     pub node_id: NodeID,
 }
 
@@ -66,7 +67,10 @@ impl AudioSystem {
                 cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();
 
-                Sampler { params, node_id }
+                Sampler {
+                    params: Memo::new(params),
+                    node_id,
+                }
             })
             .collect();
 
@@ -100,56 +104,51 @@ impl AudioSystem {
             ..
         }) = &mut sampler.params.sequence
         else {
-            return;
+            todo!();
         };
 
-        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
+        *old_volume = Volume::Linear(linear_volume);
+        *old_repeat_mode = repeat_mode;
 
-        if Volume::Linear(linear_volume) != *old_volume || repeat_mode != *old_repeat_mode {
-            *old_volume = Volume::Linear(linear_volume);
-            *old_repeat_mode = repeat_mode;
+        sampler.params.start_or_restart(None);
 
-            self.cx.queue_event_for(
-                sampler.node_id,
-                node_state.sync_params_event(&sampler.params, true),
-            );
-        } else {
-            self.cx.queue_event_for(
-                sampler.node_id,
-                node_state.start_or_restart_event(&sampler.params, None),
-            );
-        }
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
     }
 
     pub fn pause(&mut self, sampler_i: usize) {
-        let sampler = &self.samplers[sampler_i];
-        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
+        let sampler = &mut self.samplers[sampler_i];
 
-        self.cx
-            .queue_event_for(sampler.node_id, node_state.pause_event());
+        sampler.params.pause();
+
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
     }
 
     pub fn resume(&mut self, sampler_i: usize) {
-        let sampler = &self.samplers[sampler_i];
-        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
+        let sampler = &mut self.samplers[sampler_i];
 
-        self.cx
-            .queue_event_for(sampler.node_id, node_state.resume_event(&sampler.params));
+        sampler.params.resume(None);
+
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
     }
 
     pub fn stop(&mut self, sampler_i: usize) {
-        let sampler = &self.samplers[sampler_i];
-        let node_state = self.cx.node_state::<SamplerState>(sampler.node_id).unwrap();
+        let sampler = &mut self.samplers[sampler_i];
 
-        self.cx
-            .queue_event_for(sampler.node_id, node_state.stop_event());
+        sampler.params.stop();
+
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
     }
 
-    pub fn playback_state(&self, sampler_i: usize) -> PlaybackState {
-        self.cx
-            .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
-            .unwrap()
-            .playback_state()
+    pub fn playback_state(&self, sampler_i: usize) -> &PlaybackState {
+        &self.samplers[sampler_i].params.playback
     }
 
     pub fn update(&mut self) {

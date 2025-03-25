@@ -32,7 +32,7 @@ pub trait FxChain: Default {
 }
 
 struct Worker<FX: FxChain> {
-    sampler_node: SamplerNode,
+    params: SamplerNode,
     sampler_id: NodeID,
 
     fx_state: FxChainState<FX>,
@@ -64,6 +64,7 @@ impl Default for WorkerID {
 pub struct SamplerPool<FX: FxChain> {
     workers: Vec<Worker<FX>>,
     worker_ids: Arena<usize>,
+    num_active_workers: usize,
 }
 
 impl<FX: FxChain> SamplerPool<FX> {
@@ -104,7 +105,7 @@ impl<FX: FxChain> SamplerPool<FX> {
                     );
 
                     Worker {
-                        sampler_node,
+                        params: sampler_node,
                         sampler_id,
 
                         fx_state: FxChainState {
@@ -117,6 +118,7 @@ impl<FX: FxChain> SamplerPool<FX> {
                 })
                 .collect(),
             worker_ids: Arena::with_capacity(num_workers),
+            num_active_workers: 0,
         }
     }
 
@@ -124,13 +126,32 @@ impl<FX: FxChain> SamplerPool<FX> {
         self.workers.len()
     }
 
-    pub fn play(
+    /// Queue a new work to play a sequence.
+    ///
+    /// * `params` - The parameters of the sequence to play.
+    /// * `steal` - If this is `true`, then if there are no more workers left in
+    /// in the pool, the oldest one will be stopped and replaced with this new
+    /// one. If this is `false`, then an error will be returned if no more workers
+    /// are left.
+    /// * `cx` - The Firewheel context.
+    /// * `fx_chain` - A closure to add additional nodes to this worker instance.
+    ///
+    /// This will return an error if `params.playback == PlaybackState::Stop`.
+    pub fn new_worker(
         &mut self,
-        sampler_node: SamplerNode,
-        delay: Option<EventDelay>,
+        params: &SamplerNode,
+        steal: bool,
         cx: &mut FirewheelContext,
         fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
-    ) -> PlayResult {
+    ) -> Result<NewWorkerResult, NewWorkerError> {
+        if params.playback == PlaybackState::Stop {
+            return Err(NewWorkerError::PlaybackStateIsStop);
+        }
+
+        if !steal && self.num_active_workers == self.workers.len() {
+            return Err(NewWorkerError::NoMoreWorkers);
+        }
+
         let mut idx = 0;
         let mut max_score = 0;
         for (i, worker) in self.workers.iter().enumerate() {
@@ -142,7 +163,7 @@ impl<FX: FxChain> SamplerPool<FX> {
             let score = cx
                 .node_state::<SamplerState>(worker.sampler_id)
                 .unwrap()
-                .worker_score(&worker.sampler_node);
+                .worker_score(&worker.params);
 
             if score == u64::MAX {
                 idx = i;
@@ -163,54 +184,166 @@ impl<FX: FxChain> SamplerPool<FX> {
         let was_playing_sequence = if let Some(old_worker_id) = old_worker_id {
             self.worker_ids.remove(old_worker_id.0);
 
-            cx.node_state::<SamplerState>(worker.sampler_id)
-                .unwrap()
-                .playback_state()
-                .is_playing()
+            !(worker.params.playback == PlaybackState::Stop
+                || cx
+                    .node_state::<SamplerState>(worker.sampler_id)
+                    .unwrap()
+                    .stopped())
         } else {
             false
         };
 
         worker.assigned_worker_id = Some(worker_id);
-        worker.sampler_node.sequence = sampler_node.sequence.clone();
+        self.num_active_workers += 1;
 
-        let node_state = cx.node_state::<SamplerState>(worker.sampler_id).unwrap();
+        let mut event_queue = cx.event_queue(worker.sampler_id);
+        params.diff(&worker.params, PathBuilder::default(), &mut event_queue);
 
-        if let Some(delay) = delay {
-            let event_1 = node_state.sync_params_event(&worker.sampler_node, false);
-            let event_2 = node_state.start_or_restart_event(&worker.sampler_node, Some(delay));
-            cx.queue_event_for(worker.sampler_id, event_1);
+        worker.params = params.clone();
 
-            cx.queue_event_for(worker.sampler_id, event_2);
-        } else {
-            let event = node_state.sync_params_event(&worker.sampler_node, true);
-            cx.queue_event_for(worker.sampler_id, event);
-        }
+        cx.node_state::<SamplerState>(worker.sampler_id)
+            .unwrap()
+            .mark_stopped(false);
 
         (fx_chain)(&mut worker.fx_state, cx);
 
-        PlayResult {
+        Ok(NewWorkerResult {
             worker_id,
             old_worker_id,
             was_playing_sequence,
+        })
+    }
+
+    /// Sync the parameters for the given worker.
+    ///
+    /// If `params.playback == PlaybackState::Stop`, then this worker will be removed
+    /// and the `worker_id` will be invalidated.
+    ///
+    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
+    pub fn sync_worker_params(
+        &mut self,
+        worker_id: WorkerID,
+        params: &SamplerNode,
+        cx: &mut FirewheelContext,
+    ) -> bool {
+        let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
+            return false;
+        };
+
+        let worker = &mut self.workers[idx];
+
+        let mut event_queue = cx.event_queue(worker.sampler_id);
+        params.diff(&worker.params, PathBuilder::default(), &mut event_queue);
+
+        worker.params = params.clone();
+
+        if worker.params.playback == PlaybackState::Stop {
+            self.worker_ids.remove(worker_id.0);
+            worker.assigned_worker_id = None;
+            self.num_active_workers -= 1;
         }
+
+        true
+    }
+
+    /// Pause the given worker.
+    ///
+    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
+    pub fn pause(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+        let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
+            return false;
+        };
+
+        let worker = &mut self.workers[idx];
+
+        worker.params.pause();
+        cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+
+        true
+    }
+
+    /// Resume the given worker.
+    ///
+    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
+    pub fn resume(
+        &mut self,
+        worker_id: WorkerID,
+        delay: Option<EventDelay>,
+        cx: &mut FirewheelContext,
+    ) -> bool {
+        let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
+            return false;
+        };
+
+        let worker = &mut self.workers[idx];
+
+        worker.params.resume(delay);
+        cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+
+        true
+    }
+
+    /// Stop the given worker.
+    ///
+    /// This will remove the worker and invalidate the given `worker_id`.
+    ///
+    /// Returns `true` if a worker with the given ID exists and was stopped.
+    pub fn stop(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+        let Some(idx) = self.worker_ids.get(worker_id.0).copied() else {
+            return false;
+        };
+
+        let worker = &mut self.workers[idx];
+
+        worker.params.stop();
+        cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+
+        self.worker_ids.remove(worker_id.0);
+        worker.assigned_worker_id = None;
+        self.num_active_workers -= 1;
+
+        true
+    }
+
+    /// Pause all workers.
+    pub fn pause_all(&mut self, cx: &mut FirewheelContext) {
+        for worker in self.workers.iter_mut() {
+            worker.params.pause();
+            if worker.assigned_worker_id.is_some() {
+                worker.params.playback = PlaybackState::Pause;
+                cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+            }
+        }
+    }
+
+    /// Resume all workers.
+    pub fn resume_all(&mut self, delay: Option<EventDelay>, cx: &mut FirewheelContext) {
+        for worker in self.workers.iter_mut() {
+            if worker.assigned_worker_id.is_some() {
+                worker.params.resume(delay);
+                cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+            }
+        }
+    }
+
+    /// Stop all workers.
+    pub fn stop_all(&mut self, cx: &mut FirewheelContext) {
+        for worker in self.workers.iter_mut() {
+            if let Some(_) = worker.assigned_worker_id.take() {
+                worker.params.stop();
+                cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
+            }
+        }
+
+        self.worker_ids.clear();
+        self.num_active_workers = 0;
     }
 
     pub fn sampler_node(&self, worker_id: WorkerID) -> Option<&SamplerNode> {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            Some(&self.workers[idx].sampler_node)
+            Some(&self.workers[idx].params)
         } else {
             None
-        }
-    }
-
-    pub fn playback_state(&self, worker_id: WorkerID, cx: &FirewheelContext) -> PlaybackState {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
-                .unwrap()
-                .playback_state()
-        } else {
-            PlaybackState::Stopped
         }
     }
 
@@ -230,192 +363,44 @@ impl<FX: FxChain> SamplerPool<FX> {
         }
     }
 
-    /// Pause the given worker.
-    ///
-    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn pause(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
+    /// Returns `true` if the sequence has either not started playing yet or has finished
+    /// playing.
+    pub fn stopped(&self, worker_id: WorkerID, cx: &FirewheelContext) -> bool {
         if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &mut self.workers[idx];
-
-            let event = cx
-                .node_state::<SamplerState>(worker.sampler_id)
+            cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
                 .unwrap()
-                .pause_event();
-            cx.queue_event_for(worker.sampler_id, event);
-
-            true
+                .stopped()
         } else {
-            false
-        }
-    }
-
-    /// Resume the given worker.
-    ///
-    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn resume(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &mut self.workers[idx];
-
-            let event = cx
-                .node_state::<SamplerState>(worker.sampler_id)
-                .unwrap()
-                .resume_event(&worker.sampler_node);
-            cx.queue_event_for(worker.sampler_id, event);
-
             true
-        } else {
-            false
-        }
-    }
-
-    /// Stop the given worker.
-    ///
-    /// This will invalidate the given `worker_id`.
-    ///
-    /// Returns `true` if a worker with the given ID exists and was stopped.
-    pub fn stop(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            self.worker_ids.remove(worker_id.0);
-
-            let worker = &mut self.workers[idx];
-
-            worker.assigned_worker_id = None;
-
-            let event = cx
-                .node_state::<SamplerState>(worker.sampler_id)
-                .unwrap()
-                .stop_event();
-            cx.queue_event_for(worker.sampler_id, event);
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Pause all workers.
-    pub fn pause_all(&mut self, cx: &mut FirewheelContext) {
-        for worker in self.workers.iter_mut() {
-            if worker.assigned_worker_id.is_some() {
-                let event = cx
-                    .node_state::<SamplerState>(worker.sampler_id)
-                    .unwrap()
-                    .pause_event();
-                cx.queue_event_for(worker.sampler_id, event);
-            }
-        }
-    }
-
-    /// Resume all workers.
-    pub fn resume_all(&mut self, cx: &mut FirewheelContext) {
-        for worker in self.workers.iter_mut() {
-            if worker.assigned_worker_id.is_some() {
-                let event = cx
-                    .node_state::<SamplerState>(worker.sampler_id)
-                    .unwrap()
-                    .resume_event(&worker.sampler_node);
-                cx.queue_event_for(worker.sampler_id, event);
-            }
-        }
-    }
-
-    /// Stop all workers.
-    pub fn stop_all(&mut self, cx: &mut FirewheelContext) {
-        for worker in self.workers.iter_mut() {
-            if let Some(_) = worker.assigned_worker_id.take() {
-                let event = cx
-                    .node_state::<SamplerState>(worker.sampler_id)
-                    .unwrap()
-                    .stop_event();
-                cx.queue_event_for(worker.sampler_id, event);
-            }
-        }
-
-        self.worker_ids.clear();
-    }
-
-    /// Set the playhead for the given worker in seconds.
-    ///
-    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn set_playead_seconds(
-        &mut self,
-        worker_id: WorkerID,
-        playhead_seconds: f64,
-        cx: &mut FirewheelContext,
-    ) -> bool {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &mut self.workers[idx];
-
-            let event = cx
-                .node_state::<SamplerState>(worker.sampler_id)
-                .unwrap()
-                .set_playhead_event(playhead_seconds);
-            cx.queue_event_for(worker.sampler_id, event);
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Set the playhead for the given worker in units of samples (of a single channel of audio).
-    ///
-    /// Returns `true` if a worker with the given ID exists, `false` otherwise.
-    pub fn set_playead_samples(
-        &mut self,
-        worker_id: WorkerID,
-        playhead_samples: u64,
-        cx: &mut FirewheelContext,
-    ) -> bool {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &mut self.workers[idx];
-
-            let event = cx
-                .node_state::<SamplerState>(worker.sampler_id)
-                .unwrap()
-                .set_playhead_samples_event(playhead_samples);
-            cx.queue_event_for(worker.sampler_id, event);
-
-            true
-        } else {
-            false
         }
     }
 
     /// Get the current playhead for the given worker in units of seconds.
     ///
-    /// Returns `none` if a worker with the given ID does not exist.
+    /// Returns `None` if a worker with the given ID does not exist.
     pub fn playhead_seconds(
         &mut self,
         worker_id: WorkerID,
         sample_rate: NonZeroU32,
         cx: &FirewheelContext,
     ) -> Option<f64> {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &self.workers[idx];
-
-            cx.node_state::<SamplerState>(worker.sampler_id)
+        self.worker_ids.get(worker_id.0).copied().map(|idx| {
+            cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
                 .unwrap()
-                .playhead_seconds(&worker.sampler_node, sample_rate)
-        } else {
-            None
-        }
+                .playhead_seconds(sample_rate)
+        })
     }
 
-    /// Get the current playhead for the given worker in units of samples (of a
+    /// Get the current playhead for the given worker in units of frames (samples of a
     /// single channel of audio).
     ///
-    /// Returns `none` if a worker with the given ID does not exist.
-    pub fn playhead_samples(&mut self, worker_id: WorkerID, cx: &FirewheelContext) -> Option<u64> {
-        if let Some(idx) = self.worker_ids.get(worker_id.0).copied() {
-            let worker = &self.workers[idx];
-
-            cx.node_state::<SamplerState>(worker.sampler_id)
+    /// Returns `None` if a worker with the given ID does not exist.
+    pub fn playhead_frames(&mut self, worker_id: WorkerID, cx: &FirewheelContext) -> Option<u64> {
+        self.worker_ids.get(worker_id.0).copied().map(|idx| {
+            cx.node_state::<SamplerState>(self.workers[idx].sampler_id)
                 .unwrap()
-                .playhead_samples(&worker.sampler_node)
-        } else {
-            None
-        }
+                .playhead_frames()
+        })
     }
 
     /// Poll for the current number of active workers, and return a list of
@@ -423,42 +408,43 @@ impl<FX: FxChain> SamplerPool<FX> {
     ///
     /// Calling this method is optional.
     pub fn poll(&mut self, cx: &FirewheelContext) -> PollResult {
-        let mut num_active_workers = 0;
+        self.num_active_workers = 0;
         let mut finished_workers = SmallVec::new();
 
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                let playback_state = cx
+                if cx
                     .node_state::<SamplerState>(worker.sampler_id)
                     .unwrap()
-                    .playback_state();
-
-                if playback_state == PlaybackState::Stopped {
-                    finished_workers.push(worker.assigned_worker_id.take().unwrap());
+                    .stopped()
+                {
+                    let id = worker.assigned_worker_id.take().unwrap();
+                    self.worker_ids.remove(id.0);
+                    finished_workers.push(id);
                 } else {
-                    num_active_workers += 1;
+                    self.num_active_workers += 1;
                 }
             }
         }
 
-        PollResult {
-            num_active_workers,
-            finished_workers,
-        }
+        PollResult { finished_workers }
+    }
+
+    /// The total number of active workers.
+    pub fn num_active_workers(&self) -> usize {
+        self.num_active_workers
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PollResult {
-    /// The number of workers currently active.
-    pub num_active_workers: usize,
     /// The worker IDs which have finished playing. These IDs are now
     /// invalidated.
     pub finished_workers: SmallVec<[WorkerID; 4]>,
 }
 
-/// The result of calling [`SamplerPool::play`].
-pub struct PlayResult {
+/// The result of calling [`SamplerPool::new_worker`].
+pub struct NewWorkerResult {
     /// The new ID of the worker assigned to play this sequence.
     pub worker_id: WorkerID,
 
@@ -605,4 +591,12 @@ impl FxChain for SpatialBasicChain {
 
         vec![spatial_basic_node_id]
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NewWorkerError {
+    #[error("Could not create new sampler pool worker: the given playback state was PlaybackState::Stop")]
+    PlaybackStateIsStop,
+    #[error("Could not create new sampler pool worker: the worker pool is full")]
+    NoMoreWorkers,
 }

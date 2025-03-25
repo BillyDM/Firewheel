@@ -11,7 +11,7 @@ use std::sync::{
 /// The performance characteristics and stack size of [`ArcGc`] are
 /// similar to [`Arc`], except that the default [`GlobalCollector`]
 /// acquires a mutex lock once during construction.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Hash)]
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
     collector: C,
@@ -105,6 +105,14 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> Clone for ArcGc<T,
         }
     }
 }
+
+impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> PartialEq for ArcGc<T, C> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+}
+
+impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> Eq for ArcGc<T, C> {}
 
 /// The default garbage collector for [`ArcGc`].
 ///

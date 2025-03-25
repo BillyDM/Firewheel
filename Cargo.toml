@@ -90,6 +90,7 @@ firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.3.0", default-fe
 firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.3.0", default-features = false }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
+thiserror.workspace = true
 
 [workspace.dependencies]
 log = "0.4"

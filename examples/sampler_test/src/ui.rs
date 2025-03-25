@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use eframe::App;
 use egui::{Color32, ProgressBar};
-use firewheel::nodes::sampler::RepeatMode;
+use firewheel::nodes::sampler::{PlaybackState, RepeatMode};
 
 use crate::system::{AudioSystem, SAMPLE_PATHS};
 
@@ -74,13 +74,17 @@ impl App for DemoApp {
                         );
                     }
 
-                    if self.audio_system.playback_state(i).is_playing() {
-                        if ui.button("Pause").clicked() {
-                            self.audio_system.pause(i);
+                    match self.audio_system.playback_state(i) {
+                        PlaybackState::Stop => {}
+                        PlaybackState::Pause => {
+                            if ui.button("Resume").clicked() {
+                                self.audio_system.resume(i);
+                            }
                         }
-                    } else {
-                        if ui.button("Resume").clicked() {
-                            self.audio_system.resume(i);
+                        PlaybackState::Play { .. } => {
+                            if ui.button("Pause").clicked() {
+                                self.audio_system.pause(i);
+                            }
                         }
                     }
 
