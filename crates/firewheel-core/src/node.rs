@@ -293,7 +293,7 @@ impl<'a> UpdateContext<'a> {
 /// An empty constructor configuration.
 ///
 /// This should be preferred over `()` because it implements
-/// [`Component`][bevy_ecs::prelude::Component], making the
+/// Bevy's `Component` trait, making the
 /// [`AudioNode`] implementor trivially Bevy-compatible.
 #[derive(Debug, Default, Clone, Copy)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]

@@ -11,6 +11,11 @@ use std::sync::{
 /// The performance characteristics and stack size of [`ArcGc`] are
 /// similar to [`Arc`], except that the default [`GlobalCollector`]
 /// acquires a mutex lock once during construction.
+///
+/// Equality checking between instances of [`ArcGc`] relies _only_ on
+/// pointer equivalence. If you need to evaluate the equality of the
+/// values contained by [`ArcGc`], you'll need to be careful to ensure you
+/// explicitly take references of the inner data.
 #[derive(Debug, Hash)]
 pub struct ArcGc<T: ?Sized + Send + Sync + 'static, C: Collector = GlobalCollector> {
     data: Arc<T>,
@@ -77,9 +82,9 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector> ArcGc<T, C> {
     }
 }
 
-impl<T: ?Sized + Send + Sync + 'static> Into<ArcGc<T>> for Arc<T> {
-    fn into(self) -> ArcGc<T> {
-        ArcGc::new_unsized(|| self)
+impl<T: ?Sized + Send + Sync + 'static> From<Arc<T>> for ArcGc<T> {
+    fn from(value: Arc<T>) -> Self {
+        ArcGc::new_unsized(|| value)
     }
 }
 

@@ -144,7 +144,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         cx: &mut FirewheelContext,
         fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
     ) -> Result<NewWorkerResult, NewWorkerError> {
-        if params.playback == PlaybackState::Stop {
+        if *params.playback == PlaybackState::Stop {
             return Err(NewWorkerError::PlaybackStateIsStop);
         }
 
@@ -184,7 +184,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         let was_playing_sequence = if let Some(old_worker_id) = old_worker_id {
             self.worker_ids.remove(old_worker_id.0);
 
-            !(worker.params.playback == PlaybackState::Stop
+            !(*worker.params.playback == PlaybackState::Stop
                 || cx
                     .node_state::<SamplerState>(worker.sampler_id)
                     .unwrap()
@@ -237,7 +237,7 @@ impl<FX: FxChain> SamplerPool<FX> {
 
         worker.params = params.clone();
 
-        if worker.params.playback == PlaybackState::Stop {
+        if *worker.params.playback == PlaybackState::Stop {
             self.worker_ids.remove(worker_id.0);
             worker.assigned_worker_id = None;
             self.num_active_workers -= 1;
@@ -310,7 +310,7 @@ impl<FX: FxChain> SamplerPool<FX> {
         for worker in self.workers.iter_mut() {
             worker.params.pause();
             if worker.assigned_worker_id.is_some() {
-                worker.params.playback = PlaybackState::Pause;
+                *worker.params.playback = PlaybackState::Pause;
                 cx.queue_event_for(worker.sampler_id, worker.params.sync_playback_event());
             }
         }

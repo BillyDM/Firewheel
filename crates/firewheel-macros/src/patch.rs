@@ -4,16 +4,27 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 
-use crate::{get_paths, struct_fields};
+use crate::{get_paths, struct_fields, TypeSet};
 
 pub fn derive_patch(input: TokenStream) -> syn::Result<TokenStream2> {
     let input: syn::DeriveInput = syn::parse(input)?;
     let identifier = &input.ident;
     let (firewheel_path, diff_path) = get_paths();
 
-    let PatchOutput { body, bounds } = match &input.data {
-        syn::Data::Struct(data) => PatchOutput::from_struct(data, &diff_path)?,
-        syn::Data::Enum(data) => PatchOutput::from_enum(identifier, data, &diff_path)?,
+    let patch_ident = format_ident!("{identifier}Patch");
+    let vis = &input.vis;
+
+    let PatchOutput {
+        create_update_struct,
+        patch_body,
+        apply_body,
+        bounds,
+        fields,
+    } = match &input.data {
+        syn::Data::Struct(data) => PatchOutput::from_struct(data, &diff_path, &patch_ident)?,
+        syn::Data::Enum(data) => {
+            PatchOutput::from_enum(identifier, data, &diff_path, &patch_ident)?
+        }
         syn::Data::Union(_) => {
             return Err(syn::Error::new(
                 input.span(),
@@ -42,66 +53,141 @@ pub fn derive_patch(input: TokenStream) -> syn::Result<TokenStream2> {
         }
     };
 
+    let update_struct = create_update_struct.then(|| {
+        quote! {
+            #vis enum #patch_ident #impl_generics #where_generics {
+                #(#fields),*
+            }
+        }
+    });
+
+    let patch = if create_update_struct {
+        quote! {
+            #patch_ident #ty_generics
+        }
+    } else {
+        quote! { Self }
+    };
+
     Ok(quote! {
+        #update_struct
+
         impl #impl_generics #diff_path::Patch for #identifier #ty_generics #where_generics {
+            type Patch = #patch;
+
             fn patch(
-                &mut self,
                 data: &#firewheel_path::event::ParamData,
                 path: &[u32]
-            ) -> #FQResult<(), #diff_path::PatchError> {
-                #body
+            ) -> #FQResult<Self::Patch, #diff_path::PatchError> {
+                #patch_body
+            }
+
+            fn apply(
+                &mut self,
+                patch: Self::Patch,
+            ) {
+                #apply_body
             }
         }
     })
 }
 
 struct PatchOutput {
-    body: TokenStream2,
+    create_update_struct: bool,
+    patch_body: TokenStream2,
+    apply_body: TokenStream2,
+    fields: Vec<TokenStream2>,
     bounds: Vec<TokenStream2>,
 }
 
-struct UnnamedField<'a> {
-    /// The type is useful for error spans.
-    ty: &'a syn::Type,
-    /// An identifier for tuple fields.
-    unpack_ident: syn::Ident,
-}
+fn snake_to_camel(ident: &syn::Ident) -> syn::Ident {
+    let ident_string = ident.to_string();
 
-/// A convenience struct for keeping track of a struct variant's
-/// identifier along with an identifier we can use without causing
-/// name clashing.
-struct NamedField<'a> {
-    /// The type is useful for error spans.
-    ty: &'a syn::Type,
-    /// The struct field's actual name.
-    type_ident: &'a syn::Ident,
-    /// An identifier that avoids the possibility of name clashing.
-    unpack_ident: syn::Ident,
+    let mut to_caps = true;
+    let mut output = String::with_capacity(ident_string.len());
+
+    for char in ident_string.chars() {
+        if char == '_' {
+            to_caps = true;
+            continue;
+        }
+
+        if to_caps {
+            to_caps = false;
+            let char = char.to_ascii_uppercase();
+            output.push(char);
+        } else {
+            output.push(char);
+        }
+    }
+
+    format_ident!("{output}")
 }
 
 impl PatchOutput {
-    pub fn from_struct(data: &syn::DataStruct, diff_path: &TokenStream2) -> syn::Result<Self> {
-        let fields = struct_fields(data);
+    pub fn from_struct(
+        data: &syn::DataStruct,
+        diff_path: &TokenStream2,
+        patch_ident: &syn::Ident,
+    ) -> syn::Result<Self> {
+        let fields: Vec<_> = struct_fields(&data.fields).collect();
 
-        let arms = fields.iter().enumerate().map(|(i, (identifier, _))| {
+        let patch_field_names: Vec<_> = fields
+            .iter()
+            .map(|f| match &f.0 {
+                syn::Member::Named(name) => snake_to_camel(name),
+                syn::Member::Unnamed(index) => format_ident!("Field{}", index.index),
+            })
+            .collect();
+
+        let patch_fields = fields
+            .iter()
+            .zip(&patch_field_names)
+            .map(|((_, ty), name)| {
+                quote! {
+                    #name(<#ty as #diff_path::Patch>::Patch)
+                }
+            });
+
+        let patch_arms = fields.iter().zip(&patch_field_names).enumerate().map(|(i, ((_, ty), name))| {
             let index = i as u32;
             quote! {
-                [#index, tail @ .. ] => self.#identifier.patch(data, tail)
+                [#index, tail @ .. ] => Ok(#patch_ident::#name(<#ty as #diff_path::Patch>::patch(data, tail)?))
             }
         });
 
-        let body = quote! {
+        let patch_body = quote! {
             match path {
-                #(#arms,)*
+                #(#patch_arms,)*
                 _ => #FQResult::Err(#diff_path::PatchError::InvalidPath),
             }
         };
 
+        let apply_arms = fields.iter().zip(&patch_field_names).map(|((member, ty), variant)| {
+            quote! {
+                #patch_ident::#variant(p) => <#ty as #diff_path::Patch>::apply(&mut self.#member, p)
+            }
+        });
+
+        let apply_body = quote! {
+            match patch {
+                #(#apply_arms,)*
+            }
+        };
+
+        let mut types = TypeSet::default();
+        for field in &fields {
+            types.insert(field.1);
+        }
+
         Ok(Self {
-            body,
-            bounds: fields
+            create_update_struct: true,
+            apply_body,
+            patch_body,
+            fields: patch_fields.collect(),
+            bounds: types
                 .iter()
-                .map(|(_, ty)| {
+                .map(|ty| {
                     let span = ty.span();
                     quote_spanned! {span=> #ty: #diff_path::Patch }
                 })
@@ -109,172 +195,67 @@ impl PatchOutput {
         })
     }
 
-    // This is quite a bit more complicated because we need to account for
-    // three kinds of variants _and_ we need to be able to construct variants
-    // with all required data at once in addition to fine-grained diffing.
     pub fn from_enum(
         identifier: &syn::Ident,
         data: &syn::DataEnum,
         diff_path: &TokenStream2,
+        _: &syn::Ident,
     ) -> syn::Result<PatchOutput> {
-        let mut arms = Vec::new();
-        let mut types = Vec::new();
-        for (index, variant) in data.variants.iter().enumerate() {
-            let variant_index = index as u32;
-            let variant_ident = &variant.ident;
-
-            match &variant.fields {
-                syn::Fields::Unit => {
-                    arms.push(quote! {
-                        ([#variant_index], s) => {
-                            *s = #identifier::#variant_ident;
-
-                            Ok(())
-                        }
-                    });
+        if data.variants.iter().all(|v| v.fields.is_empty()) {
+            // trivial unit enum
+            let patch_arms = data.variants.iter().enumerate().map(|(i, variant)| {
+                let index = i as u32;
+                let ident = &variant.ident;
+                quote! {
+                    #index => Ok(Self::#ident)
                 }
-                syn::Fields::Unnamed(fields) => {
-                    let mut idents = Vec::new();
+            });
 
-                    for (i, field) in fields.unnamed.iter().enumerate() {
-                        types.push(&field.ty);
-
-                        idents.push(UnnamedField {
-                            ty: &field.ty,
-                            unpack_ident: format_ident!("a{i}"),
-                        });
-                    }
-
-                    let unpacked: Vec<_> = idents
-                        .iter()
-                        .map(|a| {
-                            let unpack = &a.unpack_ident;
-
-                            quote! {
-                                #unpack
-                            }
-                        })
-                        .collect();
-
-                    let unpacked_types = idents.iter().map(|i| i.ty);
-                    let unpacked_cloned = idents.iter().map(|i| {
-                        let unpack = &i.unpack_ident;
-                        let ty = i.ty;
-                        quote! { <#ty as ::core::clone::Clone>::clone(#unpack) }
-                    });
-                    arms.push(quote! {
-                        ([#variant_index], s) => {
-                            let (#(#unpacked,)*): &(#(#unpacked_types,)*) = data
-                                .downcast_ref()
-                                .ok_or(#diff_path::PatchError::InvalidData)?;
-
-                            *s = #identifier::#variant_ident(#(#unpacked_cloned),*);
-                            Ok(())
-                        }
-                    });
-
-                    let inner = idents.iter().enumerate().map(|(i, a)| {
-                        let ty = &a.ty;
-                        let a = &a.unpack_ident;
-                        let i = i as u32;
-
-                        quote! {
-                            ([#variant_index, #i, tail @ ..], #identifier::#variant_ident(#(#unpacked),*)) => {
-                                <#ty as #diff_path::Patch>::patch(#a, data, tail)
-                            }
-                        }
-                    });
-
-                    arms.extend(inner);
+            let patch_body = quote! {
+                let index: u32 = data.try_into()?;
+                match index {
+                    #(#patch_arms,)*
+                    _ => #FQResult::Err(#diff_path::PatchError::InvalidData),
                 }
-                syn::Fields::Named(fields) => {
-                    let mut idents = Vec::new();
+            };
 
-                    for (i, field) in fields.named.iter().enumerate() {
-                        types.push(&field.ty);
+            let apply_body = quote! {
+                *self = patch;
+            };
 
-                        idents.push(NamedField {
-                            ty: &field.ty,
-                            type_ident: &field.ident.as_ref().expect("should have named ident"),
-                            unpack_ident: format_ident!("a{i}"),
-                        });
-                    }
-
-                    let tuple = idents.iter().map(|a| {
-                        let unpack = &a.unpack_ident;
-
-                        quote! {
-                            #unpack
-                        }
-                    });
-
-                    let unpacked_cloned = idents.iter().map(|a| {
-                        let unpack = &a.unpack_ident;
-                        let ident = &a.type_ident;
-                        let ty = &a.ty;
-
-                        quote! {
-                            #ident: <#ty as ::core::clone::Clone>::clone(#unpack)
-                        }
-                    });
-
-                    let unpacked_types = idents.iter().map(|i| i.ty);
-                    arms.push(quote! {
-                        ([#variant_index], s) => {
-                            let (#(#tuple,)*): &(#(#unpacked_types,)*) = data
-                                .downcast_ref()
-                                .ok_or(#diff_path::PatchError::InvalidData)?;
-
-                            *s = #identifier::#variant_ident{#(#unpacked_cloned),*};
-                            Ok(())
-                        }
-                    });
-
-                    let unpacked: Vec<_> = idents
-                        .iter()
-                        .map(|a| {
-                            let unpack = &a.unpack_ident;
-                            let ident = &a.type_ident;
-
-                            quote! {
-                                #ident: #unpack
-                            }
-                        })
-                        .collect();
-
-                    let inner = idents.iter().enumerate().map(|(i, a)| {
-                        let ty = &a.ty;
-                        let a = &a.unpack_ident;
-                        let i = i as u32;
-
-                        quote! {
-                            ([#variant_index, #i, tail @ ..], #identifier::#variant_ident{#(#unpacked),*}) => {
-                                <#ty as #diff_path::Patch>::patch(#a, data, tail)
-                            }
-                        }
-                    });
-
-                    arms.extend(inner);
-                }
-            }
+            return Ok(Self {
+                create_update_struct: false,
+                patch_body,
+                apply_body,
+                fields: Vec::new(),
+                bounds: Vec::new(),
+            });
         }
 
-        let body = quote! {
-            match (path, self) {
-                #(#arms)*
-                _ => #FQResult::Err(#diff_path::PatchError::InvalidPath),
-            }
+        let patch_body = quote! {
+            let value: &#identifier = data
+                .downcast_ref()
+                .ok_or(#diff_path::PatchError::InvalidData)?;
+
+            Ok(<#identifier as ::core::clone::Clone>::clone(value))
         };
 
+        let apply_body = quote! {
+            *self = patch;
+        };
+
+        let span = identifier.span();
         Ok(Self {
-            body,
-            bounds: types
-                .iter()
-                .map(|ty| {
-                    let span = ty.span();
-                    quote_spanned! {span=> #ty: #diff_path::Patch + ::core::clone::Clone + ::core::marker::Send + ::core::marker::Sync + 'static }
-                })
-                .collect(),
+            create_update_struct: false,
+            patch_body,
+            apply_body,
+            fields: Vec::new(),
+            bounds: vec![quote_spanned! {span=>
+                #identifier: ::core::clone::Clone
+                        + ::core::marker::Send
+                        + ::core::marker::Sync
+                        + 'static
+            }],
         })
     }
 }

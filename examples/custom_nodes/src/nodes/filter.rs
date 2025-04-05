@@ -102,7 +102,6 @@ impl AudioNode for FilterNode {
             ),
             gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
             enable_declicker: Declicker::from_enabled(self.enabled),
-            params: *self,
             sample_rate_recip,
         }
     }
@@ -112,7 +111,6 @@ impl AudioNode for FilterNode {
 struct Processor {
     filter_l: OnePoleLPBiquad,
     filter_r: OnePoleLPBiquad,
-    params: FilterNode,
     // A helper struct to smooth a parameter.
     cutoff_hz: SmoothedParam,
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer
@@ -132,25 +130,28 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         proc_info: &ProcInfo,
         // The list of events for our node to process.
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
         //
-        // If a parameter was actually updated,
-        // `patch_list` will return true.
-        let enabled = self.params.enabled;
-        if self.params.patch_list(events) {
-            self.cutoff_hz
-                .set_value(self.params.cutoff_hz.clamp(20.0, 20_000.0));
-            self.gain
-                .set_value(self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON));
-
-            if enabled != self.params.enabled {
-                // Tell the declicker to crossfade.
-                self.enable_declicker
-                    .fade_to_enabled(self.params.enabled, proc_info.declick_values);
+        // We don't need to keep around a `FilterNode` instance,
+        // so we can just match on each event directly.
+        events.for_each(|e| {
+            match FilterNode::patch_event(e) {
+                Some(FilterNodePatch::CutoffHz(cutoff)) => {
+                    self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
+                }
+                Some(FilterNodePatch::Volume(volume)) => {
+                    self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
+                }
+                Some(FilterNodePatch::Enabled(enabled)) => {
+                    // Tell the declicker to crossfade.
+                    self.enable_declicker
+                        .fade_to_enabled(enabled, proc_info.declick_values);
+                }
+                _ => {}
             }
-        }
+        });
 
         if self.enable_declicker.disabled() {
             // Disabled. Bypass this node.

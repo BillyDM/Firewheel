@@ -127,15 +127,20 @@ impl Diff for Volume {
         event_queue: &mut E,
     ) {
         if self != baseline {
-            event_queue.push_param(ParamData::Volume(*self), path);
+            event_queue.push_param(*self, path);
         }
     }
 }
 
 impl Patch for Volume {
-    fn patch(&mut self, data: &ParamData, _path: &[u32]) -> Result<(), crate::diff::PatchError> {
-        *self = data.try_into()?;
-        Ok(())
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+        data.try_into()
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        *self = patch;
     }
 }
 

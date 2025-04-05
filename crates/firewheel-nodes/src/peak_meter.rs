@@ -236,11 +236,11 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 
-        self.params.patch_list(events);
+        events.for_each_patch::<PeakMeterNode<NUM_CHANNELS>>(|p| self.params.apply(p));
 
         if was_enabled && !self.params.enabled {
             for ch in self.shared_state.peak_gains.iter() {

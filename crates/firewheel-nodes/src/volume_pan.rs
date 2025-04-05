@@ -15,7 +15,7 @@ pub use super::volume::VolumeNodeConfig;
 
 // TODO: Option for true stereo panning?
 
-#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct VolumePanNode {
     /// The overall volume.
@@ -26,28 +26,6 @@ pub struct VolumePanNode {
     /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
     /// to the corresponding gain values for the left and right channels.
     pub pan_law: PanLaw,
-}
-
-impl Patch for VolumePanNode {
-    fn patch(
-        &mut self,
-        data: &firewheel_core::event::ParamData,
-        path: &[u32],
-    ) -> Result<(), firewheel_core::diff::PatchError> {
-        match path.first() {
-            Some(0) => {
-                self.volume = data.try_into()?;
-                Ok(())
-            }
-            Some(1) => {
-                let pan: f32 = data.try_into()?;
-                self.pan = pan.clamp(-1.0, 1.0);
-                Ok(())
-            }
-            Some(2) => self.pan_law.patch(data, &path[1..]),
-            _ => Err(firewheel_core::diff::PatchError::InvalidPath),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,9 +125,25 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
-        if self.params.patch_list(events) {
+        let mut updated = false;
+        events.for_each(|e| {
+            let Some(mut patch) = VolumePanNode::patch_event(e) else {
+                return;
+            };
+
+            // here we selectively clamp the panning, leaving
+            // other patches untouched
+            if let VolumePanNodePatch::Pan(p) = &mut patch {
+                *p = p.clamp(-1.0, 1.0);
+            }
+
+            self.params.apply(patch);
+            updated = true;
+        });
+
+        if updated {
             let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);

@@ -65,7 +65,7 @@ impl AudioNode for BeepTestNode {
                 * cx.stream_info.sample_rate_recip as f32,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
             sample_rate_recip: (cx.stream_info.sample_rate.get() as f32).recip(),
-            params: *self,
+            enabled: self.enabled,
         }
     }
 }
@@ -75,7 +75,7 @@ struct Processor {
     phasor_inc: f32,
     gain: f32,
     sample_rate_recip: f32,
-    params: BeepTestNode,
+    enabled: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -83,18 +83,24 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         _proc_info: &ProcInfo,
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         let Some(out) = buffers.outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        if self.params.patch_list(events) {
-            self.phasor_inc = self.params.freq_hz.clamp(20.0, 20_000.0) * self.sample_rate_recip;
-            self.gain = self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON);
-        }
+        events.for_each(|event| match BeepTestNode::patch_event(event) {
+            Some(BeepTestNodePatch::FreqHz(f)) => {
+                self.phasor_inc = f.clamp(20.0, 20_000.0) * self.sample_rate_recip;
+            }
+            Some(BeepTestNodePatch::Volume(v)) => {
+                self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
+            }
+            Some(BeepTestNodePatch::Enabled(e)) => self.enabled = e,
+            _ => {}
+        });
 
-        if !self.params.enabled {
+        if !self.enabled {
             return ProcessStatus::ClearAllOutputs;
         }
 

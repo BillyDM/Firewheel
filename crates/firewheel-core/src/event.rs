@@ -125,4 +125,40 @@ impl<'a> NodeEventList<'a> {
             }
         }
     }
+
+    /// Iterate over patches for `T`.
+    ///
+    /// ```
+    /// # use firewheel_core::{diff::*, event::NodeEventList};
+    /// # fn for_each_example(mut event_list: NodeEventList) {
+    /// #[derive(Patch, Default)]
+    /// struct FilterNode {
+    ///     frequency: f32,
+    ///     quality: f32,
+    /// }
+    ///
+    /// // You can match on individual patch variants.
+    /// event_list.for_each_patch::<FilterNode>(|patch| match patch {
+    ///     FilterNodePatch::Frequency(frequency) => {}
+    ///     FilterNodePatch::Quality(quality) => {}
+    /// });
+    ///
+    /// // Or simply apply all of them.
+    /// let mut node = FilterNode::default();
+    /// event_list.for_each_patch::<FilterNode>(|patch| node.apply(patch));
+    /// # }
+    /// ```
+    ///
+    /// Errors produced while constructing patches are simply skipped.
+    pub fn for_each_patch<T: crate::diff::Patch>(&mut self, mut f: impl FnMut(T::Patch)) {
+        for &idx in self.indices {
+            if let Some(patch) = self
+                .event_buffer
+                .get_mut(idx as usize)
+                .and_then(|e| T::patch_event(&e.event))
+            {
+                (f)(patch);
+            }
+        }
+    }
 }

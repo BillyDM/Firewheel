@@ -14,13 +14,17 @@ macro_rules! sequence_diff {
         }
 
         impl<$gen: Patch> Patch for $ty {
-            fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-                let first = path.first().ok_or(PatchError::InvalidPath)?;
-                let target = self
-                    .get_mut(*first as usize)
-                    .ok_or(PatchError::InvalidPath)?;
+            type Patch = (usize, $gen::Patch);
 
-                target.patch(data, &path[1..])
+            fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
+                let first = *path.first().ok_or(PatchError::InvalidPath)?;
+                let inner = $gen::patch(data, &path[1..])?;
+
+                Ok((first as usize, inner))
+            }
+
+            fn apply(&mut self, patch: Self::Patch) {
+                self[patch.0].apply(patch.1);
             }
         }
     };
@@ -39,21 +43,32 @@ impl<T: Diff, const LEN: usize> Diff for [T; LEN] {
 }
 
 impl<T: Patch, const LEN: usize> Patch for [T; LEN] {
-    fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-        let first = path.first().ok_or(PatchError::InvalidPath)?;
-        let target = self
-            .get_mut(*first as usize)
-            .ok_or(PatchError::InvalidPath)?;
+    type Patch = (usize, T::Patch);
 
-        target.patch(data, &path[1..])
+    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
+        let first = *path.first().ok_or(PatchError::InvalidPath)? as usize;
+        if first >= LEN {
+            return Err(PatchError::InvalidPath);
+        }
+        let inner = T::patch(data, &path[1..])?;
+
+        Ok((first, inner))
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        self[patch.0].apply(patch.1);
     }
 }
 
 macro_rules! tuple_diff {
-    ($($gen:ident, $base:ident, $index:literal),*) => {
+    ($tup:ident, $($gen:ident, $base:ident, $index:literal),*) => {
+        pub enum $tup<$($gen: Patch),*> {
+            $($gen($gen::Patch)),*
+        }
+
         #[allow(non_snake_case, unused_variables)]
         impl<$($gen: Diff),*> Diff for ($($gen,)*) {
-            fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+            fn diff<EQ: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut EQ) {
                 let ($($gen,)*) = self;
                 let ($($base,)*) = baseline;
 
@@ -65,26 +80,35 @@ macro_rules! tuple_diff {
 
         #[allow(non_snake_case, unused_variables)]
         impl<$($gen: Patch),*> Patch for ($($gen,)*) {
-            fn patch(&mut self, data: &ParamData, path: &[u32]) -> Result<(), PatchError> {
-                let ($($gen,)*) = self;
+            type Patch = $tup<$($gen),*>;
 
+            fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
                 match path {
                     $(
-                        [$index, tail @ ..] => $gen.patch(data, tail),
+                        [$index, tail @ ..] => Ok($tup::$gen($gen::patch(data, tail)?)),
                     )*
                     _ => Err(PatchError::InvalidPath),
+                }
+            }
+
+            fn apply(&mut self, patch: Self::Patch) {
+                let ($($gen,)*) = self;
+
+                match patch {
+                    $(
+                        $tup::$gen(p) => $gen.apply(p)
+                    ),*
                 }
             }
         }
     };
 }
 
-tuple_diff!();
-tuple_diff!(A0, A1, 0);
-tuple_diff!(A0, A1, 0, B0, B1, 1);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2, D0, D1, 3);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2, D0, D1, 3, E0, E1, 4);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2, D0, D1, 3, E0, E1, 4, F0, F1, 5);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2, D0, D1, 3, E0, E1, 4, F0, F1, 5, G0, G1, 6);
-tuple_diff!(A0, A1, 0, B0, B1, 1, C0, C1, 2, D0, D1, 3, E0, E1, 4, F0, F1, 5, G0, G1, 6, H0, H1, 7);
+tuple_diff!(Tuple1, A, A1, 0);
+tuple_diff!(Tuple2, A, A1, 0, B, B1, 1);
+tuple_diff!(Tuple3, A, A1, 0, B, B1, 1, C, C1, 2);
+tuple_diff!(Tuple4, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3);
+tuple_diff!(Tuple5, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4);
+tuple_diff!(Tuple6, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5);
+tuple_diff!(Tuple7, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6);
+tuple_diff!(Tuple8, A, A1, 0, B, B1, 1, C, C1, 2, D, D1, 3, E, E1, 4, F, F1, 5, G, G1, 6, H, H1, 7);

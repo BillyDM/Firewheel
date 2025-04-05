@@ -48,7 +48,7 @@ impl Default for SpatialBasicConfig {
 /// The parameters for a 3D spatial positioning node using a basic (and naive) algorithm.
 /// It does not make use of any fancy binaural algorithms, rather it just applies basic
 /// panning and filtering.
-#[derive(Diff, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct SpatialBasicNode {
     /// The overall volume. This is applied before the spatialization algorithm.
@@ -112,42 +112,6 @@ impl Default for SpatialBasicNode {
             muffle_cutoff_hz: DAMPING_CUTOFF_HZ_MAX,
             panning_threshold: 0.6,
         }
-    }
-}
-
-impl Patch for SpatialBasicNode {
-    fn patch(
-        &mut self,
-        data: &firewheel_core::event::ParamData,
-        path: &[u32],
-    ) -> Result<(), firewheel_core::diff::PatchError> {
-        match path.first() {
-            Some(0) => {
-                self.volume = data.try_into()?;
-            }
-            Some(1) => {
-                self.offset.patch(data, &path[1..])?;
-
-                if !self.offset.is_finite() {
-                    self.offset = Vec3::default();
-                }
-            }
-            Some(2) => {
-                let value: f32 = data.try_into()?;
-                self.damping_distance = value;
-            }
-            Some(3) => {
-                let value: f32 = data.try_into()?;
-                self.muffle_cutoff_hz = value.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
-            }
-            Some(4) => {
-                let value: f32 = data.try_into()?;
-                self.panning_threshold = value.clamp(0.0, 1.0);
-            }
-            _ => return Err(firewheel_core::diff::PatchError::InvalidPath),
-        }
-
-        Ok(())
     }
 }
 
@@ -305,9 +269,34 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
-        if self.params.patch_list(events) {
+        let mut updated = false;
+        events.for_each(|e| {
+            let Some(mut patch) = SpatialBasicNode::patch_event(e) else {
+                return;
+            };
+
+            match &mut patch {
+                SpatialBasicNodePatch::Offset(offset) => {
+                    if !offset.is_finite() {
+                        *offset = Vec3::default();
+                    }
+                }
+                SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
+                    *cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
+                }
+                SpatialBasicNodePatch::PanningThreshold(threshold) => {
+                    *threshold = threshold.clamp(0.0, 1.0);
+                }
+                _ => {}
+            }
+
+            self.params.apply(patch);
+            updated = true;
+        });
+
+        if updated {
             let computed_values = self.params.compute_values(self.amp_epsilon);
 
             self.gain_l.set_value(computed_values.gain_l);

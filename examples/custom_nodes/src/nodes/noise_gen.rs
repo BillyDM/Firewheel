@@ -117,12 +117,22 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         _proc_info: &ProcInfo,
         // The list of events for our node to process.
-        events: NodeEventList,
+        mut events: NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
-        if self.params.patch_list(events) {
-            self.gain = self.params.volume.amp_clamped(DEFAULT_AMP_EPSILON);
-        }
+        events.for_each(|e| {
+            let Some(patch) = NoiseGenNode::patch_event(e) else {
+                return;
+            };
+
+            // Since we want to clamp the volume event, we can
+            // grab it here and perform the processing only when required.
+            if let NoiseGenNodePatch::Volume(vol) = &patch {
+                self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
+            }
+
+            self.params.apply(patch);
+        });
 
         if !self.params.enabled {
             // Tell the engine to automatically and efficiently clear the output buffers
