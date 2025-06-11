@@ -25,7 +25,10 @@ arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
 symphonium = { version = "0.4.1", default-features = false, optional = true }
-fixed-resample = { version = "0.8.0", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
+fixed-resample = { version = "0.8.0", default-features = false, features = [
+	"resampler",
+	"fft-resampler",
+], optional = true }
 smallvec.workspace = true
 bevy_platform.workspace = true
 glam = "0.29"

@@ -6,7 +6,13 @@ use egui_snarl::{
 };
 use firewheel::{
     diff::Memo,
-    nodes::{beep_test::BeepTestNode, volume::VolumeNode, volume_pan::VolumePanNode},
+    nodes::{
+        beep_saw_test::BeepSawTestNode,
+        beep_test::BeepTestNode,
+        filter::multipurpose::{FilterType, MultipurposeFilterNode},
+        volume::VolumeNode,
+        volume_pan::VolumePanNode,
+    },
     Volume,
 };
 
@@ -21,6 +27,10 @@ pub enum GuiAudioNode {
     BeepTest {
         id: firewheel::node::NodeID,
         params: Memo<BeepTestNode>,
+    },
+    BeepSawTest {
+        id: firewheel::node::NodeID,
+        params: Memo<BeepSawTestNode>,
     },
     StereoToMono {
         id: firewheel::node::NodeID,
@@ -37,6 +47,10 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<VolumePanNode>,
     },
+    Filter {
+        id: firewheel::node::NodeID,
+        params: Memo<MultipurposeFilterNode<2, 16>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -45,10 +59,12 @@ impl GuiAudioNode {
             &Self::SystemIn => audio_system.graph_in_node_id(),
             &Self::SystemOut => audio_system.graph_out_node_id(),
             &Self::BeepTest { id, .. } => id,
+            &Self::BeepSawTest { id, .. } => id,
             &Self::StereoToMono { id } => id,
             &Self::VolumeMono { id, .. } => id,
             &Self::VolumeStereo { id, .. } => id,
             &Self::VolumePan { id, .. } => id,
+            &Self::Filter { id, .. } => id,
         }
     }
 
@@ -57,10 +73,12 @@ impl GuiAudioNode {
             &Self::SystemIn => "System In",
             &Self::SystemOut => "System Out",
             &Self::BeepTest { .. } => "Beep Test",
+            &Self::BeepSawTest { .. } => "Beep Saw Test",
             &Self::StereoToMono { .. } => "Stereo To Mono",
             &Self::VolumeMono { .. } => "Volume (Mono)",
             &Self::VolumeStereo { .. } => "Volume (Stereo)",
             &Self::VolumePan { .. } => "Volume & Pan",
+            &Self::Filter { .. } => "Filter",
         }
         .into()
     }
@@ -70,10 +88,12 @@ impl GuiAudioNode {
             &Self::SystemIn => 0,
             &Self::SystemOut => 2,
             &Self::BeepTest { .. } => 0,
+            &Self::BeepSawTest { .. } => 0,
             &Self::StereoToMono { .. } => 2,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::Filter { .. } => 2,
         }
     }
 
@@ -82,10 +102,12 @@ impl GuiAudioNode {
             &Self::SystemIn => 1,
             &Self::SystemOut => 0,
             &Self::BeepTest { .. } => 1,
+            &Self::BeepSawTest { .. } => 1,
             &Self::StereoToMono { .. } => 1,
             &Self::VolumeMono { .. } => 1,
             &Self::VolumeStereo { .. } => 2,
             &Self::VolumePan { .. } => 2,
+            &Self::Filter { .. } => 2,
         }
     }
 }
@@ -201,6 +223,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
+        if ui.button("Beep Saw Test").clicked() {
+            let node = self.audio_system.add_node(NodeType::BeepSawTest);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
         if ui.button("Stereo To Mono").clicked() {
             let node = self.audio_system.add_node(NodeType::StereoToMono);
             snarl.insert_node(pos, node);
@@ -218,6 +245,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         }
         if ui.button("Volume & Pan").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumePan);
+            snarl.insert_node(pos, node);
+            ui.close_menu();
+        }
+        if ui.button("Filter").clicked() {
+            let node = self.audio_system.add_node(NodeType::Filter);
             snarl.insert_node(pos, node);
             ui.close_menu();
         }
@@ -268,7 +300,9 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             GuiAudioNode::VolumeMono { .. }
             | GuiAudioNode::VolumeStereo { .. }
             | GuiAudioNode::VolumePan { .. }
-            | GuiAudioNode::BeepTest { .. } => true,
+            | GuiAudioNode::BeepTest { .. }
+            | GuiAudioNode::BeepSawTest { .. }
+            | GuiAudioNode::Filter { .. } => true,
             _ => false,
         }
     }
@@ -296,7 +330,28 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     ui.add(
                         egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
                             .logarithmic(true)
-                            .text("frequency"),
+                            .text("Frequency"),
+                    );
+
+                    ui.checkbox(&mut params.enabled, "enabled");
+
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                });
+            }
+            GuiAudioNode::BeepSawTest { id, params } => {
+                ui.vertical(|ui| {
+                    let mut linear_volume = params.volume.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
+                        .changed()
+                    {
+                        params.volume = Volume::Linear(linear_volume);
+                    }
+
+                    ui.add(
+                        egui::Slider::new(&mut params.freq_hz, 20.0..=20_000.0)
+                            .logarithmic(true)
+                            .text("Frequency"),
                     );
 
                     ui.checkbox(&mut params.enabled, "enabled");
@@ -339,6 +394,204 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
             }
+            GuiAudioNode::Filter { id, params } => match params.filter_type {
+                FilterType::Lowpass => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(egui::Slider::new(&mut params.lowpass.order, 1..=16).text("Order"));
+                        ui.add(
+                            egui::Slider::new(&mut params.lowpass.cutoff_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.lowpass.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::Highpass => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(egui::Slider::new(&mut params.highpass.order, 1..=16).text("Order"));
+                        ui.add(
+                            egui::Slider::new(&mut params.highpass.cutoff_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.highpass.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::Notch => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(
+                            egui::Slider::new(&mut params.notch.center_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.notch.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::Bell => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(
+                            egui::Slider::new(&mut params.bell.center_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.bell.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.bell.gain_db, -20.0..=20.0)
+                                .text("Gain dB"),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::LowShelf => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(
+                            egui::Slider::new(&mut params.low_shelf.cutoff_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.low_shelf.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.low_shelf.gain_db, -20.0..=20.0)
+                                .text("Gain dB"),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::HighShelf => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(
+                            egui::Slider::new(&mut params.high_shelf.cutoff_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.high_shelf.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.high_shelf.gain_db, -20.0..=20.0)
+                                .text("Gain dB"),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+                FilterType::Allpass => {
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut params.filter_type, FilterType::Lowpass, "Lowpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Highpass, "Highpass");
+                        ui.radio_value(&mut params.filter_type, FilterType::Notch, "Notch");
+                        ui.radio_value(&mut params.filter_type, FilterType::Bell, "Bell");
+                        ui.radio_value(&mut params.filter_type, FilterType::LowShelf, "Low Shelf");
+                        ui.radio_value(
+                            &mut params.filter_type,
+                            FilterType::HighShelf,
+                            "High Shelf",
+                        );
+                        ui.add(egui::Separator::default());
+                        ui.add(
+                            egui::Slider::new(&mut params.allpass.cutoff_hz, 20.0..=20_000.0)
+                                .logarithmic(true)
+                                .text("Frequency"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut params.allpass.q, 0.1..=10.0)
+                                .text("Q")
+                                .logarithmic(true),
+                        );
+                        params.update_memo(&mut self.audio_system.event_queue(*id));
+                    });
+                }
+            },
             _ => {}
         }
     }

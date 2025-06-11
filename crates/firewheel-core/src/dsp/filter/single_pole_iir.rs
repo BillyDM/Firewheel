@@ -1,5 +1,7 @@
 use core::f32::consts::TAU;
 
+use crate::dsp::filter::filter_trait::Filter;
+
 /// The coefficients to a very basic single-pole IIR lowpass filter for
 /// generic tasks. This filter is very computationally efficient.
 ///
@@ -29,15 +31,23 @@ pub struct SinglePoleIirLPF {
     pub z1: f32,
 }
 
-impl SinglePoleIirLPF {
-    pub fn reset(&mut self) {
+impl Filter for SinglePoleIirLPF {
+    type Coeffs = SinglePoleIirLPFCoeff;
+
+    #[inline(always)]
+    fn reset(&mut self) {
         self.z1 = 0.0;
     }
 
     #[inline(always)]
-    pub fn process(&mut self, s: f32, coeff: SinglePoleIirLPFCoeff) -> f32 {
-        self.z1 = (coeff.a0 * s) + (coeff.b1 * self.z1);
+    fn process(&mut self, x: f32, coeffs: &Self::Coeffs) -> f32 {
+        self.z1 = (coeffs.a0 * x) + (coeffs.b1 * self.z1);
         self.z1
+    }
+
+    #[inline(always)]
+    fn is_silent(&self) -> bool {
+        self.z1 < Self::SILENT_THRESHOLD
     }
 }
 
