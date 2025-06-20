@@ -25,6 +25,7 @@ default = [
 ]
 all_nodes = [
     "beep_test",
+    "filter",
     "peak_meter",
     "sampler",
     "spatial_basic",
@@ -32,6 +33,8 @@ all_nodes = [
 ]
 # Enables the "beep test" node
 beep_test = []
+# Enables the filter node
+filter = []
 # Enables the peak meter node
 peak_meter = []
 # Enables the sampler node

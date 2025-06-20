@@ -33,6 +33,7 @@ members = [
     "examples/beep_test",
     "examples/cpal_input",
     "examples/custom_nodes",
+    "examples/filter_example",
     "examples/play_sample",
     "examples/sampler_pool",
     "examples/sampler_test",
@@ -63,6 +64,7 @@ sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]
 # Enables all built-in factory nodes
 all_nodes = [
     "beep_test_node",
+    "filter_node",
     "peak_meter_node",
     "sampler_node",
     "spatial_basic_node",
@@ -70,6 +72,8 @@ all_nodes = [
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
+# Enables the filter node
+filter_node = ["firewheel-nodes/filter"]
 # Enables the peak meter node
 peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node

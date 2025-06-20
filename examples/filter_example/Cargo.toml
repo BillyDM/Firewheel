@@ -1,0 +1,10 @@
+[package]
+name = "filter_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+firewheel = { path = "../../", features = ["filter_node", "sampler_node", "symphonium"] }
+symphonium = "0.5"
+log = "0.4"
+simple-log = "2.1.0"
