@@ -887,7 +887,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.declicker.fade_to_0(proc_info.declick_values);
 
                         self.playback_pause_time_seconds = proc_info.clock_seconds.start;
-                        self.playback_pause_time_frames = proc_info.clock_samples;
+                        self.playback_pause_time_frames = proc_info.clock_samples.start;
                     }
                 }
                 PlaybackState::Play { delay } => {
@@ -899,11 +899,11 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.declicker.fade_to_1(proc_info.declick_values);
                     }
 
-                    self.start_delay = delay.and_then(|delay| delay.elapsed_or_get(&proc_info));
+                    self.start_delay = delay;
 
                     if self.start_delay.is_none() {
                         self.playback_start_time_seconds = proc_info.clock_seconds.start;
-                        self.playback_start_time_frames = proc_info.clock_samples;
+                        self.playback_start_time_frames = proc_info.clock_samples.start;
                     }
                 }
             }
@@ -921,7 +921,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 self.start_delay = None;
 
                 self.playback_start_time_seconds = proc_info.clock_seconds.start;
-                self.playback_start_time_frames = proc_info.clock_samples;
+                self.playback_start_time_frames = proc_info.clock_samples.start;
 
                 Some(frame)
             } else {

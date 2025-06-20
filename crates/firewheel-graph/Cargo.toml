@@ -19,6 +19,7 @@ all-features = true
 firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
 log.workspace = true
 ringbuf.workspace = true
+triple_buffer.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true

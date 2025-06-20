@@ -149,6 +149,12 @@ impl<T: Clone + Send + Sync + 'static> Patch for Notify<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for Notify<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.counter == other.counter
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::diff::PathBuilder;

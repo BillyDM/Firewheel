@@ -438,23 +438,38 @@ pub struct ProcInfo<'a> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current interval of time of the internal clock in units of
-    /// seconds. The start of the range is the instant of time at the
+    /// The current timestamp of this audio block, in total number of frames
+    /// (samples in a single channel of audio) that have been processed since
+    /// this Firewheel context was first started.
+    ///
+    /// The start of the range is the instant of time at the
     /// first sample in the block (inclusive), and the end of the range
     /// is the instant of time at the end of the block (exclusive).
     ///
-    /// This uses the clock from the OS's audio API so it should be quite
-    /// accurate, and it correctly accounts for any output underflows that
-    /// may occur.
-    pub clock_seconds: Range<ClockSeconds>,
-
-    /// The total number of samples (in a single channel of audio) that
-    /// have been processed since the start of the audio stream.
+    /// This value automatically accounts for any output underflows that
+    /// occur. If you wish to get the total number of frames processed
+    /// without accounting for output underflows, then you can simply set
+    /// up your own counter that counts [`ProcInfo::frames`].
     ///
-    /// This value can be used for more accurate timing than
-    /// [`ProcInfo::clock_seconds`], but note it does *NOT* account for any
-    /// output underflows that may occur.
-    pub clock_samples: ClockSamples,
+    /// Note, generally this value will always count up, but there may be
+    /// a few edge cases that cause this value to be less than the previous
+    /// block, such as when the sample rate of the stream has been changed.
+    pub clock_samples: Range<ClockSamples>,
+
+    /// The current timestamp of this audio block, equal to the number of
+    /// seconds of data that has been processed since the Firewheel context
+    /// was first started.
+    ///
+    /// The start of the range is the instant of time at the
+    /// first sample in the block (inclusive), and the end of the range
+    /// is the instant of time at the end of the block (exclusive).
+    ///
+    /// Note, this value automatically accounts for any output underflows
+    /// that occur. If you wish to get a value that does not account for
+    /// output underflows, then simply set up your own counter that counts
+    /// [`ProcInfo::frames`], and then convert that value to seconds with
+    /// [`ClockSamples::to_seconds`].
+    pub clock_seconds: Range<ClockSeconds>,
 
     /// Information about the musical transport.
     ///
@@ -484,8 +499,9 @@ pub struct TransportInfo<'a> {
     /// This will be `None` if no musical clock is currently present.
     pub musical_clock: Range<MusicalTime>,
 
-    /// Whether or not the transport is currently paused.
-    pub paused: bool,
+    /// Whether or not the transport is currently playing (true) or paused
+    /// (false).
+    pub playing: bool,
 }
 
 bitflags::bitflags! {
