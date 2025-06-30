@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use core::num::NonZeroU32;
 
 use crate::{
     dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},

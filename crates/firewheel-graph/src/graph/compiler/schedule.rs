@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
+use core::fmt::Debug;
 use smallvec::SmallVec;
-use std::fmt::Debug;
 
 use firewheel_core::{
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus, NUM_SCRATCH_BUFFERS},
@@ -38,7 +38,7 @@ impl ScheduledNode {
 }
 
 impl Debug for ScheduledNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "{{ {}-{}-{}",
@@ -196,7 +196,7 @@ impl ScheduleHeapData {
 }
 
 impl Debug for ScheduleHeapData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let new_node_processors: Vec<NodeID> =
             self.new_node_processors.iter().map(|n| n.id).collect();
 
@@ -220,7 +220,7 @@ pub struct CompiledSchedule {
 }
 
 impl Debug for CompiledSchedule {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "CompiledSchedule {{")?;
 
         writeln!(f, "    schedule: {{")?;
@@ -577,7 +577,7 @@ fn buffer_slice_mut<'a>(
     // call any other method on [`CompiledSchedule`] while those buffers are
     // still borrowed.
     unsafe {
-        std::slice::from_raw_parts_mut(
+        core::slice::from_raw_parts_mut(
             (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_frames),
             frames,
         )
@@ -597,7 +597,7 @@ fn silence_flag_mut<'a>(buffer_silence_flags: &'a mut [bool], buffer_index: usiz
 
 #[cfg(test)]
 mod tests {
-    use ahash::AHashSet;
+    use bevy_platform::collections::HashSet;
     use firewheel_core::{
         channel_config::{ChannelConfig, ChannelCount},
         node::dummy::{DummyNode, DummyNodeConfig},
@@ -861,7 +861,7 @@ mod tests {
             assert_eq!(buffer.should_clear, *should_clear);
         }
 
-        let mut buffer_alias_check: AHashSet<usize> = AHashSet::default();
+        let mut buffer_alias_check: HashSet<usize> = HashSet::default();
 
         for inserted_sum in scheduled_node.sum_inputs.iter() {
             buffer_alias_check.insert(inserted_sum.output_buffer.buffer_index);

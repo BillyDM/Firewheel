@@ -1,8 +1,9 @@
 [package]
 name = "firewheel-graph"
-version = "0.3.1"
+version = "0.4.2"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -15,12 +16,12 @@ exclude.workspace = true
 all-features = true
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.3.1" }
+firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
 log.workspace = true
 ringbuf.workspace = true
+triple_buffer.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
-atomic_float.workspace = true
-ahash = "0.8.11"
+bevy_platform.workspace = true

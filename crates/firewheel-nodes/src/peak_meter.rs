@@ -1,5 +1,6 @@
-use atomic_float::AtomicF32;
+use bevy_platform::sync::atomic::Ordering;
 use firewheel_core::{
+    atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
     diff::{Diff, Patch},
@@ -10,7 +11,6 @@ use firewheel_core::{
         ProcBuffers, ProcInfo, ProcessStatus,
     },
 };
-use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PeakMeterSmootherConfig {
@@ -125,7 +125,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
     }
 
     pub fn has_clipped(&self) -> [bool; NUM_CHANNELS] {
-        std::array::from_fn(|i| self.clipped_frames_left[i] > 0)
+        core::array::from_fn(|i| self.clipped_frames_left[i] > 0)
     }
 
     pub fn smoothed_peaks_db(&self) -> &[f32; NUM_CHANNELS] {
@@ -143,7 +143,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
 
     /// Get the peak values as a normalized value in the range `[0.0, 1.0]`.
     pub fn smoothed_peaks_normalized(&self, normalizer: &DbMeterNormalizer) -> [f32; NUM_CHANNELS] {
-        std::array::from_fn(|i| normalizer.normalize(self.smoothed_peaks[i]))
+        core::array::from_fn(|i| normalizer.normalize(self.smoothed_peaks[i]))
     }
 
     pub fn smoothed_peaks_normalized_mono(&self, normalizer: &DbMeterNormalizer) -> f32 {
@@ -168,7 +168,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
 
         Self {
             shared_state: ArcGc::new(SharedState {
-                peak_gains: std::array::from_fn(|_| AtomicF32::new(0.0)),
+                peak_gains: core::array::from_fn(|_| AtomicF32::new(0.0)),
             }),
         }
     }
@@ -181,7 +181,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
     /// If the node is currently disabled, then this will return a value
     /// of `f32::NEG_INFINITY` (silence) for all channels.
     pub fn peak_gain_db(&self, db_epsilon: f32) -> [f32; NUM_CHANNELS] {
-        std::array::from_fn(|i| {
+        core::array::from_fn(|i| {
             let db = amp_to_db(self.shared_state.peak_gains[i].load(Ordering::Relaxed));
             if db <= db_epsilon {
                 f32::NEG_INFINITY

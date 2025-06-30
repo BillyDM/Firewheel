@@ -2,8 +2,8 @@
 //!
 //! This node calculates the RMS (root-mean-square) of a mono signal.
 
-use atomic_float::AtomicF32;
 use firewheel::{
+    atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
     collector::ArcGc,
     diff::{Diff, Patch},
@@ -14,7 +14,9 @@ use firewheel::{
     },
     StreamInfo,
 };
-use std::sync::atomic::Ordering;
+// The use of `bevy_platform` is optional, but it is recommended for better
+// compatibility with webassembly, no_std, and platforms without 64 bit atomics.
+use bevy_platform::sync::atomic::Ordering;
 
 #[derive(Debug)]
 struct SharedState {

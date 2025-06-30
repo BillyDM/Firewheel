@@ -1,5 +1,7 @@
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
-
+use core::{num::NonZeroU32, time::Duration};
+// The use of `bevy_platform` is optional, but it is recommended for better
+// compatibility with webassembly, no_std, and platforms without 64 bit atomics.
+use bevy_platform::sync::Arc;
 use firewheel::{
     channel_config::NonZeroChannelCount,
     error::UpdateError,

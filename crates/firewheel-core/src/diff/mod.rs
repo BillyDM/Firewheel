@@ -115,7 +115,7 @@
 //! types.
 //! ```
 //! use firewheel_core::{collector::ArcGc, diff::{Diff, Patch}};
-//! use core::sync::atomic::AtomicUsize;
+//! use bevy_platform::sync::atomic::AtomicUsize;
 //!
 //! #[derive(Diff, Patch)]
 //! struct MultiParadigm {

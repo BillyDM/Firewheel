@@ -1,6 +1,6 @@
+use alloc::{collections::VecDeque, rc::Rc};
 use firewheel_core::node::{AudioNodeInfoInner, DynAudioNode, NodeID};
 use smallvec::SmallVec;
-use std::{collections::VecDeque, rc::Rc};
 use thunderdome::Arena;
 
 use crate::error::CompileGraphError;
@@ -14,7 +14,7 @@ pub struct NodeEntry {
     pub id: NodeID,
     pub info: AudioNodeInfoInner,
     pub dyn_node: Box<dyn DynAudioNode>,
-    pub activated: bool,
+    pub processor_constructed: bool,
     /// The edges connected to this node's input ports.
     incoming: SmallVec<[Edge; 4]>,
     /// The edges connected to this node's output ports.
@@ -27,7 +27,7 @@ impl NodeEntry {
             id: NodeID::DANGLING,
             info,
             dyn_node,
-            activated: false,
+            processor_constructed: false,
             incoming: SmallVec::new(),
             outgoing: SmallVec::new(),
         }

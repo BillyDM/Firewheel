@@ -6,5 +6,8 @@ publish = false
 
 [dependencies]
 firewheel = { path = "../../", features = ["stream_nodes"] }
+# The use of `bevy_platform` is optional, but it is recommended for better
+# compatibility with webassembly, no_std, and platforms without 64 bit atomics.
+bevy_platform.workspace = true
 log.workspace = true
 simple-log = "2.1.0"

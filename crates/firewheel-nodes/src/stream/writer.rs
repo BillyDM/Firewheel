@@ -1,10 +1,10 @@
-use std::{
+use bevy_platform::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
 };
 
 use firewheel_core::{
@@ -374,7 +374,7 @@ impl AudioNodeProcessor for Processor {
                 {
                     // Swap the memory so that the old channel will be properly
                     // dropped outside of the audio thread.
-                    std::mem::swap(&mut self.cons, &mut in_stream_event.cons);
+                    core::mem::swap(&mut self.cons, &mut in_stream_event.cons);
                 }
             }
         });

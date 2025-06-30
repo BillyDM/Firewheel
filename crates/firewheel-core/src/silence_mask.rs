@@ -1,4 +1,4 @@
-use std::u64;
+use core::u64;
 
 /// An optional optimization hint on which channels contain all
 /// zeros (silence). The first bit (`0x1`) is the first channel,

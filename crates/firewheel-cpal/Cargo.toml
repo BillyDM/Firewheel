@@ -1,8 +1,9 @@
 [package]
 name = "firewheel-cpal"
-version = "0.3.1"
+version = "0.4.3"
 description = "cpal backend for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-cpal"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -19,13 +20,14 @@ resample_inputs = ["fixed-resample/fft-resampler"]
 wasm-bindgen = ["cpal/wasm-bindgen"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.3.1" }
-firewheel-graph = { path = "../firewheel-graph", version = "0.3.1" }
-cpal = "0.15.3"
+firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
+firewheel-graph = { path = "../firewheel-graph", version = "0.4.2" }
+cpal = "0.16.0"
 log.workspace = true
 ringbuf.workspace = true
 thiserror.workspace = true
 fast-interleave.workspace = true
-fixed-resample = { version = "0.8.0", default-features = false, features = [
+fixed-resample = { version = "0.9.1", default-features = false, features = [
   "channel",
 ] }
+bevy_platform.workspace = true

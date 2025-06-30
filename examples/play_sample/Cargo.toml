@@ -8,5 +8,5 @@ publish = false
 firewheel = { path = "../../" }
 log.workspace = true
 simple-log = "2.1.0"
-symphonium = { version = "0.4.1", features = ["mp3", "flac"] }
+symphonium = { version = "0.6.1", features = ["mp3", "flac"] }
 clap = { version = "4", features = ["derive"] }

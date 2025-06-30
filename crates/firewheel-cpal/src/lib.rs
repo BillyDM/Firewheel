@@ -1,13 +1,14 @@
-use std::{
+use core::{
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
-    sync::mpsc,
     time::Duration,
     u32,
 };
+use std::sync::mpsc;
 
+use bevy_platform::time::Instant;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use firewheel_core::{clock::ClockSeconds, node::StreamStatus, StreamInfo};
+use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::{AudioBackend, DeviceInfo},
     processor::FirewheelProcessor,
@@ -331,10 +332,10 @@ impl AudioBackend for CpalBackend {
 
         let default_config = out_device.default_output_config()?;
 
-        let mut desired_sample_rate = config
-            .output
-            .desired_sample_rate
-            .unwrap_or(default_config.sample_rate().0);
+        let default_sample_rate = default_config.sample_rate().0;
+        // Try to use the common sample rates by default.
+        let try_common_sample_rates = default_sample_rate != 44100 && default_sample_rate != 48000;
+
         let desired_block_frames =
             if let &cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
                 config
@@ -345,15 +346,58 @@ impl AudioBackend for CpalBackend {
                 None
             };
 
-        let supported_configs = out_device.supported_output_configs()?;
+        let mut supports_desired_sample_rate = false;
+        let mut supports_44100 = false;
+        let mut supports_48000 = false;
 
-        let mut min_sample_rate = u32::MAX;
-        let mut max_sample_rate = 0;
-        for config in supported_configs.into_iter() {
-            min_sample_rate = min_sample_rate.min(config.min_sample_rate().0);
-            max_sample_rate = max_sample_rate.max(config.max_sample_rate().0);
+        if config.output.desired_sample_rate.is_some() || try_common_sample_rates {
+            for cpal_config in out_device.supported_output_configs()? {
+                if let Some(sr) = config.output.desired_sample_rate {
+                    if !supports_desired_sample_rate {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(sr))
+                            .is_some()
+                        {
+                            supports_desired_sample_rate = true;
+                            break;
+                        }
+                    }
+                }
+
+                if try_common_sample_rates {
+                    if !supports_44100 {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(44100))
+                            .is_some()
+                        {
+                            supports_44100 = true;
+                        }
+                    }
+                    if !supports_48000 {
+                        if cpal_config
+                            .try_with_sample_rate(cpal::SampleRate(48000))
+                            .is_some()
+                        {
+                            supports_48000 = true;
+                        }
+                    }
+                }
+            }
         }
-        desired_sample_rate = desired_sample_rate.clamp(min_sample_rate, max_sample_rate);
+
+        let sample_rate = if supports_desired_sample_rate {
+            config.output.desired_sample_rate.unwrap()
+        } else if try_common_sample_rates {
+            if supports_44100 {
+                44100
+            } else if supports_48000 {
+                48000
+            } else {
+                default_sample_rate
+            }
+        } else {
+            default_sample_rate
+        };
 
         let num_out_channels = default_config.channels() as usize;
         assert_ne!(num_out_channels, 0);
@@ -366,7 +410,7 @@ impl AudioBackend for CpalBackend {
 
         let out_stream_config = cpal::StreamConfig {
             channels: num_out_channels as u16,
-            sample_rate: cpal::SampleRate(desired_sample_rate),
+            sample_rate: cpal::SampleRate(sample_rate),
             buffer_size: desired_buffer_size,
         };
 
@@ -689,11 +733,12 @@ struct DataCallback {
     num_out_channels: usize,
     from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
     processor: Option<FirewheelProcessor>,
+    sample_rate: u32,
     sample_rate_recip: f64,
-    _first_internal_clock_instant: Option<cpal::StreamInstant>,
-    _prev_stream_instant: Option<cpal::StreamInstant>,
-    first_fallback_clock_instant: Option<std::time::Instant>,
-    predicted_stream_secs: Option<f64>,
+    //_first_internal_clock_instant: Option<cpal::StreamInstant>,
+    //_prev_stream_instant: Option<cpal::StreamInstant>,
+    predicted_delta_time: Duration,
+    prev_instant: Option<Instant>,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
 }
@@ -719,17 +764,20 @@ impl DataCallback {
             num_out_channels,
             from_cx_rx,
             processor: None,
+            sample_rate,
             sample_rate_recip: f64::from(sample_rate).recip(),
-            _first_internal_clock_instant: None,
-            _prev_stream_instant: None,
-            predicted_stream_secs: None,
-            first_fallback_clock_instant: None,
+            //_first_internal_clock_instant: None,
+            //_prev_stream_instant: None,
+            predicted_delta_time: Duration::default(),
+            prev_instant: None,
             input_stream_cons,
             input_buffer,
         }
     }
 
     fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
+        let process_timestamp = bevy_platform::time::Instant::now();
+
         for msg in self.from_cx_rx.pop_iter() {
             let CtxToStreamMsg::NewProcessor(p) = msg;
             self.processor = Some(p);
@@ -737,39 +785,36 @@ impl DataCallback {
 
         let frames = output.len() / self.num_out_channels;
 
-        let (internal_clock_secs, underflow) =
-            if let Some(instant) = self.first_fallback_clock_instant {
-                let now = std::time::Instant::now();
+        let (underflow, dropped_frames) = if let Some(prev_instant) = self.prev_instant {
+            let delta_time = process_timestamp - prev_instant;
 
-                let internal_clock_secs = (now - instant).as_secs_f64();
+            let underflow = delta_time > self.predicted_delta_time;
 
-                let underflow = if let Some(predicted_stream_secs) = self.predicted_stream_secs {
-                    // If the stream time is significantly greater than the predicted stream
-                    // time, it means an output underflow has occurred.
-                    internal_clock_secs > predicted_stream_secs
-                } else {
-                    false
-                };
-
-                // Calculate the next predicted stream time to detect underflows.
-                //
-                // Add a little bit of wiggle room to account for tiny clock
-                // innacuracies and rounding errors.
-                self.predicted_stream_secs =
-                    Some(internal_clock_secs + (frames as f64 * self.sample_rate_recip * 1.2));
-
-                (ClockSeconds(internal_clock_secs), underflow)
+            let dropped_frames = if underflow {
+                (delta_time.as_secs_f64() * self.sample_rate as f64).round() as u32
             } else {
-                self.first_fallback_clock_instant = Some(std::time::Instant::now());
-                (ClockSeconds(0.0), false)
+                0
             };
+
+            (underflow, dropped_frames)
+        } else {
+            self.prev_instant = Some(process_timestamp);
+            (false, 0)
+        };
+
+        // Calculate the next predicted stream time to detect underflows.
+        //
+        // Add a little bit of wiggle room to account for tiny clock
+        // innacuracies and rounding errors.
+        self.predicted_delta_time =
+            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2);
 
         // TODO: PLEASE FIX ME:
         //
         // It appears that for some reason, both Windows and Linux will sometimes return a timestamp which
         // has a value less than the previous timestamp. I am unsure if this is a bug with the APIs, a bug
         // with CPAL, or I'm just misunderstaning how the timestamps are supposed to be used. Either way,
-        // it is disabled for now and `std::time::Instance::now()` is being used as a workaround above.
+        // it is disabled for now and `bevy_platform::time::Instance::now()` is being used as a workaround above.
         //
         // let (internal_clock_secs, underflow) = if let Some(instant) =
         //     &self.first_internal_clock_instant
@@ -855,8 +900,9 @@ impl DataCallback {
                 num_in_chanenls,
                 self.num_out_channels,
                 frames,
-                internal_clock_secs,
+                process_timestamp,
                 stream_status,
+                dropped_frames,
             );
         } else {
             output.fill(0.0);

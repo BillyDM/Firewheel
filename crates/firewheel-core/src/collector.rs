@@ -1,6 +1,6 @@
 //! Garbage-collected smart pointer.
 
-use std::sync::{
+use bevy_platform::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
@@ -39,7 +39,7 @@ impl<T: ?Sized + Send + Sync + 'static> ArcGc<T> {
     ///
     /// ```
     /// # use firewheel_core::collector::ArcGc;
-    /// # use std::sync::Arc;
+    /// # use bevy_platform::sync::Arc;
     /// let value = ArcGc::new_unsized(|| Arc::<[i32]>::from([1, 2, 3]));
     /// ```
     pub fn new_unsized(f: impl FnOnce() -> Arc<T>) -> Self {
@@ -75,7 +75,7 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector> ArcGc<T, C> {
 }
 
 impl<T: ?Sized + Send + Sync + 'static, C: Collector> ArcGc<T, C> {
-    /// A wrapper around [std::sync::Arc::ptr_eq].
+    /// A wrapper around [bevy_platform::sync::Arc::ptr_eq].
     #[inline(always)]
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         Arc::ptr_eq(&this.data, &other.data)

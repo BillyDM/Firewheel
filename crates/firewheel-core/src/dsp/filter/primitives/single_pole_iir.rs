@@ -1,4 +1,4 @@
-use std::f32::consts::TAU;
+use core::f32::consts::TAU;
 
 use crate::dsp::filter::filter_trait::Filter;
 

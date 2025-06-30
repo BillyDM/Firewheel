@@ -1,4 +1,5 @@
-use std::{any::Any, fmt::Debug, hash::Hash, ops::Range};
+use bevy_platform::time::Instant;
+use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
 
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -422,8 +423,8 @@ pub struct ProcBuffers<'a, 'b, 'c, 'd> {
 
 /// Additional information for processing audio
 pub struct ProcInfo<'a> {
-    /// The number of samples (in a single channel of audio) in this
-    /// processing block.
+    /// The number of frames (samples in a single channel of audio) in
+    /// this processing block.
     ///
     /// Not to be confused with video frames.
     pub frames: usize,
@@ -438,23 +439,46 @@ pub struct ProcInfo<'a> {
     /// the second bit is the second channel, and so on.
     pub out_silence_mask: SilenceMask,
 
-    /// The current interval of time of the internal clock in units of
-    /// seconds. The start of the range is the instant of time at the
-    /// first sample in the block (inclusive), and the end of the range
-    /// is the instant of time at the end of the block (exclusive).
-    ///
-    /// This uses the clock from the OS's audio API so it should be quite
-    /// accurate, and it correctly accounts for any output underflows that
-    /// may occur.
-    pub clock_seconds: Range<ClockSeconds>,
+    /// The sample rate of the audio stream in samples per second.
+    pub sample_rate: NonZeroU32,
 
-    /// The total number of samples (in a single channel of audio) that
-    /// have been processed since the start of the audio stream.
+    /// The reciprocal of the sample rate. This can be used to avoid a
+    /// division and improve performance.
+    pub sample_rate_recip: f64,
+
+    /// The current time of the audio clock, equal to the total number of
+    /// frames (samples in a single channel of audio) that have been
+    /// processed since this Firewheel context was first started.
     ///
-    /// This value can be used for more accurate timing than
-    /// [`ProcInfo::clock_seconds`], but note it does *NOT* account for any
-    /// output underflows that may occur.
-    pub clock_samples: ClockSamples,
+    /// The start of the range is the instant of time at the first frame
+    /// in the block (inclusive), and the end of the range is the instant
+    /// of time at the end of the block (exclusive).
+    ///
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
+    ///
+    /// Note, generally this value will always count up, but there may be
+    /// a few edge cases that cause this value to be less than the previous
+    /// block, such as when the sample rate of the stream has been changed.
+    pub audio_clock_samples: Range<ClockSamples>,
+
+    /// The current time of the audio clock, equal to the total amount of
+    /// data in seconds that have been processed since this Firewheel
+    /// context was first started.
+    ///
+    /// The start of the range is the instant of time at the first frame
+    /// in the block (inclusive), and the end of the range is the instant
+    /// of time at the end of the block (exclusive).
+    ///
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
+    pub audio_clock_seconds: Range<ClockSeconds>,
+
+    /// The instant the the Firewheel processor's `process` method was
+    /// invoked.
+    ///
+    /// Note, this clock is not as accurate as the audio clock.
+    pub process_timestamp: Instant,
 
     /// Information about the musical transport.
     ///
@@ -465,27 +489,58 @@ pub struct ProcInfo<'a> {
     /// Flags indicating the current status of the audio stream
     pub stream_status: StreamStatus,
 
+    /// If an output underflow (underrun) occured, then this will contain
+    /// an estimate for the number of frames (samples in a single channel
+    /// of audio) that were dropped.
+    ///
+    /// This can be used to correct the timing of events if desired.
+    ///
+    /// Note, this is just an estimate, and may not always be perfectly
+    /// accurate.
+    ///
+    /// If an underrun did not occur, then this will be `0`.
+    pub dropped_frames: u32,
+
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when
     /// pausing/resuming/stopping.
     pub declick_values: &'a DeclickValues,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct TransportInfo<'a> {
     /// The current transport.
     pub transport: &'a MusicalTransport,
 
-    /// The current interval of time of the internal clock in units of
-    /// musical time. The start of the range is the instant of time at the
-    /// first sample in the block (inclusive), and the end of the range
-    /// is the instant of time at the end of the block (exclusive).
+    /// The current time of the musical transport.
+    ///
+    /// The start of the range is the instant of time at the first frame in
+    /// the block (inclusive), and the end of the range is the instant of
+    /// time at the end of the block (exclusive).
     ///
     /// This will be `None` if no musical clock is currently present.
-    pub musical_clock: Range<MusicalTime>,
+    ///
+    /// Note, this value does *NOT* account for any output underflows
+    /// (underruns) that may have occured.
+    pub clock_musical: Range<MusicalTime>,
 
-    /// Whether or not the transport is currently paused.
-    pub paused: bool,
+    /// Whether or not the transport is currently playing (true) or paused
+    /// (false).
+    pub playing: bool,
+
+    /// The beats per minute at the first frame of this process block.
+    pub beats_per_minute: f64,
+
+    /// The rate at which `beats_per_minute` changes each frame in this
+    /// processing block.
+    ///
+    /// For example, if this value is `0.0`, then the bpm remains static for
+    /// the entire duration of this processing block.
+    ///
+    /// And for example, if this is `0.1`, then the bpm increases by `0.1`
+    /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
+    /// each frame.
+    pub delta_bpm_per_frame: f64,
 }
 
 bitflags::bitflags! {
@@ -497,7 +552,7 @@ bitflags::bitflags! {
         const INPUT_OVERFLOW = 0b01;
 
         /// The output buffer ran low, likely producing a break in the
-        /// output sound.
+        /// output sound. (This is also known as an "underrun").
         const OUTPUT_UNDERFLOW = 0b10;
     }
 }

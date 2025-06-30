@@ -2,7 +2,7 @@ use crate::{
     diff::{Diff, Patch},
     event::ParamData,
 };
-use core::sync::atomic::{AtomicU64, Ordering};
+use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 
 // Increment an atomic counter.
 //
@@ -146,6 +146,12 @@ impl<T: Clone + Send + Sync + 'static> Patch for Notify<T> {
 
     fn apply(&mut self, patch: Self::Patch) {
         *self = patch;
+    }
+}
+
+impl<T: PartialEq> PartialEq for Notify<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.counter == other.counter
     }
 }
 

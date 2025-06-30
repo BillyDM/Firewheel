@@ -64,7 +64,6 @@ impl AudioNode for BeepTestNode {
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0)
                 * cx.stream_info.sample_rate_recip as f32,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
-            sample_rate_recip: (cx.stream_info.sample_rate.get() as f32).recip(),
             enabled: self.enabled,
         }
     }
@@ -74,7 +73,6 @@ struct Processor {
     phasor: f32,
     phasor_inc: f32,
     gain: f32,
-    sample_rate_recip: f32,
     enabled: bool,
 }
 
@@ -82,7 +80,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         buffers: ProcBuffers,
-        _proc_info: &ProcInfo,
+        proc_info: &ProcInfo,
         mut events: NodeEventList,
     ) -> ProcessStatus {
         let Some(out) = buffers.outputs.first_mut() else {
@@ -91,7 +89,7 @@ impl AudioNodeProcessor for Processor {
 
         events.for_each_patch::<BeepTestNode>(|patch| match patch {
             BeepTestNodePatch::FreqHz(f) => {
-                self.phasor_inc = f.clamp(20.0, 20_000.0) * self.sample_rate_recip;
+                self.phasor_inc = f.clamp(20.0, 20_000.0) * proc_info.sample_rate_recip as f32;
             }
             BeepTestNodePatch::Volume(v) => {
                 self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
@@ -104,7 +102,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         for s in out.iter_mut() {
-            *s = (self.phasor * std::f32::consts::TAU).sin() * self.gain;
+            *s = (self.phasor * core::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }
 

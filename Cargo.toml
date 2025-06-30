@@ -1,8 +1,8 @@
 [package]
 name = "firewheel"
-version = "0.3.1"
+version = "0.4.3"
 description = "Flexible, high-performance, and libre audio engine for games (WIP)"
-repository = "https://github.com/BillyDM/firewheel"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -21,6 +21,7 @@ authors = ["Billy Messenger <60663878+BillyDM@users.noreply.github.com>"]
 keywords = ["game", "audio", "graph"]
 categories = ["game-development", "multimedia::audio"]
 exclude = ["assets/"]
+repository = "https://github.com/BillyDM/firewheel"
 
 [workspace]
 members = [
@@ -45,6 +46,7 @@ default = [
     "cpal",
     "symphonium",
     "symphonium_resample",
+    "symphonium_stretch",
     "peak_meter_node",
     "sampler_node",
 ]
@@ -56,6 +58,9 @@ cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
 symphonium = ["firewheel-core/symphonium"]
 # Enables resampling audio files when loading them with Symphonium
 symphonium_resample = ["firewheel-core/resampler"]
+# Enables the "arbitrary sinc" resampler for changing the pitch/length
+# of samples at load time.
+symphonium_stretch = ["firewheel-core/symphonium_stretch"]
 # Enables the `SamplerPool` helper type for constructing a pool of
 # sampler nodes that can dynamically be assigned work.
 sampler_pool = ["sampler_node", "dep:thunderdome", "dep:smallvec"]
@@ -84,26 +89,27 @@ bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.3.1" }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.3.1" }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.3.1", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.3.1", default-features = false }
+firewheel-core = { path = "crates/firewheel-core", version = "0.4.2" }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.4.2" }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.4.3", default-features = false, optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.4.2", default-features = false }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [workspace.dependencies]
 log = "0.4"
-ringbuf = "0.4"
+ringbuf = { version = "0.4", features = ["portable-atomic"] }
+triple_buffer = "8"
 thiserror = "2"
 smallvec = "1"
 arrayvec = "0.7"
-atomic_float = "1"
 bitflags = "2"
 thunderdome = "0.6"
 crossbeam-utils = "0.8"
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.1.1" }
+bevy_platform = "0.16.0"
 
 # Optimize all dependencies in debug builds:
 [profile.dev.package."*"]

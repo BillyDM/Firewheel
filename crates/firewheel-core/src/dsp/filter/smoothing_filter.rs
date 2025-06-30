@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use core::num::NonZeroU32;
 
 pub const DEFAULT_SMOOTH_SECONDS: f32 = 10.0 / 1_000.0;
 pub const DEFAULT_SETTLE_EPSILON: f32 = 0.00001f32;

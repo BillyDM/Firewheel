@@ -3,6 +3,7 @@ name = "firewheel-macros"
 version = "0.1.1"
 description = "Macros for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-macros"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true

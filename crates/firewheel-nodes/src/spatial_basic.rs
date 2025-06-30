@@ -245,7 +245,6 @@ impl AudioNode for SpatialBasicNode {
             filter_r: SinglePoleIirLPF::default(),
             params: *self,
             prev_block_was_silent: true,
-            sample_rate_recip: cx.stream_info.sample_rate_recip as f32,
             amp_epsilon: config.amp_epsilon,
         }
     }
@@ -263,7 +262,6 @@ struct Processor {
     params: SpatialBasicNode,
 
     prev_block_was_silent: bool,
-    sample_rate_recip: f32,
     amp_epsilon: f32,
 }
 
@@ -363,7 +361,7 @@ impl AudioNodeProcessor for Processor {
                 // only updating the filter coefficients once.
                 let coeff = SinglePoleIirLPFCoeff::new(
                     self.damping_cutoff_hz.target_value(),
-                    self.sample_rate_recip,
+                    proc_info.sample_rate_recip as f32,
                 );
 
                 for i in 0..proc_info.frames {
@@ -400,7 +398,10 @@ impl AudioNodeProcessor for Processor {
                     // this can be use to only recalculate them every CALC_FILTER_COEFF_INTERVAL
                     // frames.
                     if i & (CALC_FILTER_COEFF_INTERVAL - 1) == 0 {
-                        coeff = SinglePoleIirLPFCoeff::new(cutoff_hz, self.sample_rate_recip);
+                        coeff = SinglePoleIirLPFCoeff::new(
+                            cutoff_hz,
+                            proc_info.sample_rate_recip as f32,
+                        );
                     }
 
                     out1[i] = self.filter_l.process(out1[i], &coeff);
@@ -417,8 +418,6 @@ impl AudioNodeProcessor for Processor {
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
-        self.sample_rate_recip = stream_info.sample_rate_recip as f32;
-
         self.gain_l.update_sample_rate(stream_info.sample_rate);
         self.gain_r.update_sample_rate(stream_info.sample_rate);
         self.damping_cutoff_hz

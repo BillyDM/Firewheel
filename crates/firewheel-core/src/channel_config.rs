@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, num::NonZeroU32};
+use core::{error::Error, fmt, num::NonZeroU32};
 
 /// A supported number of channels on an audio node.
 ///
@@ -33,7 +33,7 @@ impl ChannelCount {
             // SAFETY:
             // The constructor ensures that the value is less than or
             // equal to `64`.
-            unsafe { std::hint::unreachable_unchecked() }
+            unsafe { core::hint::unreachable_unchecked() }
         }
     }
 }
@@ -90,7 +90,7 @@ impl NonZeroChannelCount {
             // SAFETY:
             // The constructor ensures that the value is less than or
             // equal to `64`.
-            unsafe { std::hint::unreachable_unchecked() }
+            unsafe { core::hint::unreachable_unchecked() }
         }
     }
 }

@@ -43,6 +43,6 @@ impl<T> SyncWrapper<T> {
 /// Therefore, this implementation is safe.
 ///
 /// For further reference, see the [standard library's
-/// implementation of `Sync` on `std::sync::Mutex`](https://doc.rust-lang.org/src/std/sync/poison/mutex.rs.html#189),
+/// implementation of `Sync` on `core::sync::Mutex`](https://doc.rust-lang.org/src/std/sync/poison/mutex.rs.html#189),
 /// as well as the [`get_mut` method](https://doc.rust-lang.org/src/std/sync/poison/mutex.rs.html#557-581).
 unsafe impl<T: Send> Sync for SyncWrapper<T> {}

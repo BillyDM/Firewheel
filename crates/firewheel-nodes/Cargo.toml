@@ -1,8 +1,9 @@
 [package]
 name = "firewheel-nodes"
-version = "0.3.1"
+version = "0.4.2"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -32,7 +33,7 @@ all_nodes = [
 # Enables the "beep test" node
 beep_test = []
 # Enables the peak meter node
-peak_meter = ["dep:atomic_float"]
+peak_meter = []
 # Enables the sampler node
 sampler = ["dep:smallvec", "dep:crossbeam-utils"]
 # Enables the basic 3D spatial positioning node
@@ -44,9 +45,9 @@ stream = ["dep:fixed-resample"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.3.1" }
-atomic_float = { workspace = true, optional = true }
+firewheel-core = { path = "../firewheel-core", version = "0.4.2" }
+bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
-fixed-resample = { version = "0.8.0", features = ["fft-resampler", "channel"], optional = true }
+fixed-resample = { version = "0.9.1", features = ["fft-resampler", "channel"], optional = true }
 bevy_ecs = { version = "0.16", optional = true }

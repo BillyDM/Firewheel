@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use core::num::NonZeroUsize;
 
 use arrayvec::ArrayVec;
 
@@ -39,8 +39,8 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
         // * The constructor has set the size of the buffer to`self.frames * CHANNELS`,
         // and we have constrained `frames` above, so this is always within range.
         unsafe {
-            std::array::from_fn(|ch_i| {
-                std::slice::from_raw_parts(self.buffer.as_ptr().add(ch_i * self.frames), frames)
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts(self.buffer.as_ptr().add(ch_i * self.frames), frames)
             })
         }
     }
@@ -55,8 +55,8 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ChannelBuffer<T, CHANNELS
         // * None of these slices overlap, and `self` is borrowed mutably in this method,
         // so all mutability rules are being upheld.
         unsafe {
-            std::array::from_fn(|ch_i| {
-                std::slice::from_raw_parts_mut(
+            core::array::from_fn(|ch_i| {
+                core::slice::from_raw_parts_mut(
                     self.buffer.as_mut_ptr().add(ch_i * self.frames),
                     frames,
                 )
@@ -112,7 +112,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         // * The constructor has ensured that `self.channels <= MAX_CHANNELS`.
         unsafe {
             for ch_i in 0..channels {
-                res.push_unchecked(std::slice::from_raw_parts(
+                res.push_unchecked(core::slice::from_raw_parts(
                     self.buffer.as_ptr().add(ch_i * self.frames),
                     frames,
                 ));
@@ -138,7 +138,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         // so all mutability rules are being upheld.
         unsafe {
             for ch_i in 0..channels {
-                res.push_unchecked(std::slice::from_raw_parts_mut(
+                res.push_unchecked(core::slice::from_raw_parts_mut(
                     self.buffer.as_mut_ptr().add(ch_i * self.frames),
                     frames,
                 ));
@@ -213,7 +213,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         // * The constructor has ensured that `self.channels <= MAX_CHANNELS`.
         unsafe {
             for ch_i in 0..channels {
-                res.push_unchecked(std::slice::from_raw_parts(
+                res.push_unchecked(core::slice::from_raw_parts(
                     self.buffer.as_ptr().add(start_frame + (ch_i * self.frames)),
                     frames,
                 ));
@@ -250,7 +250,7 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         // so all mutability rules are being upheld.
         unsafe {
             for ch_i in 0..channels {
-                res.push_unchecked(std::slice::from_raw_parts_mut(
+                res.push_unchecked(core::slice::from_raw_parts_mut(
                     self.buffer
                         .as_mut_ptr()
                         .add(start_frame + (ch_i * self.frames)),

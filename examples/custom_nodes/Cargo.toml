@@ -9,8 +9,10 @@ publish = false
 # the `firewheel-core` crate instead of the full firewheel crate, as it is more
 # stable.
 firewheel = { path = "../../" }
+# The use of `bevy_platform` is optional, but it is recommended for better
+# compatibility with webassembly, no_std, and platforms without 64 bit atomics.
+bevy_platform.workspace = true
 log.workspace = true
-atomic_float.workspace = true
 simple-log = "2.1.0"
 egui = "0.29"
 eframe = { version = "0.29", default-features = false, features = [

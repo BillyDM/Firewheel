@@ -1,5 +1,5 @@
-use std::f32::consts::FRAC_PI_2;
-use std::{num::NonZeroU32, ops::Range};
+use core::f32::consts::FRAC_PI_2;
+use core::{num::NonZeroU32, ops::Range};
 
 /// A struct when can be used to linearly ramp up/down between `0.0`
 /// and `1.0` to declick audio streams.

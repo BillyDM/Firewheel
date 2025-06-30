@@ -1,5 +1,5 @@
+use core::error::Error;
 use firewheel_core::{channel_config::ChannelCount, node::NodeID};
-use std::error::Error;
 
 use crate::graph::{Edge, EdgeID, PortIdx};
 

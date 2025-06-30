@@ -1,10 +1,10 @@
 mod compiler;
 
 use core::any::Any;
-use std::fmt::Debug;
-use std::hash::Hash;
+use core::fmt::Debug;
+use core::hash::Hash;
 
-use ahash::AHashMap;
+use bevy_platform::collections::HashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::NodeEvent;
 use firewheel_core::node::{ConstructProcessorContext, UpdateContext};
@@ -35,14 +35,14 @@ struct EdgeHash {
 pub(crate) struct AudioGraph {
     nodes: Arena<NodeEntry>,
     edges: Arena<Edge>,
-    existing_edges: AHashMap<EdgeHash, EdgeID>,
+    existing_edges: HashMap<EdgeHash, EdgeID>,
 
     graph_in_id: NodeID,
     graph_out_id: NodeID,
     needs_compile: bool,
 
     nodes_to_remove_from_schedule: Vec<NodeID>,
-    active_nodes_to_remove: AHashMap<NodeID, NodeEntry>,
+    active_nodes_to_remove: HashMap<NodeID, NodeEntry>,
     nodes_to_call_update_method: Vec<NodeID>,
     event_queue_capacity: usize,
 }
@@ -91,14 +91,14 @@ impl AudioGraph {
         Self {
             nodes,
             edges: Arena::with_capacity(config.initial_edge_capacity as usize),
-            existing_edges: AHashMap::with_capacity(config.initial_edge_capacity as usize),
+            existing_edges: HashMap::with_capacity(config.initial_edge_capacity as usize),
             graph_in_id,
             graph_out_id,
             needs_compile: true,
             nodes_to_remove_from_schedule: Vec::with_capacity(
                 config.initial_node_capacity as usize,
             ),
-            active_nodes_to_remove: AHashMap::with_capacity(config.initial_edge_capacity as usize),
+            active_nodes_to_remove: HashMap::with_capacity(config.initial_node_capacity as usize),
             nodes_to_call_update_method: Vec::new(),
             event_queue_capacity: 0, // This will be overwritten later once activated.
         }
@@ -523,7 +523,7 @@ impl AudioGraph {
 
         for node in failed_schedule.new_node_processors.iter() {
             if let Some(node_entry) = &mut self.nodes.get_mut(node.id.0) {
-                node_entry.activated = false;
+                node_entry.processor_constructed = false;
             }
         }
     }
@@ -533,9 +533,6 @@ impl AudioGraph {
     }
 
     pub(crate) fn deactivate(&mut self) {
-        for (_, entry) in self.nodes.iter_mut() {
-            entry.activated = false;
-        }
         self.needs_compile = true;
     }
 
@@ -547,8 +544,8 @@ impl AudioGraph {
 
         let mut new_node_processors = Vec::new();
         for (_, entry) in self.nodes.iter_mut() {
-            if !entry.activated {
-                entry.activated = true;
+            if !entry.processor_constructed {
+                entry.processor_constructed = true;
 
                 let event_buffer_indices = if entry.info.uses_events {
                     Vec::with_capacity(self.event_queue_capacity)
@@ -571,7 +568,7 @@ impl AudioGraph {
         }
 
         let mut nodes_to_remove = Vec::new();
-        std::mem::swap(
+        core::mem::swap(
             &mut self.nodes_to_remove_from_schedule,
             &mut nodes_to_remove,
         );

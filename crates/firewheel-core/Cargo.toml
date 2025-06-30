@@ -1,8 +1,9 @@
 [package]
 name = "firewheel-core"
-version = "0.3.1"
+version = "0.4.2"
 description = "Shared types for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-core"
+repository.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -17,6 +18,9 @@ all-features = true
 [features]
 symphonium = ["dep:symphonium"]
 resampler = ["dep:fixed-resample", "symphonium?/resampler"]
+# Enables the "arbitrary sinc" resampler in Symphonium for changing the
+# pitch/length of samples at load time.
+symphonium_stretch = ["symphonium", "resampler", "symphonium?/stretch-sinc-resampler"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
@@ -24,11 +28,11 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.4.1", default-features = false, optional = true }
-fixed-resample = { version = "0.8.0", default-features = false, features = [
-	"resampler",
-	"fft-resampler",
-], optional = true }
+symphonium = { version = "0.6.1", default-features = false, optional = true }
+fixed-resample = { version = "0.9.1", default-features = false, features = ["resampler", "fft-resampler"], optional = true }
 smallvec.workspace = true
+bevy_platform.workspace = true
 glam = "0.29"
 bevy_ecs = { version = "0.16", optional = true }
+# TODO: Remove this once `bevy_platform` exposes the atomic float types from `portable-atomic`.
+portable-atomic = { version = "1", default-features = false, features = ["fallback", "float"] }
