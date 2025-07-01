@@ -1,10 +1,12 @@
-use bevy_platform::time::Instant;
-use core::{num::NonZeroU32, ops::Range};
+use core::{num::NonZeroU32, ops::Range, time::Duration};
 
 use ringbuf::traits::{Consumer, Producer};
 use thunderdome::Arena;
 
-use crate::graph::{NodeHeapData, ScheduleHeapData};
+use crate::{
+    backend::AudioBackend,
+    graph::{NodeHeapData, ScheduleHeapData},
+};
 use firewheel_core::{
     clock::{ClockSamples, ClockSeconds, MusicalTime, ProcTransportInfo, TransportState},
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
@@ -16,12 +18,12 @@ use firewheel_core::{
     SilenceMask, StreamInfo,
 };
 
-pub struct FirewheelProcessor {
-    inner: Option<FirewheelProcessorInner>,
-    drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
+pub struct FirewheelProcessor<B: AudioBackend> {
+    inner: Option<FirewheelProcessorInner<B>>,
+    drop_tx: ringbuf::HeapProd<FirewheelProcessorInner<B>>,
 }
 
-impl Drop for FirewheelProcessor {
+impl<B: AudioBackend> Drop for FirewheelProcessor<B> {
     fn drop(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
@@ -39,10 +41,10 @@ impl Drop for FirewheelProcessor {
     }
 }
 
-impl FirewheelProcessor {
+impl<B: AudioBackend> FirewheelProcessor<B> {
     pub(crate) fn new(
-        processor: FirewheelProcessorInner,
-        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
+        processor: FirewheelProcessorInner<B>,
+        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner<B>>,
     ) -> Self {
         Self {
             inner: Some(processor),
@@ -57,7 +59,8 @@ impl FirewheelProcessor {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        process_timestamp: Instant,
+        process_timestamp: B::Instant,
+        duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
     ) {
@@ -69,6 +72,7 @@ impl FirewheelProcessor {
                 num_out_channels,
                 frames,
                 process_timestamp,
+                duration_since_stream_start,
                 stream_status,
                 dropped_frames,
             );
@@ -76,7 +80,7 @@ impl FirewheelProcessor {
     }
 }
 
-pub(crate) struct FirewheelProcessorInner {
+pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     nodes: Arena<NodeEntry>,
     schedule_data: Option<Box<ScheduleHeapData>>,
 
@@ -90,7 +94,7 @@ pub(crate) struct FirewheelProcessorInner {
     max_block_frames: usize,
 
     clock_samples: ClockSamples,
-    shared_clock_input: triple_buffer::Input<SharedClock>,
+    shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
 
     proc_transport_state: ProcTransportState,
 
@@ -105,12 +109,12 @@ pub(crate) struct FirewheelProcessorInner {
     pub(crate) poisoned: bool,
 }
 
-impl FirewheelProcessorInner {
+impl<B: AudioBackend> FirewheelProcessorInner<B> {
     /// Note, this method gets called on the main thread, not the audio thread.
     pub(crate) fn new(
         from_graph_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
         to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
-        shared_clock_input: triple_buffer::Input<SharedClock>,
+        shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
         node_capacity: usize,
         stream_info: &StreamInfo,
         hard_clip_outputs: bool,
@@ -145,7 +149,8 @@ impl FirewheelProcessorInner {
         num_in_channels: usize,
         num_out_channels: usize,
         frames: usize,
-        process_timestamp: Instant,
+        process_timestamp: B::Instant,
+        duration_since_stream_start: Duration,
         mut stream_status: StreamStatus,
         mut dropped_frames: u32,
     ) {
@@ -162,7 +167,7 @@ impl FirewheelProcessorInner {
 
         self.clock_samples += ClockSamples(frames as i64);
 
-        self.sync_shared_clock(true);
+        self.sync_shared_clock(Some(process_timestamp));
 
         // --- Process the audio graph in blocks ----------------------------------------------
 
@@ -217,7 +222,7 @@ impl FirewheelProcessorInner {
                 self.sample_rate_recip,
                 self.clock_samples,
                 clock_seconds..next_clock_seconds,
-                process_timestamp,
+                duration_since_stream_start,
                 stream_status,
                 dropped_frames,
                 playhead,
@@ -365,7 +370,7 @@ impl FirewheelProcessorInner {
         sample_rate_recip: f64,
         clock_samples: ClockSamples,
         clock_seconds: Range<ClockSeconds>,
-        process_timestamp: Instant,
+        duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
         playhead: MusicalTime,
@@ -413,7 +418,7 @@ impl FirewheelProcessorInner {
             sample_rate_recip,
             audio_clock_samples: clock_samples..(clock_samples + ClockSamples(block_frames as i64)),
             audio_clock_seconds: clock_seconds.clone(),
-            process_timestamp,
+            duration_since_stream_start,
             transport_info,
             stream_status,
             dropped_frames,
@@ -448,7 +453,7 @@ impl FirewheelProcessorInner {
         );
     }
 
-    fn sync_shared_clock(&mut self, stream_is_running: bool) {
+    fn sync_shared_clock(&mut self, process_timestamp: Option<B::Instant>) {
         let (musical_time, transport_is_playing) = if self
             .proc_transport_state
             .transport_state
@@ -478,12 +483,12 @@ impl FirewheelProcessorInner {
             clock_samples: self.clock_samples,
             musical_time,
             transport_is_playing,
-            update_instant: stream_is_running.then(|| Instant::now()),
+            process_timestamp,
         });
     }
 
     fn stream_stopped(&mut self) {
-        self.sync_shared_clock(false);
+        self.sync_shared_clock(None);
 
         for (_, node) in self.nodes.iter_mut() {
             node.processor.stream_stopped();
@@ -543,20 +548,20 @@ pub(crate) enum ProcessorToContextMsg {
 }
 
 #[derive(Clone)]
-pub(crate) struct SharedClock {
+pub(crate) struct SharedClock<I: Clone> {
     pub clock_samples: ClockSamples,
     pub musical_time: Option<MusicalTime>,
     pub transport_is_playing: bool,
-    pub update_instant: Option<Instant>,
+    pub process_timestamp: Option<I>,
 }
 
-impl Default for SharedClock {
+impl<I: Clone> Default for SharedClock<I> {
     fn default() -> Self {
         Self {
             clock_samples: ClockSamples(0),
             musical_time: None,
             transport_is_playing: false,
-            update_instant: None,
+            process_timestamp: None,
         }
     }
 }

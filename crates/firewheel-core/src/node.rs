@@ -1,4 +1,4 @@
-use bevy_platform::time::Instant;
+use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
 
 use crate::{
@@ -474,11 +474,11 @@ pub struct ProcInfo<'a> {
     /// (underruns) that may have occured.
     pub audio_clock_seconds: Range<ClockSeconds>,
 
-    /// The instant the the Firewheel processor's `process` method was
-    /// invoked.
+    /// The duration between when the stream was started an when the
+    /// Firewheel processor's `process` method was called.
     ///
     /// Note, this clock is not as accurate as the audio clock.
-    pub process_timestamp: Instant,
+    pub duration_since_stream_start: Duration,
 
     /// Information about the musical transport.
     ///

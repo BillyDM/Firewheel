@@ -161,6 +161,7 @@ impl AudioBackend for CpalBackend {
     type Config = CpalConfig;
     type StartStreamError = StreamStartError;
     type StreamError = cpal::StreamError;
+    type Instant = bevy_platform::time::Instant;
 
     fn available_input_devices() -> Vec<DeviceInfo> {
         let mut devices = Vec::with_capacity(8);
@@ -511,7 +512,7 @@ impl AudioBackend for CpalBackend {
         ))
     }
 
-    fn set_processor(&mut self, processor: FirewheelProcessor) {
+    fn set_processor(&mut self, processor: FirewheelProcessor<Self>) {
         if let Err(_) = self
             .to_stream_tx
             .try_push(CtxToStreamMsg::NewProcessor(processor))
@@ -526,6 +527,14 @@ impl AudioBackend for CpalBackend {
         } else {
             Ok(())
         }
+    }
+
+    fn now(&self) -> Self::Instant {
+        bevy_platform::time::Instant::now()
+    }
+
+    fn duration_between(&self, earlier: Self::Instant, later: Self::Instant) -> Option<Duration> {
+        later.checked_duration_since(earlier)
     }
 }
 
@@ -732,13 +741,14 @@ enum StartInputStreamResult {
 struct DataCallback {
     num_out_channels: usize,
     from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
-    processor: Option<FirewheelProcessor>,
+    processor: Option<FirewheelProcessor<CpalBackend>>,
     sample_rate: u32,
     sample_rate_recip: f64,
     //_first_internal_clock_instant: Option<cpal::StreamInstant>,
     //_prev_stream_instant: Option<cpal::StreamInstant>,
     predicted_delta_time: Duration,
     prev_instant: Option<Instant>,
+    stream_start_instant: Instant,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
 }
@@ -751,6 +761,8 @@ impl DataCallback {
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     ) -> Self {
+        let stream_start_instant = Instant::now();
+
         let input_buffer = if let Some(cons) = &input_stream_cons {
             let mut v = Vec::new();
             v.reserve_exact(max_block_frames * cons.num_channels().get());
@@ -770,6 +782,7 @@ impl DataCallback {
             //_prev_stream_instant: None,
             predicted_delta_time: Duration::default(),
             prev_instant: None,
+            stream_start_instant,
             input_stream_cons,
             input_buffer,
         }
@@ -808,6 +821,9 @@ impl DataCallback {
         // innacuracies and rounding errors.
         self.predicted_delta_time =
             Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2);
+
+        let duration_since_stream_start =
+            process_timestamp.duration_since(self.stream_start_instant);
 
         // TODO: PLEASE FIX ME:
         //
@@ -901,6 +917,7 @@ impl DataCallback {
                 self.num_out_channels,
                 frames,
                 process_timestamp,
+                duration_since_stream_start,
                 stream_status,
                 dropped_frames,
             );
@@ -912,7 +929,7 @@ impl DataCallback {
 }
 
 enum CtxToStreamMsg {
-    NewProcessor(FirewheelProcessor),
+    NewProcessor(FirewheelProcessor<CpalBackend>),
 }
 
 /// An error occured while trying to start a CPAL audio stream.

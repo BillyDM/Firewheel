@@ -1,4 +1,5 @@
 use core::error::Error;
+use core::time::Duration;
 
 use firewheel_core::StreamInfo;
 
@@ -16,6 +17,9 @@ pub trait AudioBackend: Sized {
     /// An error that has caused the audio stream to stop.
     type StreamError: Error;
 
+    /// A type describing an instant in time.
+    type Instant: Send + Clone;
+
     /// Return a list of the available input devices.
     fn available_input_devices() -> Vec<DeviceInfo> {
         Vec::new()
@@ -32,11 +36,19 @@ pub trait AudioBackend: Sized {
     /// Send the given processor to the audio thread for processing.
     ///
     /// This is called once after a successful call to `start_stream`.
-    fn set_processor(&mut self, processor: FirewheelProcessor);
+    fn set_processor(&mut self, processor: FirewheelProcessor<Self>);
 
     /// Poll the status of the running audio stream. Return an error if the
     /// audio stream has stopped for any reason.
     fn poll_status(&mut self) -> Result<(), Self::StreamError>;
+
+    /// Get the current time.
+    fn now(&self) -> Self::Instant;
+
+    /// Get the elapsed time between the two given instants.
+    ///
+    /// If `earlier` is greater than `later`, then return `None`.
+    fn duration_between(&self, earlier: Self::Instant, later: Self::Instant) -> Option<Duration>;
 }
 
 /// Information about an audio device.
