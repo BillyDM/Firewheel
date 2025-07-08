@@ -3,8 +3,9 @@ use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use crate::{
-    diff::{Diff, Patch, Notify}, node::ProcInfo,
+    diff::{Diff, Notify, Patch},
     event::ParamData,
+    node::ProcInfo,
 };
 
 pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
