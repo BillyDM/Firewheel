@@ -2,7 +2,10 @@ use bevy_platform::time::Instant;
 use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
-use crate::{diff::Notify, node::ProcInfo};
+use crate::{
+    diff::{Diff, Patch, Notify}, node::ProcInfo,
+    event::ParamData,
+};
 
 pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
 
@@ -172,6 +175,48 @@ impl Into<f64> for ClockSeconds {
     }
 }
 
+impl TryFrom<&ParamData> for ClockSeconds {
+    type Error = crate::diff::PatchError;
+
+    fn try_from(value: &ParamData) -> Result<Self, Self::Error> {
+        value
+            .try_into()
+            .map_err(|_| crate::diff::PatchError::InvalidData)
+            .map(ClockSeconds)
+    }
+}
+
+impl From<ClockSeconds> for ParamData {
+    fn from(value: ClockSeconds) -> Self {
+        value.0.into()
+    }
+}
+
+impl Diff for ClockSeconds {
+    fn diff<E: crate::diff::EventQueue>(
+        &self,
+        baseline: &Self,
+        path: crate::diff::PathBuilder,
+        event_queue: &mut E,
+    ) {
+        if self != baseline {
+            event_queue.push_param(*self, path);
+        }
+    }
+}
+
+impl Patch for ClockSeconds {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+        data.try_into()
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        *self = patch;
+    }
+}
+
 /// An absolute clock time in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -265,6 +310,48 @@ impl From<i64> for ClockSamples {
 impl Into<i64> for ClockSamples {
     fn into(self) -> i64 {
         self.0
+    }
+}
+
+impl TryFrom<&ParamData> for ClockSamples {
+    type Error = crate::diff::PatchError;
+
+    fn try_from(value: &ParamData) -> Result<Self, Self::Error> {
+        value
+            .try_into()
+            .map_err(|_| crate::diff::PatchError::InvalidData)
+            .map(ClockSamples)
+    }
+}
+
+impl From<ClockSamples> for ParamData {
+    fn from(value: ClockSamples) -> Self {
+        value.0.into()
+    }
+}
+
+impl Diff for ClockSamples {
+    fn diff<E: crate::diff::EventQueue>(
+        &self,
+        baseline: &Self,
+        path: crate::diff::PathBuilder,
+        event_queue: &mut E,
+    ) {
+        if self != baseline {
+            event_queue.push_param(*self, path);
+        }
+    }
+}
+
+impl Patch for ClockSamples {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+        data.try_into()
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        *self = patch;
     }
 }
 

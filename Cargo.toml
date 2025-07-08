@@ -49,6 +49,7 @@ default = [
     "symphonium_stretch",
     "peak_meter_node",
     "sampler_node",
+    "envelope_node",
 ]
 # Enables the cpal backend
 cpal = ["dep:firewheel-cpal"]
@@ -69,12 +70,15 @@ all_nodes = [
     "beep_test_node",
     "peak_meter_node",
     "sampler_node",
+    "envelope_node",
     "spatial_basic_node",
     "stream_nodes",
     "noise_gen_nodes",
 ]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
+# Enables the envelope nodes
+envelope_node = ["firewheel-nodes/envelopes"]
 # Enables the peak meter node
 peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node

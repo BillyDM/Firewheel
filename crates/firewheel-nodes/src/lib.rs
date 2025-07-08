@@ -4,6 +4,9 @@ pub mod beep_test;
 #[cfg(feature = "peak_meter")]
 pub mod peak_meter;
 
+#[cfg(feature = "envelopes")]
+pub mod envelopes;
+
 #[cfg(feature = "sampler")]
 pub mod sampler;
 

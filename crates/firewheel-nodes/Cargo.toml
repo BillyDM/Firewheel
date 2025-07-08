@@ -18,6 +18,7 @@ all-features = true
 [features]
 default = [
     "beep_test",
+    "envelopes",
     "peak_meter",
     "sampler",
     "spatial_basic",
@@ -27,6 +28,7 @@ default = [
 ]
 all_nodes = [
     "beep_test",
+    "envelopes",
     "peak_meter",
     "sampler",
     "spatial_basic",
@@ -36,6 +38,8 @@ all_nodes = [
 ]
 # Enables the "beep test" node
 beep_test = []
+# Enables the envelope nodes
+envelopes = []
 # Enables the peak meter node
 peak_meter = []
 # Enables the sampler node

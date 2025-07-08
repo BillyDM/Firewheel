@@ -37,6 +37,7 @@ pub enum ParamData {
     F32(f32),
     F64(f64),
     I32(i32),
+    I64(i64),
     U32(u32),
     U64(u64),
     Bool(bool),
@@ -88,6 +89,7 @@ param_data_from!(Volume, Volume);
 param_data_from!(f32, F32);
 param_data_from!(f64, F64);
 param_data_from!(i32, I32);
+param_data_from!(i64, I64);
 param_data_from!(u32, U32);
 param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
