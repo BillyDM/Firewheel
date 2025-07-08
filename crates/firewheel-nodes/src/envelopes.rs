@@ -11,7 +11,7 @@ use firewheel_core::{
     param::smoother::SmoothedParam,
     StreamInfo,
 };
-use std::{mem, num::NonZeroU32, ops::Range};
+use std::{mem, ops::Range};
 
 /// How an envelope responds to receiving [`TriggerEvent::On`] if it is not at rest.
 #[derive(Diff, Patch, Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -134,10 +134,7 @@ impl AudioNode for AhdsrVolumeNode {
             hi,
 
             attack_rate: (self.attack.0 * cx.stream_info.sample_rate_recip) as _,
-            hold_samples: ClockSamples::from_secs_f64(
-                self.hold.0,
-                cx.stream_info.sample_rate.get(),
-            ),
+            hold_samples: self.hold.to_samples(cx.stream_info.sample_rate),
             decay_rate: (1. - sustain_proportion)
                 * (self.decay.0 * cx.stream_info.sample_rate_recip) as f32,
             sustain_proportion,
@@ -148,8 +145,6 @@ impl AudioNode for AhdsrVolumeNode {
             hold: self.hold,
             decay: self.decay,
             release: self.release,
-            sample_rate: cx.stream_info.sample_rate,
-            sample_rate_recip: cx.stream_info.sample_rate_recip,
 
             off_state_transition: self.trigger_mode.state_transition(),
             on_state_transition: self.retrigger_mode.state_transition(),
@@ -189,8 +184,6 @@ struct AhdsrVolumeProcessor {
     hold: ClockSeconds,
     decay: ClockSeconds,
     release: ClockSeconds,
-    sample_rate: NonZeroU32,
-    sample_rate_recip: f64,
 
     off_state_transition: fn(AhdsrState) -> AhdsrState,
     on_state_transition: fn(f32, Option<AhdsrState>) -> (f32, AhdsrState),
@@ -299,29 +292,28 @@ impl AudioNodeProcessor for AhdsrVolumeProcessor {
             }
             AhdsrVolumeNodePatch::Attack(val) => {
                 self.attack = val;
-                self.attack_rate = (val.0 * self.sample_rate_recip) as _;
+                self.attack_rate = (val.0 * proc_info.sample_rate_recip) as _;
             }
             AhdsrVolumeNodePatch::Hold(val) => {
                 self.hold = val;
-                self.hold_samples =
-                    ClockSamples::from_secs_f64(self.hold.0, self.sample_rate.get());
+                self.hold_samples = self.hold.to_samples(proc_info.sample_rate);
             }
             AhdsrVolumeNodePatch::Decay(val) => {
                 self.decay = val;
                 self.decay_rate =
-                    (1. - self.sustain_proportion) * (val.0 * self.sample_rate_recip) as f32;
+                    (1. - self.sustain_proportion) * (val.0 * proc_info.sample_rate_recip) as f32;
             }
             AhdsrVolumeNodePatch::SustainProportion(sustain_proportion) => {
                 self.sustain_proportion = sustain_proportion;
-                self.decay_rate =
-                    (1. - self.sustain_proportion) * (self.decay.0 * self.sample_rate_recip) as f32;
+                self.decay_rate = (1. - self.sustain_proportion)
+                    * (self.decay.0 * proc_info.sample_rate_recip) as f32;
                 self.release_rate = (1. - self.sustain_proportion)
-                    * (self.release.0 * self.sample_rate_recip) as f32;
+                    * (self.release.0 * proc_info.sample_rate_recip) as f32;
             }
             AhdsrVolumeNodePatch::Release(val) => {
                 self.release = val;
                 self.release_rate =
-                    self.sustain_proportion * (val.0 * self.sample_rate_recip) as f32;
+                    self.sustain_proportion * (val.0 * proc_info.sample_rate_recip) as f32;
             }
             AhdsrVolumeNodePatch::TriggerMode(val) => {
                 self.off_state_transition = val.state_transition();
@@ -358,7 +350,8 @@ impl AudioNodeProcessor for AhdsrVolumeProcessor {
         while let Some(event) = events.get_event(event_index) {
             if let NodeEventType::CustomBytes(bytes) = &*event {
                 if let Some(trig) = TimedTriggerEvent::from_bytes(bytes) {
-                    let buf_range_end = (trig.sample - proc_info.clock_samples).0 as usize;
+                    let buf_range_end =
+                        (trig.sample - proc_info.audio_clock_samples.start).0 as usize;
 
                     process_range(self, buf_index..buf_range_end);
 
@@ -390,12 +383,10 @@ impl AudioNodeProcessor for AhdsrVolumeProcessor {
 
     fn new_stream(&mut self, stream_info: &StreamInfo) {
         self.attack_rate = (self.attack.0 * stream_info.sample_rate_recip) as _;
-        self.hold_samples = ClockSamples::from_secs_f64(self.hold.0, stream_info.sample_rate.get());
+        self.hold_samples = self.hold.to_samples(stream_info.sample_rate);
         self.decay_rate =
             (1. - self.sustain_proportion) * (self.decay.0 * stream_info.sample_rate_recip) as f32;
         self.release_rate =
             self.sustain_proportion * (self.release.0 * stream_info.sample_rate_recip) as f32;
-        self.sample_rate = stream_info.sample_rate;
-        self.sample_rate_recip = stream_info.sample_rate_recip;
     }
 }
