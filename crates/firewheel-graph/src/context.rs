@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
-use firewheel_core::clock::{DurationSeconds, TransportState};
+use firewheel_core::clock::{DurationSeconds, EventInstant, TransportState};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::AudioClock,
@@ -744,7 +744,28 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Note, this event will not be sent until the event queue is flushed
     /// in [`FirewheelCtx::update`].
     pub fn queue_event_for(&mut self, node_id: NodeID, event: NodeEventType) {
-        self.queue_event(NodeEvent { node_id, event });
+        self.queue_event(NodeEvent {
+            node_id,
+            time: None,
+            event,
+        });
+    }
+
+    /// Queue an event at a certain time, to be sent to an audio node's processor.
+    ///
+    /// Note, this event will not be sent until the event queue is flushed
+    /// in [`FirewheelCtx::update`].
+    pub fn schedule_event_for(
+        &mut self,
+        node_id: NodeID,
+        event: NodeEventType,
+        time: EventInstant,
+    ) {
+        self.queue_event(NodeEvent {
+            node_id,
+            time: Some(time),
+            event,
+        });
     }
 
     fn send_message_to_processor(
@@ -812,11 +833,43 @@ pub struct ContextQueue<'a, B: AudioBackend> {
     id: NodeID,
 }
 
+pub struct TimedContextQueue<'a, B: AudioBackend> {
+    time: EventInstant,
+    context_queue: ContextQueue<'a, B>,
+}
+
+impl<'a, B: AudioBackend> ContextQueue<'a, B> {
+    pub fn reborrow<'b>(&'b mut self) -> ContextQueue<'b, B> {
+        ContextQueue {
+            context: &mut *self.context,
+            id: self.id,
+        }
+    }
+
+    pub fn with_time<'b>(&'b mut self, time: EventInstant) -> TimedContextQueue<'b, B> {
+        TimedContextQueue {
+            time,
+            context_queue: self.reborrow(),
+        }
+    }
+}
+
 impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
     fn push(&mut self, data: NodeEventType) {
         self.context.queue_event(NodeEvent {
             event: data,
+            time: None,
             node_id: self.id,
+        });
+    }
+}
+
+impl<B: AudioBackend> firewheel_core::diff::EventQueue for TimedContextQueue<'_, B> {
+    fn push(&mut self, data: NodeEventType) {
+        self.context_queue.context.queue_event(NodeEvent {
+            event: data,
+            time: Some(self.time),
+            node_id: self.context_queue.id,
         });
     }
 }

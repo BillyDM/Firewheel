@@ -271,7 +271,7 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         let mut updated = false;
         events.for_each_patch::<SpatialBasicNode>(|mut patch| {
-            match &mut patch {
+            match &mut patch.event {
                 SpatialBasicNodePatch::Offset(offset) => {
                     if !offset.is_finite() {
                         *offset = Vec3::default();
@@ -286,7 +286,7 @@ impl AudioNodeProcessor for Processor {
                 _ => {}
             }
 
-            self.params.apply(patch);
+            self.params.apply(patch.event);
             updated = true;
         });
 

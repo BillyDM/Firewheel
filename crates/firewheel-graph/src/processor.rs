@@ -444,6 +444,14 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     return ProcessStatus::Bypass;
                 };
 
+                // This should be done when pushing an event, but for the sake of an MVP it's done here.
+                node_entry.event_indices.sort_unstable_by_key(|id| {
+                    self.event_buffer
+                        .get(*id as usize)
+                        .and_then(|ev| ev.time)
+                        .map(|time| time.to_samples(&proc_info))
+                });
+
                 let events = NodeEventList::new(&mut self.event_buffer, &node_entry.event_indices);
 
                 proc_info.in_silence_mask = in_silence_mask;

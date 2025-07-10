@@ -131,11 +131,11 @@ impl AudioNodeProcessor for Processor {
         events.for_each_patch::<VolumePanNode>(|mut patch| {
             // here we selectively clamp the panning, leaving
             // other patches untouched
-            if let VolumePanNodePatch::Pan(p) = &mut patch {
+            if let VolumePanNodePatch::Pan(p) = &mut patch.event {
                 *p = p.clamp(-1.0, 1.0);
             }
 
-            self.params.apply(patch);
+            self.params.apply(patch.event);
             updated = true;
         });
 

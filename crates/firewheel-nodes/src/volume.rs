@@ -2,7 +2,7 @@ use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
-    event::NodeEventList,
+    event::{NodeEventList, PatchEvent},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
@@ -92,18 +92,23 @@ impl AudioNodeProcessor for VolumeProcessor {
         proc_info: &ProcInfo,
         mut events: NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<VolumeNode>(|VolumeNodePatch::Volume(v)| {
-            let mut gain = v.amp_clamped(self.amp_epsilon);
-            if gain > 0.99999 && gain < 1.00001 {
-                gain = 1.0;
-            }
-            self.gain.set_value(gain);
+        events.for_each_patch::<VolumeNode>(
+            |PatchEvent {
+                 event: VolumeNodePatch::Volume(v),
+                 ..
+             }| {
+                let mut gain = v.amp_clamped(self.amp_epsilon);
+                if gain > 0.99999 && gain < 1.00001 {
+                    gain = 1.0;
+                }
+                self.gain.set_value(gain);
 
-            if self.prev_block_was_silent {
-                // Previous block was silent, so no need to smooth.
-                self.gain.reset();
-            }
-        });
+                if self.prev_block_was_silent {
+                    // Previous block was silent, so no need to smooth.
+                    self.gain.reset();
+                }
+            },
+        );
 
         self.prev_block_was_silent = false;
 

@@ -1,6 +1,7 @@
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
 
+use crate::clock::EventInstant;
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
     clock::{InstantMusical, InstantSamples, InstantSeconds, MusicalTransport},
@@ -270,6 +271,16 @@ impl<'a> UpdateContext<'a> {
     pub fn queue_event(&mut self, event: NodeEventType) {
         self.event_queue.push(NodeEvent {
             node_id: self.node_id,
+            time: None,
+            event,
+        });
+    }
+
+    /// Queue an event to send to this node's processor counterpart, at a certain time.
+    pub fn schedule_event(&mut self, event: NodeEventType, time: EventInstant) {
+        self.event_queue.push(NodeEvent {
+            node_id: self.node_id,
+            time: Some(time),
             event,
         });
     }

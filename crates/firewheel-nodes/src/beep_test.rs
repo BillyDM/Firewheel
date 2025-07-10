@@ -87,14 +87,14 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        events.for_each_patch::<BeepTestNode>(|patch| match patch {
-            BeepTestNodePatch::FreqHz(f) => {
+        events.for_each_patch::<BeepTestNode>(|patch| match &patch.event {
+            &BeepTestNodePatch::FreqHz(f) => {
                 self.phasor_inc = f.clamp(20.0, 20_000.0) * proc_info.sample_rate_recip as f32;
             }
-            BeepTestNodePatch::Volume(v) => {
+            &BeepTestNodePatch::Volume(v) => {
                 self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
             }
-            BeepTestNodePatch::Enabled(e) => self.enabled = e,
+            &BeepTestNodePatch::Enabled(e) => self.enabled = e,
         });
 
         if !self.enabled {

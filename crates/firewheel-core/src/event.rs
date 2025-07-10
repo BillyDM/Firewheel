@@ -4,8 +4,8 @@ pub use glam::{Vec2, Vec3};
 
 use crate::{
     clock::{
-        DurationMusical, DurationSamples, DurationSeconds, InstantMusical, InstantSamples,
-        InstantSeconds,
+        DurationMusical, DurationSamples, DurationSeconds, EventInstant, InstantMusical,
+        InstantSamples, InstantSeconds,
     },
     diff::ParamPath,
     dsp::volume::Volume,
@@ -16,6 +16,9 @@ use crate::{
 pub struct NodeEvent {
     /// The ID of the node that should receive the event.
     pub node_id: NodeID,
+    /// Optionally, a time to schedule this event at. If `None`, the event is considered
+    /// to be at the start of the next processing period.
+    pub time: Option<EventInstant>,
     /// The type of event.
     pub event: NodeEventType,
 }
@@ -120,6 +123,14 @@ pub struct NodeEventList<'a> {
     indices: &'a [u32],
 }
 
+pub struct PatchEvent<T>
+where
+    T: crate::diff::Patch,
+{
+    pub time: Option<EventInstant>,
+    pub event: T::Patch,
+}
+
 impl<'a> NodeEventList<'a> {
     pub fn new(event_buffer: &'a mut [NodeEvent], indices: &'a [u32]) -> Self {
         Self {
@@ -170,14 +181,16 @@ impl<'a> NodeEventList<'a> {
     /// ```
     ///
     /// Errors produced while constructing patches are simply skipped.
-    pub fn for_each_patch<T: crate::diff::Patch>(&mut self, mut f: impl FnMut(T::Patch)) {
+    pub fn for_each_patch<T: crate::diff::Patch>(&mut self, mut f: impl FnMut(PatchEvent<T>)) {
+        // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>` but it would require a marker trait
+        // for the `diff::Patch::Patch` assoc type to prevent overlapping impls.
         for &idx in self.indices {
-            if let Some(patch) = self
+            if let Some((time, Some(patch))) = self
                 .event_buffer
                 .get_mut(idx as usize)
-                .and_then(|e| T::patch_event(&e.event))
+                .map(|e| (e.time, T::patch_event(&e.event)))
             {
-                (f)(patch);
+                (f)(PatchEvent { time, event: patch });
             }
         }
     }
