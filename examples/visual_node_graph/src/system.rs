@@ -153,7 +153,11 @@ impl AudioSystem {
 
     #[expect(dead_code)]
     pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
-        self.cx.queue_event(NodeEvent { node_id, time: None, event });
+        self.cx.queue_event(NodeEvent {
+            node_id,
+            time: None,
+            event,
+        });
     }
 
     pub fn event_queue(&mut self, node_id: NodeID) -> ContextQueue<'_, CpalBackend> {

@@ -168,10 +168,7 @@ impl SimpleAudioProcessor for VolumeProcessor {
             let out0 = buffers.outputs.next().unwrap();
             let out1 = buffers.outputs.next().unwrap();
 
-            for ((os0, ins0), (os1, ins1)) in out0
-                .iter_mut()
-                .zip(in0)
-                .zip(out1.iter_mut().zip(in1))
+            for ((os0, ins0), (os1, ins1)) in out0.iter_mut().zip(in0).zip(out1.iter_mut().zip(in1))
             {
                 let g = self.gain.next_smoothed();
                 *os0 = *ins0 * g;
@@ -182,9 +179,7 @@ impl SimpleAudioProcessor for VolumeProcessor {
             self.gain
                 .process_into_buffer(&mut scratch[..buffers.frames]);
 
-            for (ch_i, (out_ch, in_ch)) in
-                buffers.outputs.zip(buffers.inputs).enumerate()
-            {
+            for (ch_i, (out_ch, in_ch)) in buffers.outputs.zip(buffers.inputs).enumerate() {
                 if proc_info.in_silence_mask.is_channel_silent(ch_i) {
                     if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
                         out_ch.fill(0.0);

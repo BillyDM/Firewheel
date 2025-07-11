@@ -31,6 +31,24 @@ pub enum EventInstant {
     Musical(InstantMusical),
 }
 
+impl From<InstantSeconds> for EventInstant {
+    fn from(value: InstantSeconds) -> Self {
+        Self::Seconds(value)
+    }
+}
+
+impl From<InstantSamples> for EventInstant {
+    fn from(value: InstantSamples) -> Self {
+        Self::Samples(value)
+    }
+}
+
+impl From<InstantMusical> for EventInstant {
+    fn from(value: InstantMusical) -> Self {
+        Self::Musical(value)
+    }
+}
+
 impl EventInstant {
     /// Convert this instant to units of `ClockSamples`.
     ///

@@ -9,7 +9,7 @@ use crate::{
     },
     diff::ParamPath,
     dsp::volume::Volume,
-    node::NodeID,
+    node::{NodeID, ProcInfo},
 };
 
 /// An event sent to an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
@@ -128,6 +128,18 @@ pub struct ScheduledEvent<E> {
     pub event: E,
 }
 
+impl<E> ScheduledEvent<E> {
+    pub fn before(&self, time: EventInstant, proc_info: &ProcInfo) -> bool {
+        match (
+            time.to_samples(proc_info),
+            self.time.and_then(|time| time.to_samples(proc_info)),
+        ) {
+            (Some(check_time), Some(this_time)) => check_time <= this_time,
+            _ => true,
+        }
+    }
+}
+
 impl<'a> NodeEventList<'a> {
     pub fn new(event_buffer: &'a mut [NodeEvent], indices: &'a [u32]) -> Self {
         Self {
@@ -141,18 +153,22 @@ impl<'a> NodeEventList<'a> {
     }
 
     pub fn get_event(&mut self, index: usize) -> Option<ScheduledEvent<&mut NodeEventType>> {
-        self.indices
-            .get(index)
-            .map(|idx| {
-                let event = &mut self.event_buffer[*idx as usize];
-                ScheduledEvent { time: event.time, event: &mut event.event}
-            })
+        self.indices.get(index).map(|idx| {
+            let event = &mut self.event_buffer[*idx as usize];
+            ScheduledEvent {
+                time: event.time,
+                event: &mut event.event,
+            }
+        })
     }
 
     pub fn for_each(&mut self, mut f: impl FnMut(ScheduledEvent<&mut NodeEventType>)) {
         for &idx in self.indices {
             if let Some(event) = self.event_buffer.get_mut(idx as usize) {
-                (f)(ScheduledEvent{ time: event.time, event: &mut event.event});
+                (f)(ScheduledEvent {
+                    time: event.time,
+                    event: &mut event.event,
+                });
             }
         }
     }
@@ -181,7 +197,10 @@ impl<'a> NodeEventList<'a> {
     /// ```
     ///
     /// Errors produced while constructing patches are simply skipped.
-    pub fn for_each_patch<T: crate::diff::Patch>(&mut self, mut f: impl FnMut(ScheduledEvent<T::Patch>)) {
+    pub fn for_each_patch<T: crate::diff::Patch>(
+        &mut self,
+        mut f: impl FnMut(ScheduledEvent<T::Patch>),
+    ) {
         // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>` but it would require a marker trait
         // for the `diff::Patch::Patch` assoc type to prevent overlapping impls.
         for &idx in self.indices {
