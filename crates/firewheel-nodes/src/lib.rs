@@ -17,6 +17,7 @@ pub mod stream;
 pub mod noise_generator;
 
 mod stereo_to_mono;
+
 pub use stereo_to_mono::StereoToMonoNode;
 
 pub mod volume_pan;

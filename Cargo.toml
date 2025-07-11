@@ -105,6 +105,7 @@ log = "0.4"
 ringbuf = { version = "0.4", features = ["portable-atomic"] }
 triple_buffer = "8"
 thiserror = "2"
+itertools = "0.14"
 smallvec = "1"
 arrayvec = "0.7"
 bitflags = "2"

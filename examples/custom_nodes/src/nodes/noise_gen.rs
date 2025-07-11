@@ -123,11 +123,11 @@ impl AudioNodeProcessor for Processor {
         events.for_each_patch::<NoiseGenNode>(|patch| {
             // Since we want to clamp the volume event, we can
             // grab it here and perform the processing only when required.
-            if let NoiseGenNodePatch::Volume(vol) = &patch {
+            if let NoiseGenNodePatch::Volume(vol) = &patch.event {
                 self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
             }
 
-            self.params.apply(patch);
+            self.params.apply(patch.event);
         });
 
         if !self.params.enabled {

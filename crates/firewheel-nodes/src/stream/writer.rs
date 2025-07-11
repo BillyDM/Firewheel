@@ -367,7 +367,7 @@ impl AudioNodeProcessor for Processor {
         mut events: NodeEventList,
     ) -> ProcessStatus {
         events.for_each(|event| {
-            if let NodeEventType::Custom(event) = event {
+            if let NodeEventType::Custom(event) = event.event {
                 if let Some(in_stream_event) = event
                     .downcast_mut::<SyncWrapper<NewInputStreamEvent>>()
                     .and_then(SyncWrapper::get_mut)

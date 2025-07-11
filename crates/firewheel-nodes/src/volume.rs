@@ -1,19 +1,12 @@
-use std::{
-    mem,
-    ops::{self, Range},
-};
-
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
     dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
-    event::{NodeEventList, PatchEvent},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcInfo, ProcessStatus,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, GetChannels,
+        ProcInfo, ProcessStatus, SimpleAudioProcessor,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
-    SilenceMask,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -90,37 +83,36 @@ struct VolumeProcessor {
     amp_epsilon: f32,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-struct VolumeResult {
-    // This should be a more-generic `ChannelMask` but we reuse `SilenceMask` for the MVP.
-    unity: SilenceMask,
-    silent: SilenceMask,
-}
+impl SimpleAudioProcessor for VolumeProcessor {
+    type Node = VolumeNode;
 
-impl ops::BitAnd for VolumeResult {
-    type Output = Self;
+    fn can_skip_patch(&self, VolumeNodePatch::Volume(v): &VolumeNodePatch) -> bool {
+        let gain = v.amp_clamped(self.amp_epsilon);
 
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self {
-            unity: SilenceMask(self.unity.0 & rhs.unity.0),
-            silent: SilenceMask(self.silent.0 & rhs.silent.0),
+        // If the gain has not meaningfully changed, ignore.
+        (gain - self.gain.target_value()).abs() < DEFAULT_AMP_EPSILON
+    }
+
+    fn apply_patch(&mut self, VolumeNodePatch::Volume(v): VolumeNodePatch) {
+        let mut gain = v.amp_clamped(self.amp_epsilon);
+
+        if (1. - DEFAULT_AMP_EPSILON..1. + DEFAULT_AMP_EPSILON).contains(&gain) {
+            gain = 1.0;
+        }
+
+        self.gain.set_value(gain);
+
+        if self.prev_block_was_silent {
+            // Previous block was silent, so no need to smooth.
+            self.gain.reset();
         }
     }
-}
 
-impl ops::BitAndAssign for VolumeResult {
-    fn bitand_assign(&mut self, rhs: Self) {
-        *self = *self & rhs;
-    }
-}
+    fn process<B: GetChannels>(&mut self, mut buffers: B, proc_info: &ProcInfo) -> ProcessStatus {
+        self.prev_block_was_silent = false;
 
-impl VolumeProcessor {
-    fn process_range(
-        &mut self,
-        buffers: &mut ProcBuffers,
-        proc_info: &ProcInfo,
-        range: Range<usize>,
-    ) -> VolumeResult {
+        let mut buffers = buffers.channels();
+
         if proc_info
             .in_silence_mask
             .all_channels_silent(buffers.inputs.len())
@@ -130,86 +122,68 @@ impl VolumeProcessor {
             self.gain.reset();
             self.prev_block_was_silent = true;
 
-            return VolumeResult {
-                unity: SilenceMask::NONE_SILENT,
-                silent: SilenceMask::new_all_silent(buffers.outputs.len()),
-            };
+            return ProcessStatus::ClearAllOutputs;
         }
 
         if !self.gain.is_smoothing() {
             if self.gain.target_value() == 0.0 {
                 self.prev_block_was_silent = true;
                 // Muted, so there is no need to process.
-                return VolumeResult {
-                    unity: SilenceMask::NONE_SILENT,
-                    silent: SilenceMask::new_all_silent(buffers.outputs.len()),
-                };
+                return ProcessStatus::ClearAllOutputs;
             } else if self.gain.target_value() == 1.0 {
                 // Unity gain, there is no need to process.
-                return VolumeResult {
-                    unity: SilenceMask::new_all_silent(buffers.outputs.len()),
-                    silent: SilenceMask::NONE_SILENT,
-                };
+                return ProcessStatus::Bypass;
             } else {
-                for (ch_i, (out_ch, in_ch)) in buffers
-                    .outputs
-                    .iter_mut()
-                    .zip(buffers.inputs.iter())
-                    .enumerate()
-                {
+                for (ch_i, (out_ch, in_ch)) in buffers.outputs.zip(buffers.inputs).enumerate() {
                     if proc_info.in_silence_mask.is_channel_silent(ch_i) {
                         if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
-                            out_ch[range.clone()].fill(0.0);
+                            out_ch.fill(0.0);
                         }
                     } else {
-                        for (os, &is) in out_ch[range.clone()]
-                            .iter_mut()
-                            .zip(in_ch[range.clone()].iter())
-                        {
+                        for (os, &is) in out_ch.iter_mut().zip(in_ch.iter()) {
                             *os = is * self.gain.target_value();
                         }
                     }
                 }
 
-                return VolumeResult {
-                    unity: SilenceMask::NONE_SILENT,
-                    silent: proc_info.in_silence_mask,
+                return ProcessStatus::OutputsModified {
+                    out_silence_mask: proc_info.in_silence_mask,
                 };
             }
         }
 
         if buffers.inputs.len() == 1 {
-            // Provide an optimized loop for mono.
-            for (os, &is) in buffers.outputs[0][range.clone()]
+            for (os, is) in buffers
+                .outputs
+                .next()
+                .unwrap()
                 .iter_mut()
-                .zip(buffers.inputs[0][range.clone()].iter())
+                .zip(buffers.inputs.next().unwrap().iter())
             {
                 *os = is * self.gain.next_smoothed();
             }
         } else if buffers.inputs.len() == 2 {
-            // Provide an optimized loop for stereo.
+            let in0 = buffers.inputs.next().unwrap();
+            let in1 = buffers.inputs.next().unwrap();
+            let out0 = buffers.outputs.next().unwrap();
+            let out1 = buffers.outputs.next().unwrap();
 
-            let in0 = &buffers.inputs[0][range.clone()];
-            let in1 = &buffers.inputs[1][range.clone()];
-            let (out0, out1) = buffers.outputs.split_first_mut().unwrap();
-            let out0 = &mut out0[range.clone()];
-            let out1 = &mut out1[0][range.clone()];
-
-            for i in 0..proc_info.frames {
-                let gain = self.gain.next_smoothed();
-
-                out0[i] = in0[i] * gain;
-                out1[i] = in1[i] * gain;
+            for ((os0, ins0), (os1, ins1)) in out0
+                .iter_mut()
+                .zip(in0)
+                .zip(out1.iter_mut().zip(in1))
+            {
+                let g = self.gain.next_smoothed();
+                *os0 = *ins0 * g;
+                *os1 = *ins1 * g;
             }
         } else {
+            let scratch = buffers.scratch_buffers.next().unwrap();
             self.gain
-                .process_into_buffer(&mut buffers.scratch_buffers[0][range.clone()]);
+                .process_into_buffer(&mut scratch[..buffers.frames]);
 
-            for (ch_i, (out_ch, in_ch)) in buffers
-                .outputs
-                .iter_mut()
-                .zip(buffers.inputs.iter())
-                .enumerate()
+            for (ch_i, (out_ch, in_ch)) in
+                buffers.outputs.zip(buffers.inputs).enumerate()
             {
                 if proc_info.in_silence_mask.is_channel_silent(ch_i) {
                     if !proc_info.out_silence_mask.is_channel_silent(ch_i) {
@@ -218,11 +192,7 @@ impl VolumeProcessor {
                     continue;
                 }
 
-                for ((os, &is), &g) in out_ch
-                    .iter_mut()
-                    .zip(in_ch.iter())
-                    .zip(buffers.scratch_buffers[0][range.clone()].iter())
-                {
+                for ((os, &is), &g) in out_ch.iter_mut().zip(in_ch.iter()).zip(&*scratch) {
                     *os = is * g;
                 }
             }
@@ -230,85 +200,8 @@ impl VolumeProcessor {
 
         self.gain.settle();
 
-        VolumeResult {
-            unity: SilenceMask::NONE_SILENT,
-            silent: SilenceMask::NONE_SILENT,
-        }
-    }
-}
-
-impl AudioNodeProcessor for VolumeProcessor {
-    fn process(
-        &mut self,
-        mut buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        mut events: NodeEventList,
-    ) -> ProcessStatus {
-        let mut result = VolumeResult {
-            unity: SilenceMask::new_all_silent(buffers.outputs.len()),
-            silent: SilenceMask::new_all_silent(buffers.outputs.len()),
-        };
-
-        let mut start = 0usize;
-
-        events.for_each_patch::<VolumeNode>(
-            |PatchEvent {
-                 event: VolumeNodePatch::Volume(v),
-                 time,
-             }| {
-                let mut gain = v.amp_clamped(self.amp_epsilon);
-
-                // If the gain has not meaningfully changed, ignore.
-                if (gain - self.gain.target_value()).abs() < 0.00001 {
-                    return;
-                }
-
-                let prev_block_was_silent =
-                    if let Some(time) = time.and_then(|time| time.to_samples(proc_info)) {
-                        let end = time.0 - proc_info.clock_samples.start.0;
-                        debug_assert!((start as i64..proc_info.frames as i64).contains(&end));
-                        let range = start..end.max(start as i64) as usize;
-
-                        // Just in case multiple events with the same time were scheduled.
-                        if range.len() <= 0 {
-                            return;
-                        }
-
-                        let prev_block_was_silent = mem::take(&mut self.prev_block_was_silent);
-
-                        result &= self.process_range(&mut buffers, proc_info, range.clone());
-
-                        start = range.end;
-
-                        prev_block_was_silent
-                    } else {
-                        self.prev_block_was_silent
-                    };
-
-                if (0.99999..1.00001).contains(&gain) {
-                    gain = 1.0;
-                }
-
-                self.gain.set_value(gain);
-
-                if prev_block_was_silent {
-                    // Previous block was silent, so no need to smooth.
-                    self.gain.reset();
-                }
-            },
-        );
-
-        let range = start..proc_info.frames;
-        result &= self.process_range(&mut buffers, proc_info, range);
-
-        if result.silent.all_channels_silent(buffers.outputs.len()) {
-            ProcessStatus::ClearAllOutputs
-        } else if result.unity.all_channels_silent(buffers.outputs.len()) {
-            ProcessStatus::Bypass
-        } else {
-            ProcessStatus::OutputsModified {
-                out_silence_mask: result.silent,
-            }
+        ProcessStatus::OutputsModified {
+            out_silence_mask: proc_info.in_silence_mask,
         }
     }
 
