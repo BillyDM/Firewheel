@@ -161,7 +161,7 @@ impl AudioNodeProcessor for Processor {
         // The list of events for our node to process.
         mut events: NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<RmsNode>(|p| self.params.apply(p));
+        events.for_each_patch::<RmsNode>(|p| self.params.apply(p.event));
 
         if !self.params.enabled {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);

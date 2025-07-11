@@ -835,14 +835,14 @@ impl AudioNodeProcessor for SamplerProcessor {
         let mut speed_changed = false;
 
         events.for_each_patch::<SamplerNode>(|patch| {
-            match &patch {
+            match &patch.event {
                 SamplerNodePatch::Sequence(_) => sequence_changed = true,
                 SamplerNodePatch::Playhead(_) => playhead_changed = true,
                 SamplerNodePatch::Playback(_) => playback_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
             }
 
-            self.params.apply(patch);
+            self.params.apply(patch.event);
         });
 
         if speed_changed {

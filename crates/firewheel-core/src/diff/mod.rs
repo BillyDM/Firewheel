@@ -423,7 +423,7 @@ impl core::ops::Deref for ParamPath {
 ///         mut events: NodeEventList,
 ///     ) -> ProcessStatus {
 ///         // Synchronize `params` from the event list.
-///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch));
+///         events.for_each_patch::<MyParams>(|patch| self.params.apply(patch.event));
 ///
 ///         // ...
 ///
@@ -455,7 +455,7 @@ impl core::ops::Deref for ParamPath {
 ///         events.for_each_patch::<MyParams>(|mut patch| {
 ///             // When you derive `Patch`, it creates an enum with variants
 ///             // for each field.
-///             match &mut patch {
+///             match &mut patch.event {
 ///                 MyParamsPatch::A(a) => {
 ///                     // You can mutate the patch itself if you want
 ///                     // to constrain or modify values.
@@ -465,7 +465,7 @@ impl core::ops::Deref for ParamPath {
 ///             }
 ///
 ///             // And / or apply it directly.
-///             self.params.apply(patch);
+///             self.params.apply(patch.event);
 ///         });
 ///
 ///         // ...
@@ -563,7 +563,7 @@ pub trait Patch {
     /// let mut filter_params = FilterParams::default();
     ///
     /// event_list.for_each(|e| {
-    ///     match e {
+    ///     match e.event {
     ///         NodeEventType::Param { data, path } => {
     ///             let Ok(patch) = FilterParams::patch(data, path) else {
     ///                 return;
@@ -617,7 +617,7 @@ pub trait Patch {
     /// }
     ///
     /// let mut filter_params = FilterParams::default();
-    /// event_list.for_each_patch::<FilterParams>(|patch| filter_params.apply(patch));
+    /// event_list.for_each_patch::<FilterParams>(|patch| filter_params.apply(patch.event));
     /// # }
     /// ```
     ///

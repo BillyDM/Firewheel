@@ -58,4 +58,5 @@ bevy_platform.workspace = true
 crossbeam-utils = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 fixed-resample = { version = "0.9.1", features = ["fft-resampler", "channel"], optional = true }
+itertools.workspace = true
 bevy_ecs = { version = "0.16", optional = true }

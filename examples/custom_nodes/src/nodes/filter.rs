@@ -136,7 +136,7 @@ impl AudioNodeProcessor for Processor {
         //
         // We don't need to keep around a `FilterNode` instance,
         // so we can just match on each event directly.
-        events.for_each_patch::<FilterNode>(|patch| match patch {
+        events.for_each_patch::<FilterNode>(|patch| match patch.event {
             FilterNodePatch::CutoffHz(cutoff) => {
                 self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
             }
