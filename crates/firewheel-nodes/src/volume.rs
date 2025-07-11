@@ -84,7 +84,7 @@ struct VolumeProcessor {
 }
 
 impl SimpleAudioProcessor for VolumeProcessor {
-    type Node = VolumeNode;
+    type Params = VolumeNode;
 
     fn can_skip_patch(&self, VolumeNodePatch::Volume(v): &VolumeNodePatch) -> bool {
         let gain = v.amp_clamped(self.amp_epsilon);

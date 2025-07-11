@@ -122,7 +122,7 @@ struct Processor {
 }
 
 impl SimpleAudioProcessor for Processor {
-    type Node = VolumePanNode;
+    type Params = VolumePanNode;
 
     fn apply_patch(&mut self, mut patch: VolumePanNodePatch) {
         // here we selectively clamp the panning, leaving

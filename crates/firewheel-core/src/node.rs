@@ -663,7 +663,7 @@ impl<'a, 'b, 'c, 'd> GetChannels for (&mut ProcBuffers<'a, 'b, 'c, 'd>, Range<us
 /// Helper trait for nodes that want to process scheduled patch events but don't care about the details.
 pub trait SimpleAudioProcessor {
     /// The node type that created this processor, for which the processor should receive patch events for.
-    type Node: crate::diff::Patch;
+    type Params: crate::diff::Patch;
 
     /// Whether a patch will do anything if applied.
     ///
@@ -674,7 +674,7 @@ pub trait SimpleAudioProcessor {
     ///
     /// This is called on the audio thread, and should never allocate/deallocate or perform other non-realtime-safe methods.
     #[inline]
-    fn can_skip_patch(&self, patch: &<Self::Node as crate::diff::Patch>::Patch) -> bool {
+    fn can_skip_patch(&self, patch: &<Self::Params as crate::diff::Patch>::Patch) -> bool {
         let _ = patch;
         false
     }
@@ -683,7 +683,7 @@ pub trait SimpleAudioProcessor {
     ///
     /// This is called on the audio thread, and should never allocate/deallocate or perform other non-realtime-safe methods.
     #[inline]
-    fn apply_patch(&mut self, patch: <Self::Node as crate::diff::Patch>::Patch) {
+    fn apply_patch(&mut self, patch: <Self::Params as crate::diff::Patch>::Patch) {
         let _ = patch;
     }
 
@@ -755,7 +755,7 @@ where
         let mut start = 0;
         let mut status = None;
 
-        events.for_each_patch::<<Self as SimpleAudioProcessor>::Node>(|patch| {
+        events.for_each_patch::<<Self as SimpleAudioProcessor>::Params>(|patch| {
             'process_range: {
                 if let Some(time) = patch.time.and_then(|time| time.to_samples(proc_info)) {
                     if self.can_skip_patch(&patch.event) {

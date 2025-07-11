@@ -265,7 +265,7 @@ struct Processor {
 }
 
 impl SimpleAudioProcessor for Processor {
-    type Node = SpatialBasicNode;
+    type Params = SpatialBasicNode;
 
     fn apply_patch(&mut self, mut patch: SpatialBasicNodePatch) {
         match &mut patch {
