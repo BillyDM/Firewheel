@@ -118,11 +118,11 @@ impl AudioNodeProcessor for Processor {
         mut events: NodeEventList,
     ) -> ProcessStatus {
         events.for_each_patch::<PinkNoiseGenNode>(|patch| {
-            if let PinkNoiseGenNodePatch::Volume(vol) = &patch {
+            if let PinkNoiseGenNodePatch::Volume(vol) = &patch.event {
                 self.gain.set_value(vol.amp_clamped(DEFAULT_AMP_EPSILON));
             }
 
-            self.params.apply(patch);
+            self.params.apply(patch.event);
         });
 
         if !self.params.enabled || (self.gain.target_value() == 0.0 && !self.gain.is_smoothing()) {
