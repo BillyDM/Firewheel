@@ -23,6 +23,13 @@ impl<T> SyncWrapper<T> {
         self.0.take()
     }
 
+    /// Obtain an imutable reference to the inner value.
+    ///
+    /// If `take` has been called previously, this returns `None`.
+    pub fn get(&mut self) -> Option<&T> {
+        self.0.as_ref()
+    }
+
     /// Obtain a mutable reference to the inner value.
     ///
     /// If `take` has been called previously, this returns `None`.

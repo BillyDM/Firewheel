@@ -104,7 +104,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("patching shallow", |b| {
         b.iter(|| {
-            for message in &messages {
+            for message in messages.drain(..) {
                 target.apply(ShallowParams::patch_event(message).unwrap());
                 black_box(&target);
             }
@@ -125,7 +125,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("patching three", |b| {
         b.iter(|| {
-            for message in &messages {
+            for message in messages.drain(..) {
                 target.apply(DoubleNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
@@ -149,7 +149,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.apply(ShallowParams::patch_event(&message).unwrap());
+                target.apply(ShallowParams::patch_event(message).unwrap());
                 black_box(&target);
             }
         })
@@ -171,7 +171,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.apply(DoubleNesting::patch_event(&message).unwrap());
+                target.apply(DoubleNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
         })
@@ -193,7 +193,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
 
             for message in messages.drain(..) {
-                target.apply(QuadNesting::patch_event(&message).unwrap());
+                target.apply(QuadNesting::patch_event(message).unwrap());
                 black_box(&target);
             }
         })

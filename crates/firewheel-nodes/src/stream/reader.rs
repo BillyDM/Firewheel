@@ -15,7 +15,6 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
     },
-    sync_wrapper::SyncWrapper,
 };
 use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 
@@ -313,7 +312,6 @@ impl AudioNode for StreamReaderNode {
                 num_inputs: config.channels.get(),
                 num_outputs: ChannelCount::ZERO,
             })
-            .uses_events(true)
             .custom_state(StreamReaderState::new(config.channels))
     }
 
@@ -375,20 +373,15 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
-        events.for_each(|event| {
-            if let NodeEventType::Custom(event) = event.event {
-                if let Some(out_stream_event) = event
-                    .downcast_mut::<SyncWrapper<NewOutputStreamEvent>>()
-                    .and_then(SyncWrapper::get_mut)
-                {
-                    // Swap the memory so that the old channel will be properly
-                    // dropped outside of the audio thread.
-                    core::mem::swap(&mut self.prod, &mut out_stream_event.prod);
-                }
+        for mut event in events.drain() {
+            if let Some(out_stream_event) = event.downcast_mut::<NewOutputStreamEvent>() {
+                // Swap the values so that the old producer gets dropped on
+                // the main thread.
+                core::mem::swap(&mut self.prod, &mut out_stream_event.prod);
             }
-        });
+        }
 
         if !self.shared_state.stream_active.load(Ordering::Relaxed)
             || self.shared_state.paused.load(Ordering::Relaxed)
@@ -443,6 +436,6 @@ pub struct NewOutputStreamEvent {
 
 impl From<NewOutputStreamEvent> for NodeEventType {
     fn from(value: NewOutputStreamEvent) -> Self {
-        NodeEventType::Custom(Box::new(SyncWrapper::new(value)))
+        NodeEventType::custom(value)
     }
 }

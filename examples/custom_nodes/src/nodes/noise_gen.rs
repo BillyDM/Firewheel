@@ -74,10 +74,6 @@ impl AudioNode for NoiseGenNode {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
             })
-            // Wether or not our node uses events. If it does not, then setting
-            // this to `false` will save a bit of memory by not allocating an
-            // event buffer for this node.
-            .uses_events(true)
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -117,20 +113,20 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         _proc_info: &ProcInfo,
         // The list of events for our node to process.
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
-        events.for_each_patch::<NoiseGenNode>(|patch| {
+        for patch in events.drain_patches::<NoiseGenNode>() {
             // Since we want to clamp the volume event, we can
             // grab it here and perform the processing only when required.
-            if let NoiseGenNodePatch::Volume(vol) = &patch.event {
+            if let NoiseGenNodePatch::Volume(vol) = &patch {
                 self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
             }
 
-            self.params.apply(patch.event);
-        });
+            self.params.apply(patch);
+        }
 
-        if !self.params.enabled {
+        if !self.params.enabled || self.gain == 0.0 {
             // Tell the engine to automatically and efficiently clear the output buffers
             // for us. This is equivalent to doing:
             // ```

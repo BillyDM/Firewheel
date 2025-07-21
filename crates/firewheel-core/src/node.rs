@@ -1,10 +1,11 @@
 use core::time::Duration;
-use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32, ops::Range};
+use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
+use std::ops::Range;
 
-use crate::clock::EventInstant;
+use crate::clock::{DurationSamples, EventInstant, InstantMusical, InstantSeconds};
 use crate::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::{InstantMusical, InstantSamples, InstantSeconds, MusicalTransport},
+    clock::{InstantSamples, MusicalTransport},
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventList, NodeEventType},
     SilenceMask, StreamInfo,
@@ -34,9 +35,9 @@ impl Default for NodeID {
 pub struct AudioNodeInfo {
     debug_name: &'static str,
     channel_config: ChannelConfig,
-    uses_events: bool,
     call_update_method: bool,
     custom_state: Option<Box<dyn Any>>,
+    latency_frames: u32,
 }
 
 impl AudioNodeInfo {
@@ -48,9 +49,9 @@ impl AudioNodeInfo {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::ZERO,
             },
-            uses_events: false,
             call_update_method: false,
             custom_state: None,
+            latency_frames: 0,
         }
     }
 
@@ -66,17 +67,6 @@ impl AudioNodeInfo {
     /// channels.
     pub const fn channel_config(mut self, channel_config: ChannelConfig) -> Self {
         self.channel_config = channel_config;
-        self
-    }
-
-    /// Set to `true` if this node type uses events, `false` otherwise.
-    ///
-    /// Setting to `false` will help the system save some memory by not
-    /// allocating an event buffer for this node.
-    ///
-    /// By default this is set to `false`.
-    pub const fn uses_events(mut self, uses_events: bool) -> Self {
-        self.uses_events = uses_events;
         self
     }
 
@@ -98,16 +88,14 @@ impl AudioNodeInfo {
         self.custom_state = Some(Box::new(custom_state));
         self
     }
-}
 
-/// Information about an [`AudioNode`]. Used internally by the Firewheel context.
-#[derive(Debug)]
-pub struct AudioNodeInfoInner {
-    pub debug_name: &'static str,
-    pub channel_config: ChannelConfig,
-    pub uses_events: bool,
-    pub call_update_method: bool,
-    pub custom_state: Option<Box<dyn Any>>,
+    /// Set the latency of this node in frames (samples in a single channel of audio).
+    ///
+    /// By default this is set to `0`.
+    pub const fn latency_frames(mut self, latency_frames: u32) -> Self {
+        self.latency_frames = latency_frames;
+        self
+    }
 }
 
 impl Into<AudioNodeInfoInner> for AudioNodeInfo {
@@ -115,11 +103,21 @@ impl Into<AudioNodeInfoInner> for AudioNodeInfo {
         AudioNodeInfoInner {
             debug_name: self.debug_name,
             channel_config: self.channel_config,
-            uses_events: self.uses_events,
             call_update_method: self.call_update_method,
             custom_state: self.custom_state,
+            latency_frames: self.latency_frames,
         }
     }
+}
+
+/// Information about an [`AudioNode`]. Used internally by the Firewheel context.
+#[derive(Debug)]
+pub struct AudioNodeInfoInner {
+    pub debug_name: &'static str,
+    pub channel_config: ChannelConfig,
+    pub call_update_method: bool,
+    pub custom_state: Option<Box<dyn Any>>,
+    pub latency_frames: u32,
 }
 
 /// A trait representing a node in a Firewheel audio graph.
@@ -393,7 +391,7 @@ pub trait AudioNodeProcessor: 'static + Send {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus;
 
     /// Called when the audio stream has been stopped.
@@ -421,7 +419,7 @@ pub struct ProcBuffers<'a, 'b, 'c, 'd> {
     /// Each channel slice will have a length of [`ProcInfo::frames`].
     pub inputs: &'a [&'b [f32]],
 
-    /// The audio input buffers.
+    /// The audio output buffers.
     ///
     /// The number of channels will always equal the [`ChannelConfig::num_outputs`]
     /// value that was returned in [`AudioNode::info`].
@@ -464,13 +462,10 @@ pub struct ProcInfo<'a> {
     /// division and improve performance.
     pub sample_rate_recip: f64,
 
-    /// The current time of the audio clock, equal to the total number of
-    /// frames (samples in a single channel of audio) that have been
-    /// processed since this Firewheel context was first started.
-    ///
-    /// The start of the range is the instant of time at the first frame
-    /// in the block (inclusive), and the end of the range is the instant
-    /// of time at the end of the block (exclusive).
+    /// The current time of the audio clock at the first frame in this
+    /// processing block, equal to the total number of frames (samples in
+    /// a single channel of audio) that have been processed since this
+    /// Firewheel context was first started.
     ///
     /// Note, this value does *NOT* account for any output underflows
     /// (underruns) that may have occured.
@@ -478,19 +473,7 @@ pub struct ProcInfo<'a> {
     /// Note, generally this value will always count up, but there may be
     /// a few edge cases that cause this value to be less than the previous
     /// block, such as when the sample rate of the stream has been changed.
-    pub clock_samples: Range<InstantSamples>,
-
-    /// The current time of the audio clock, equal to the total amount of
-    /// data in seconds that have been processed since this Firewheel
-    /// context was first started.
-    ///
-    /// The start of the range is the instant of time at the first frame
-    /// in the block (inclusive), and the end of the range is the instant
-    /// of time at the end of the block (exclusive).
-    ///
-    /// Note, this value does *NOT* account for any output underflows
-    /// (underruns) that may have occured.
-    pub clock_seconds: Range<InstantSeconds>,
+    pub clock_samples: InstantSamples,
 
     /// The duration between when the stream was started an when the
     /// Firewheel processor's `process` method was called.
@@ -525,26 +508,113 @@ pub struct ProcInfo<'a> {
     pub declick_values: &'a DeclickValues,
 }
 
-#[derive(Clone)]
-pub struct TransportInfo<'a> {
-    /// The current transport.
-    pub transport: &'a MusicalTransport,
-
-    /// The current time of the musical transport.
-    ///
-    /// The start of the range is the instant of time at the first frame in
-    /// the block (inclusive), and the end of the range is the instant of
-    /// time at the end of the block (exclusive).
-    ///
-    /// This will be `None` if no musical clock is currently present.
+impl<'a> ProcInfo<'a> {
+    /// The current time of the audio clock at the first frame in this
+    /// processing block, equal to the total number of seconds of data that
+    /// have been processed since this Firewheel context was first started.
     ///
     /// Note, this value does *NOT* account for any output underflows
     /// (underruns) that may have occured.
-    pub clock_musical: Range<InstantMusical>,
+    ///
+    /// Note, generally this value will always count up, but there may be
+    /// a few edge cases that cause this value to be less than the previous
+    /// block, such as when the sample rate of the stream has been changed.
+    pub fn clock_seconds(&self) -> InstantSeconds {
+        self.clock_samples
+            .to_seconds(self.sample_rate, self.sample_rate_recip)
+    }
 
-    /// Whether or not the transport is currently playing (true) or paused
-    /// (false).
-    pub playing: bool,
+    /// Get the current time of the audio clock in frames as a range for this
+    /// processing block.
+    pub fn clock_samples_range(&self) -> Range<InstantSamples> {
+        self.clock_samples..self.clock_samples + DurationSamples(self.frames as i64)
+    }
+
+    /// Get the current time of the audio clock in frames as a range for this
+    /// processing block.
+    pub fn clock_seconds_range(&self) -> Range<InstantSeconds> {
+        self.clock_seconds()
+            ..(self.clock_samples + DurationSamples(self.frames as i64))
+                .to_seconds(self.sample_rate, self.sample_rate_recip)
+    }
+
+    /// Get the playhead of the transport at the first frame in this processing
+    /// block.
+    ///
+    /// If there is no active transport, or if the transport is not currently
+    /// playing, then this will return `None`.
+    pub fn playhead(&self) -> Option<InstantMusical> {
+        self.transport_info.as_ref().and_then(|transport_info| {
+            transport_info
+                .start_clock_samples
+                .map(|start_clock_samples| {
+                    transport_info.transport.samples_to_musical(
+                        self.clock_samples,
+                        start_clock_samples,
+                        self.sample_rate,
+                        self.sample_rate_recip,
+                    )
+                })
+        })
+    }
+
+    /// Get the playhead of the transport as a range for this processing
+    /// block.
+    ///
+    /// If there is no active transport, or if the transport is not currently
+    /// playing, then this will return `None`.
+    pub fn playhead_range(&self) -> Option<Range<InstantMusical>> {
+        self.transport_info.as_ref().and_then(|transport_info| {
+            transport_info
+                .start_clock_samples
+                .map(|start_clock_samples| {
+                    transport_info.transport.samples_to_musical(
+                        self.clock_samples,
+                        start_clock_samples,
+                        self.sample_rate,
+                        self.sample_rate_recip,
+                    )
+                        ..transport_info.transport.samples_to_musical(
+                            self.clock_samples + DurationSamples(self.frames as i64),
+                            start_clock_samples,
+                            self.sample_rate,
+                            self.sample_rate_recip,
+                        )
+                })
+        })
+    }
+
+    /// Returns `true` if there is a transport and that transport is playing,
+    /// `false` otherwise.
+    pub fn transport_is_playing(&self) -> bool {
+        self.transport_info
+            .as_ref()
+            .map(|t| t.playing())
+            .unwrap_or(false)
+    }
+
+    /// Converts the given musical time to the corresponding time in samples.
+    ///
+    /// If there is no musical transport or the transport is not currently playing,
+    /// then this will return `None`.
+    pub fn musical_to_samples(&self, musical: InstantMusical) -> Option<InstantSamples> {
+        self.transport_info.as_ref().and_then(|transport_info| {
+            transport_info
+                .start_clock_samples
+                .map(|start_clock_samples| {
+                    transport_info.transport.musical_to_samples(
+                        musical,
+                        start_clock_samples,
+                        self.sample_rate,
+                    )
+                })
+        })
+    }
+}
+
+pub struct TransportInfo<'a> {
+    /// The current transport.
+    pub transport: &'a MusicalTransport,
 
     /// The instant that `MusicaltTime::ZERO` occured in units of
     /// `ClockSamples`.
@@ -565,6 +635,14 @@ pub struct TransportInfo<'a> {
     /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
     /// each frame.
     pub delta_bpm_per_frame: f64,
+}
+
+impl<'a> TransportInfo<'a> {
+    /// Whether or not the transport is currently playing (true) or paused
+    /// (false).
+    pub const fn playing(&self) -> bool {
+        self.start_clock_samples.is_some()
+    }
 }
 
 bitflags::bitflags! {
@@ -609,248 +687,5 @@ impl ProcessStatus {
     /// All output buffers were filled with data.
     pub const fn outputs_modified(out_silence_mask: SilenceMask) -> Self {
         Self::OutputsModified { out_silence_mask }
-    }
-}
-
-/// A range of buffers.
-pub struct BufferRange<I, O, S> {
-    /// The number of elements in each channel.
-    pub frames: usize,
-    /// Input buffers.
-    pub inputs: I,
-    /// Output buffers.
-    pub outputs: O,
-    /// Scratch buffers. This is _all_ the scratch buffers, and so may be more than `frames` in length.
-    pub scratch_buffers: S,
-}
-
-/// Trait for reading input, output and scratch buffers.
-///
-/// This is used in [`SimpleAudioProcessor`] to read a range from the input/output buffers.
-pub trait GetChannels {
-    /// Get a range of channels. Should be cheaply callable multiple times.
-    fn channels(
-        &mut self,
-    ) -> BufferRange<
-        impl ExactSizeIterator<Item = &'_ [f32]>,
-        impl ExactSizeIterator<Item = &'_ mut [f32]>,
-        impl ExactSizeIterator<Item = &'_ mut [f32]>,
-    >;
-}
-
-impl<'a, 'b, 'c, 'd> GetChannels for (&mut ProcBuffers<'a, 'b, 'c, 'd>, Range<usize>) {
-    #[inline]
-    fn channels(
-        &mut self,
-    ) -> BufferRange<
-        impl ExactSizeIterator<Item = &'_ [f32]>,
-        impl ExactSizeIterator<Item = &'_ mut [f32]>,
-        impl ExactSizeIterator<Item = &'_ mut [f32]>,
-    > {
-        BufferRange {
-            frames: self.1.len(),
-            inputs: self.0.inputs.iter().map(|chan| &chan[self.1.clone()]),
-            outputs: self
-                .0
-                .outputs
-                .iter_mut()
-                .map(|chan| &mut chan[self.1.clone()]),
-            scratch_buffers: self.0.scratch_buffers.iter_mut().map(|chan| &mut chan[..]),
-        }
-    }
-}
-
-/// Helper trait for nodes that want to process scheduled patch events but don't care about the details.
-pub trait SimpleAudioProcessor {
-    /// The node type that created this processor, for which the processor should receive patch events for.
-    type Params: crate::diff::Patch;
-
-    /// Whether a patch will do anything if applied.
-    ///
-    /// As an optimization, we can skip applying patches that won't actually do anything if applied. It is
-    /// always safe to return `false` from this method, but returning `true` will skip the patch from being
-    /// applied. As a `SimpleAudioProcessor` may process a buffer in chunks if it receives scheduled events,
-    /// returning `true` here may allow it to process larger chunks.
-    ///
-    /// This is called on the audio thread, and should never allocate/deallocate or perform other non-realtime-safe methods.
-    #[inline]
-    fn can_skip_patch(&self, patch: &<Self::Params as crate::diff::Patch>::Patch) -> bool {
-        let _ = patch;
-        false
-    }
-
-    /// Apply a single patch message.
-    ///
-    /// This is called on the audio thread, and should never allocate/deallocate or perform other non-realtime-safe methods.
-    #[inline]
-    fn apply_patch(&mut self, patch: <Self::Params as crate::diff::Patch>::Patch) {
-        let _ = patch;
-    }
-
-    /// Process the given range of audio. Only process data in the
-    /// buffers up to `samples`.
-    ///
-    /// The node *MUST* either return `ProcessStatus::ClearAllOutputs`
-    /// or fill all output buffers with data.
-    ///
-    /// If any output buffers contain all zeros up to `samples` (silent),
-    /// then mark that buffer as silent in [`ProcInfo::out_silence_mask`].
-    ///
-    /// * `buffers` - A range within a buffer to process.
-    /// * `proc_info` - Additional information about the process.
-    fn process<B>(&mut self, buffers: B, info: &ProcInfo) -> ProcessStatus
-    where
-        B: GetChannels;
-
-    /// Called when the audio stream has been stopped.
-    #[inline]
-    fn stream_stopped(&mut self) {}
-
-    /// Called when a new audio stream has been started after a previous
-    /// call to [`AudioNodeProcessor::stream_stopped`].
-    ///
-    /// Note, this method gets called on the main thread, not the audio
-    /// thread. So it is safe to allocate/deallocate here.
-    #[inline]
-    fn new_stream(&mut self, stream_info: &StreamInfo) {
-        let _ = stream_info;
-    }
-}
-
-impl<T> AudioNodeProcessor for T
-where
-    T: SimpleAudioProcessor + Send + 'static,
-{
-    fn process(
-        &mut self,
-        mut buffers: ProcBuffers,
-        proc_info: &ProcInfo,
-        mut events: NodeEventList,
-    ) -> ProcessStatus {
-        /// As a `SimpleAudioProcessor` may handle a buffer period in multiple chunks,
-        /// we need some way to combine the previous and current statuses in order to
-        /// create a status that can be returned from `AudioNodeProcessor::process`.
-        fn combine_statuses(lhs: ProcessStatus, rhs: ProcessStatus) -> ProcessStatus {
-            match (lhs, rhs) {
-                (ProcessStatus::ClearAllOutputs, ProcessStatus::ClearAllOutputs) => {
-                    ProcessStatus::ClearAllOutputs
-                }
-                (ProcessStatus::Bypass, ProcessStatus::Bypass) => ProcessStatus::Bypass,
-                (
-                    ProcessStatus::OutputsModified {
-                        out_silence_mask: mask_a,
-                    },
-                    ProcessStatus::OutputsModified {
-                        out_silence_mask: mask_b,
-                    },
-                ) => ProcessStatus::OutputsModified {
-                    out_silence_mask: SilenceMask(mask_a.0 & mask_b.0),
-                },
-                _ => ProcessStatus::OutputsModified {
-                    out_silence_mask: SilenceMask::NONE_SILENT,
-                },
-            }
-        }
-
-        let mut start = 0;
-        let mut status = None;
-
-        events.for_each_patch::<<Self as SimpleAudioProcessor>::Params>(|patch| {
-            'process_range: {
-                if let Some(time) = patch.time.and_then(|time| time.to_samples(proc_info)) {
-                    if self.can_skip_patch(&patch.event) {
-                        // Optimization: if the patch event applying is a no-op, we can combine this chunk with the next.
-                        // As this only saves time if we need to process a chunk before applying the patch, we only check
-                        // this method here.
-                        return;
-                    }
-
-                    let end = time.0 - proc_info.clock_samples.start.0;
-                    debug_assert!((start as i64..proc_info.frames as i64).contains(&end));
-                    let range = start..end.max(start as i64) as usize;
-
-                    // Multiple events with the same time were scheduled, or the events were
-                    // received out of order.
-                    if range.is_empty() {
-                        break 'process_range;
-                    }
-
-                    // Process the buffer up until the time of the event - we know that the pre-application state
-                    // is valid at least until this event's scheduled time, so we process that chunk before applying
-                    // it.
-                    let result = SimpleAudioProcessor::process(
-                        self,
-                        (&mut buffers, range.clone()),
-                        proc_info,
-                    );
-
-                    let result = if let Some(status) = status {
-                        let combined = combine_statuses(result, status);
-
-                        // If one range returns `Bypass` but another returns `ClearAllOutputs`, we need to handle
-                        // that since the context will no longer know to handle setting the output buffers to
-                        // the relevant data itself.
-                        //
-                        // This should never process the same range of the buffer twice, as if `combined != result`
-                        // then `combined` must be `ProcessStatus::OutputsModified` (see the implementation of
-                        // `combine_statuses`), and so `status` will only be `ProcessStatus::Bypass` or
-                        // `ProcessStatus::ClearAllOutputs` precisely once.
-                        if combined != result {
-                            // We first need to handle the point up until the most-recently-processed range,
-                            // then the most-recently-processed range.
-                            for (status, range) in
-                                [(result, range.clone()), (status, 0..range.start)]
-                            {
-                                let mut buffer_range = (&mut buffers, range);
-                                let buffer_range = buffer_range.channels();
-
-                                match status {
-                                    // Processing this range returned `Bypass`, copy the range verbatim.
-                                    ProcessStatus::Bypass => {
-                                        for (i_chan, o_chan) in
-                                            buffer_range.inputs.zip(buffer_range.outputs)
-                                        {
-                                            o_chan.copy_from_slice(i_chan);
-                                        }
-                                    }
-                                    // Processing this range returned `ClearAllOutputs`, clear the range.
-                                    ProcessStatus::ClearAllOutputs => {
-                                        for o in buffer_range.outputs {
-                                            o.fill(0.);
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        combined
-                    } else {
-                        result
-                    };
-
-                    status = Some(result);
-                    start = range.end;
-                }
-            }
-
-            self.apply_patch(patch.event);
-        });
-
-        // Finally, process the rest of the buffer using the processor state after all patches have been applied.
-        let result =
-            SimpleAudioProcessor::process(self, (&mut buffers, start..proc_info.frames), proc_info);
-
-        status
-            .map(|status| combine_statuses(status, result))
-            .unwrap_or(result)
-    }
-
-    fn stream_stopped(&mut self) {
-        SimpleAudioProcessor::stream_stopped(self)
-    }
-
-    fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo) {
-        SimpleAudioProcessor::new_stream(self, stream_info)
     }
 }

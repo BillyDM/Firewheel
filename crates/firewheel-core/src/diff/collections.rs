@@ -16,7 +16,7 @@ macro_rules! sequence_diff {
         impl<$gen: Patch> Patch for $ty {
             type Patch = (usize, $gen::Patch);
 
-            fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
                 let first = *path.first().ok_or(PatchError::InvalidPath)?;
                 let inner = $gen::patch(data, &path[1..])?;
 
@@ -45,7 +45,7 @@ impl<T: Diff, const LEN: usize> Diff for [T; LEN] {
 impl<T: Patch, const LEN: usize> Patch for [T; LEN] {
     type Patch = (usize, T::Patch);
 
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
+    fn patch(data: ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
         let first = *path.first().ok_or(PatchError::InvalidPath)? as usize;
         if first >= LEN {
             return Err(PatchError::InvalidPath);
@@ -82,7 +82,7 @@ macro_rules! tuple_diff {
         impl<$($gen: Patch),*> Patch for ($($gen,)*) {
             type Patch = $tup<$($gen),*>;
 
-            fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
+            fn patch(data: ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
                 match path {
                     $(
                         [$index, tail @ ..] => Ok($tup::$gen($gen::patch(data, tail)?)),

@@ -1,8 +1,10 @@
 use arrayvec::ArrayVec;
 use core::fmt::Debug;
 use smallvec::SmallVec;
+use thunderdome::Arena;
 
 use firewheel_core::{
+    channel_config::MAX_CHANNELS,
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus, NUM_SCRATCH_BUFFERS},
     SilenceMask,
 };
@@ -168,7 +170,7 @@ pub(super) struct OutBufferAssignment {
 pub struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
-    pub event_buffer_indices: Vec<u32>,
+    //pub event_buffer_indices: Vec<u32>,
 }
 
 pub struct ScheduleHeapData {
@@ -176,6 +178,7 @@ pub struct ScheduleHeapData {
     pub nodes_to_remove: Vec<NodeID>,
     pub removed_nodes: Vec<NodeHeapData>,
     pub new_node_processors: Vec<NodeHeapData>,
+    pub new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
 }
 
 impl ScheduleHeapData {
@@ -183,6 +186,7 @@ impl ScheduleHeapData {
         schedule: CompiledSchedule,
         nodes_to_remove: Vec<NodeID>,
         new_node_processors: Vec<NodeHeapData>,
+        new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
     ) -> Self {
         let num_nodes_to_remove = nodes_to_remove.len();
 
@@ -191,6 +195,7 @@ impl ScheduleHeapData {
             nodes_to_remove,
             removed_nodes: Vec::with_capacity(num_nodes_to_remove),
             new_node_processors,
+            new_node_arena,
         }
     }
 }
@@ -273,7 +278,7 @@ impl CompiledSchedule {
 
         let graph_in_node = self.schedule.first().unwrap();
 
-        let mut inputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
+        let mut inputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
         let fill_input_len = num_stream_inputs.min(graph_in_node.output_buffers.len());
 
@@ -315,7 +320,7 @@ impl CompiledSchedule {
 
         let graph_out_node = self.schedule.last().unwrap();
 
-        let mut outputs: ArrayVec<&[f32], 64> = ArrayVec::new();
+        let mut outputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
 
         let mut silence_mask = SilenceMask::NONE_SILENT;
 
@@ -347,8 +352,8 @@ impl CompiledSchedule {
     ) {
         let frames = frames.min(self.max_block_frames);
 
-        let mut inputs: ArrayVec<&[f32], 64> = ArrayVec::new();
-        let mut outputs: ArrayVec<&mut [f32], 64> = ArrayVec::new();
+        let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
+        let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
         for scheduled_node in self.schedule.iter() {
             if scheduled_node.id == self.graph_in_node_id {
@@ -460,17 +465,14 @@ impl CompiledSchedule {
                         }
                     }
 
-                    if scheduled_node.output_buffers.len() > scheduled_node.input_buffers.len() {
-                        for b in scheduled_node
-                            .output_buffers
-                            .iter()
-                            .skip(scheduled_node.input_buffers.len())
-                        {
-                            let s =
-                                silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
+                    for b in scheduled_node
+                        .output_buffers
+                        .iter()
+                        .skip(scheduled_node.input_buffers.len())
+                    {
+                        let s = silence_flag_mut(&mut self.buffer_silence_flags, b.buffer_index);
 
-                            clear_buffer(b.buffer_index, s);
-                        }
+                        clear_buffer(b.buffer_index, s);
                     }
                 }
                 ProcessStatus::OutputsModified { out_silence_mask } => {

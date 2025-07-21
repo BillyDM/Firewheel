@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-graph"
-version = "0.5.0-beta.0"
+version = "0.6.0-beta.0"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
 repository.workspace = true
@@ -16,7 +16,7 @@ exclude.workspace = true
 all-features = true
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.5.0-beta.0" }
+firewheel-core = { path = "../firewheel-core", version = "0.6.0-beta.0" }
 log.workspace = true
 ringbuf.workspace = true
 triple_buffer.workspace = true

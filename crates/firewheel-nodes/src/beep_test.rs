@@ -51,7 +51,6 @@ impl AudioNode for BeepTestNode {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -81,21 +80,23 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
         let Some(out) = buffers.outputs.first_mut() else {
             return ProcessStatus::ClearAllOutputs;
         };
 
-        events.for_each_patch::<BeepTestNode>(|patch| match &patch.event {
-            &BeepTestNodePatch::FreqHz(f) => {
-                self.phasor_inc = f.clamp(20.0, 20_000.0) * proc_info.sample_rate_recip as f32;
+        for patch in events.drain_patches::<BeepTestNode>() {
+            match patch {
+                BeepTestNodePatch::FreqHz(f) => {
+                    self.phasor_inc = f.clamp(20.0, 20_000.0) * proc_info.sample_rate_recip as f32;
+                }
+                BeepTestNodePatch::Volume(v) => {
+                    self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
+                }
+                BeepTestNodePatch::Enabled(e) => self.enabled = e,
             }
-            &BeepTestNodePatch::Volume(v) => {
-                self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
-            }
-            &BeepTestNodePatch::Enabled(e) => self.enabled = e,
-        });
+        }
 
         if !self.enabled {
             return ProcessStatus::ClearAllOutputs;

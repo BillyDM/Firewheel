@@ -1,5 +1,5 @@
 use crate::{
-    diff::{Diff, Patch},
+    diff::{Diff, Patch, RealtimeClone},
     event::ParamData,
 };
 use bevy_platform::sync::atomic::{AtomicU64, Ordering};
@@ -86,6 +86,8 @@ impl<T> Notify<T> {
     }
 }
 
+impl<T> Copy for Notify<T> where T: Copy {}
+
 impl<T> AsRef<T> for Notify<T> {
     fn as_ref(&self) -> &T {
         &self.value
@@ -122,7 +124,9 @@ impl<T> core::ops::DerefMut for Notify<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Diff for Notify<T> {
+// TODO: Once negative traits are stabilized, add extra implementations that don't allocate
+// for types that implement `Into<T>` + `From<T>` where T is a primitive type.
+impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
         &self,
         baseline: &Self,
@@ -135,10 +139,10 @@ impl<T: Clone + Send + Sync + 'static> Diff for Notify<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Patch for Notify<T> {
+impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
     type Patch = Self;
 
-    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
+    fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
         data.downcast_ref()
             .ok_or(super::PatchError::InvalidData)
             .cloned()

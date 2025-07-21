@@ -44,7 +44,8 @@ pub(crate) struct AudioGraph {
     nodes_to_remove_from_schedule: Vec<NodeID>,
     active_nodes_to_remove: HashMap<NodeID, NodeEntry>,
     nodes_to_call_update_method: Vec<NodeID>,
-    event_queue_capacity: usize,
+
+    prev_node_arena_capacity: usize,
 }
 
 impl AudioGraph {
@@ -69,7 +70,6 @@ impl AudioGraph {
                 AudioNodeInfo::new()
                     .debug_name("graph_in")
                     .channel_config(graph_in_config.channel_config)
-                    .uses_events(false)
                     .into(),
                 Box::new(Constructor::new(DummyNode, Some(graph_in_config))),
             )),
@@ -81,7 +81,6 @@ impl AudioGraph {
                 AudioNodeInfo::new()
                     .debug_name("graph_out")
                     .channel_config(graph_out_config.channel_config)
-                    .uses_events(false)
                     .into(),
                 Box::new(Constructor::new(DummyNode, Some(graph_out_config))),
             )),
@@ -100,7 +99,7 @@ impl AudioGraph {
             ),
             active_nodes_to_remove: HashMap::with_capacity(config.initial_node_capacity as usize),
             nodes_to_call_update_method: Vec::new(),
-            event_queue_capacity: 0, // This will be overwritten later once activated.
+            prev_node_arena_capacity: 0,
         }
     }
 
@@ -528,10 +527,6 @@ impl AudioGraph {
         }
     }
 
-    pub(crate) fn node_capacity(&self) -> usize {
-        self.nodes.capacity()
-    }
-
     pub(crate) fn deactivate(&mut self) {
         self.needs_compile = true;
     }
@@ -547,12 +542,6 @@ impl AudioGraph {
             if !entry.processor_constructed {
                 entry.processor_constructed = true;
 
-                let event_buffer_indices = if entry.info.uses_events {
-                    Vec::with_capacity(self.event_queue_capacity)
-                } else {
-                    Vec::new()
-                };
-
                 let cx = ConstructProcessorContext::new(
                     entry.id,
                     stream_info,
@@ -562,7 +551,6 @@ impl AudioGraph {
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
                     processor: entry.dyn_node.construct_processor(cx),
-                    event_buffer_indices,
                 });
             }
         }
@@ -573,10 +561,18 @@ impl AudioGraph {
             &mut nodes_to_remove,
         );
 
+        let new_arena = if self.nodes.capacity() > self.prev_node_arena_capacity {
+            Some(Arena::with_capacity(self.nodes.capacity()))
+        } else {
+            None
+        };
+        self.prev_node_arena_capacity = self.nodes.capacity();
+
         let schedule_data = Box::new(ScheduleHeapData::new(
             schedule,
             nodes_to_remove,
             new_node_processors,
+            new_arena,
         ));
 
         self.needs_compile = false;

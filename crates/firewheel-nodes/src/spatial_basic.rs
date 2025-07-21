@@ -10,10 +10,10 @@ use firewheel_core::{
         pan_law::PanLaw,
         volume::{Volume, DEFAULT_AMP_EPSILON},
     },
-    event::Vec3,
+    event::{NodeEventList, Vec3},
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, GetChannels,
-        ProcInfo, ProcessStatus, SimpleAudioProcessor,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -200,7 +200,6 @@ impl AudioNode for SpatialBasicNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -243,7 +242,6 @@ impl AudioNode for SpatialBasicNode {
             params: *self,
             prev_block_was_silent: true,
             amp_epsilon: config.amp_epsilon,
-            updated: false,
         }
     }
 }
@@ -261,62 +259,37 @@ struct Processor {
 
     prev_block_was_silent: bool,
     amp_epsilon: f32,
-    updated: bool,
 }
 
-impl SimpleAudioProcessor for Processor {
-    type Params = SpatialBasicNode;
-
-    fn apply_patch(&mut self, mut patch: SpatialBasicNodePatch) {
-        match &mut patch {
-            SpatialBasicNodePatch::Offset(offset) => {
-                if !offset.is_finite() {
-                    *offset = Vec3::default();
+impl AudioNodeProcessor for Processor {
+    fn process(
+        &mut self,
+        buffers: ProcBuffers,
+        proc_info: &ProcInfo,
+        events: &mut NodeEventList,
+    ) -> ProcessStatus {
+        let mut updated = false;
+        for mut patch in events.drain_patches::<SpatialBasicNode>() {
+            match &mut patch {
+                SpatialBasicNodePatch::Offset(offset) => {
+                    if !offset.is_finite() {
+                        *offset = Vec3::default();
+                    }
                 }
+                SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
+                    *cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
+                }
+                SpatialBasicNodePatch::PanningThreshold(threshold) => {
+                    *threshold = threshold.clamp(0.0, 1.0);
+                }
+                _ => {}
             }
-            SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
-                *cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
-            }
-            SpatialBasicNodePatch::PanningThreshold(threshold) => {
-                *threshold = threshold.clamp(0.0, 1.0);
-            }
-            _ => {}
+
+            self.params.apply(patch);
+            updated = true;
         }
 
-        self.params.apply(patch);
-        self.updated = true;
-    }
-
-    fn can_skip_patch(&self, patch: &SpatialBasicNodePatch) -> bool {
-        match patch {
-            &SpatialBasicNodePatch::Offset(mut offset) => {
-                if !offset.is_finite() {
-                    offset = Vec3::default();
-                }
-
-                (offset - self.params.offset).length_squared() < f32::EPSILON
-            }
-            SpatialBasicNodePatch::MuffleCutoffHz(cutoff) => {
-                let cutoff = cutoff.clamp(DAMPING_CUTOFF_HZ_MIN, DAMPING_CUTOFF_HZ_MAX);
-
-                (cutoff - self.params.muffle_cutoff_hz).abs() < f32::EPSILON
-            }
-            SpatialBasicNodePatch::PanningThreshold(threshold) => {
-                let threshold = threshold.clamp(0.0, 1.0);
-
-                (threshold - self.params.panning_threshold).abs() < f32::EPSILON
-            }
-            SpatialBasicNodePatch::Volume(vol) => {
-                (vol.amp() - self.params.volume.amp()).abs() < f32::EPSILON
-            }
-            SpatialBasicNodePatch::DampingDistance(dist) => {
-                (*dist - self.params.damping_distance).abs() < f32::EPSILON
-            }
-        }
-    }
-
-    fn process<B: GetChannels>(&mut self, mut buffers: B, proc_info: &ProcInfo) -> ProcessStatus {
-        if self.updated {
+        if updated {
             let computed_values = self.params.compute_values(self.amp_epsilon);
 
             self.gain_l.set_value(computed_values.gain_l);
@@ -340,8 +313,6 @@ impl SimpleAudioProcessor for Processor {
             }
         }
 
-        self.updated = false;
-
         self.prev_block_was_silent = false;
 
         if proc_info.in_silence_mask.all_channels_silent(2) {
@@ -356,12 +327,11 @@ impl SimpleAudioProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let mut buffers = buffers.channels();
-
-        let in1 = buffers.inputs.next().unwrap();
-        let in2 = buffers.inputs.next().unwrap();
-        let out1 = buffers.outputs.next().unwrap();
-        let out2 = buffers.outputs.next().unwrap();
+        let in1 = &buffers.inputs[0][..proc_info.frames];
+        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
+        let out1 = &mut out1[..proc_info.frames];
+        let out2 = &mut out2[0][..proc_info.frames];
 
         if !self.gain_l.is_smoothing()
             && !self.gain_r.is_smoothing()

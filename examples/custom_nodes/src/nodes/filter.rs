@@ -70,10 +70,6 @@ impl AudioNode for FilterNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
-            // Wether or not our node uses events. If it does not, then setting
-            // this to `false` will save a bit of memory by not allocating an
-            // event buffer for this node.
-            .uses_events(true)
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -130,25 +126,27 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         proc_info: &ProcInfo,
         // The list of events for our node to process.
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
         // Process the events.
         //
         // We don't need to keep around a `FilterNode` instance,
         // so we can just match on each event directly.
-        events.for_each_patch::<FilterNode>(|patch| match patch.event {
-            FilterNodePatch::CutoffHz(cutoff) => {
-                self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
+        for patch in events.drain_patches::<FilterNode>() {
+            match patch {
+                FilterNodePatch::CutoffHz(cutoff) => {
+                    self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
+                }
+                FilterNodePatch::Volume(volume) => {
+                    self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
+                }
+                FilterNodePatch::Enabled(enabled) => {
+                    // Tell the declicker to crossfade.
+                    self.enable_declicker
+                        .fade_to_enabled(enabled, proc_info.declick_values);
+                }
             }
-            FilterNodePatch::Volume(volume) => {
-                self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
-            }
-            FilterNodePatch::Enabled(enabled) => {
-                // Tell the declicker to crossfade.
-                self.enable_declicker
-                    .fade_to_enabled(enabled, proc_info.declick_values);
-            }
-        });
+        }
 
         if self.enable_declicker.disabled() {
             // Disabled. Bypass this node.

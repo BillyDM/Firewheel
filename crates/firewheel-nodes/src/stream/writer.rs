@@ -16,7 +16,6 @@ use firewheel_core::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
         ProcInfo, ProcessStatus,
     },
-    sync_wrapper::SyncWrapper,
     SilenceMask,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
@@ -298,7 +297,6 @@ impl AudioNode for StreamWriterNode {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.channels.get(),
             })
-            .uses_events(true)
             .custom_state(StreamWriterState::new(config.channels))
     }
 
@@ -364,20 +362,15 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
-        events.for_each(|event| {
-            if let NodeEventType::Custom(event) = event.event {
-                if let Some(in_stream_event) = event
-                    .downcast_mut::<SyncWrapper<NewInputStreamEvent>>()
-                    .and_then(SyncWrapper::get_mut)
-                {
-                    // Swap the memory so that the old channel will be properly
-                    // dropped outside of the audio thread.
-                    core::mem::swap(&mut self.cons, &mut in_stream_event.cons);
-                }
+        for mut event in events.drain() {
+            if let Some(in_stream_event) = event.downcast_mut::<NewInputStreamEvent>() {
+                // Swap the values so that the old consumer gets dropped on
+                // the main thread.
+                core::mem::swap(&mut self.cons, &mut in_stream_event.cons);
             }
-        });
+        }
 
         let enabled = self.shared_state.stream_active.load(Ordering::Relaxed)
             && !self.shared_state.paused.load(Ordering::Relaxed);
@@ -470,6 +463,6 @@ pub struct NewInputStreamEvent {
 
 impl From<NewInputStreamEvent> for NodeEventType {
     fn from(value: NewInputStreamEvent) -> Self {
-        NodeEventType::Custom(Box::new(SyncWrapper::new(value)))
+        NodeEventType::custom(value)
     }
 }

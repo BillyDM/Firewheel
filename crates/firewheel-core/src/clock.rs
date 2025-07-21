@@ -2,9 +2,9 @@ use bevy_platform::time::Instant;
 use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Range, Sub, SubAssign};
 
-use crate::diff::{Diff, Patch};
+use crate::diff::{Diff, Notify, Patch};
 use crate::event::ParamData;
-use crate::{diff::Notify, node::ProcInfo};
+use crate::node::ProcInfo;
 
 pub const MAX_PROC_TRANSPORT_KEYFRAMES: usize = 16;
 
@@ -31,6 +31,29 @@ pub enum EventInstant {
     Musical(InstantMusical),
 }
 
+impl EventInstant {
+    pub fn is_musical(&self) -> bool {
+        if let EventInstant::Musical(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Convert the instant to the given time in samples.
+    ///
+    /// If this instant is of type [`EventInstant::Musical`] and either
+    /// there is no musical transport or the musical transport is not
+    /// currently playing, then this will return `None`.
+    pub fn to_samples(&self, proc_info: &ProcInfo) -> Option<InstantSamples> {
+        match self {
+            EventInstant::Samples(samples) => Some(*samples),
+            EventInstant::Seconds(seconds) => Some(seconds.to_samples(proc_info.sample_rate)),
+            EventInstant::Musical(musical) => proc_info.musical_to_samples(*musical),
+        }
+    }
+}
+
 impl From<InstantSeconds> for EventInstant {
     fn from(value: InstantSeconds) -> Self {
         Self::Seconds(value)
@@ -46,101 +69,6 @@ impl From<InstantSamples> for EventInstant {
 impl From<InstantMusical> for EventInstant {
     fn from(value: InstantMusical) -> Self {
         Self::Musical(value)
-    }
-}
-
-impl EventInstant {
-    /// Convert this instant to units of `ClockSamples`.
-    ///
-    /// If this is of type `Event::Instant::Musical` and if either there
-    /// is no transport or the transport is currently paused, then this
-    /// will return `None`.
-    pub fn to_samples(&self, proc_info: &ProcInfo) -> Option<InstantSamples> {
-        match self {
-            EventInstant::Seconds(seconds) => Some(seconds.to_samples(proc_info.sample_rate)),
-            EventInstant::Samples(samples) => Some(*samples),
-            EventInstant::Musical(musical) => {
-                proc_info.transport_info.as_ref().and_then(|transport| {
-                    transport.start_clock_samples.map(|transport_start| {
-                        transport.transport.musical_to_samples(
-                            *musical,
-                            transport_start,
-                            proc_info.sample_rate,
-                        )
-                    })
-                })
-            }
-        }
-    }
-
-    pub fn elapsed_this_block(&self, proc_info: &ProcInfo) -> bool {
-        match self {
-            EventInstant::Seconds(seconds) => *seconds < proc_info.clock_seconds.end,
-            EventInstant::Samples(samples) => *samples < proc_info.clock_samples.end,
-            EventInstant::Musical(musical) => {
-                if let Some(transport) = &proc_info.transport_info {
-                    transport.playing && *musical < transport.clock_musical.end
-                } else {
-                    false
-                }
-            }
-        }
-    }
-
-    pub fn elapsed_on_frame(&self, proc_info: &ProcInfo, sample_rate: NonZeroU32) -> Option<usize> {
-        match self {
-            EventInstant::Seconds(seconds) => {
-                if *seconds <= proc_info.clock_seconds.start {
-                    Some(0)
-                } else if *seconds >= proc_info.clock_seconds.end {
-                    None
-                } else {
-                    let frame = ((seconds.0 - proc_info.clock_seconds.start.0)
-                        * f64::from(sample_rate.get()))
-                    .round() as usize;
-
-                    if frame < proc_info.frames {
-                        Some(frame)
-                    } else {
-                        None
-                    }
-                }
-            }
-            EventInstant::Samples(samples) => {
-                if *samples <= proc_info.clock_samples.start {
-                    Some(0)
-                } else if *samples >= proc_info.clock_samples.end {
-                    None
-                } else {
-                    Some((*samples - proc_info.clock_samples.start).0 as usize)
-                }
-            }
-            EventInstant::Musical(musical) => {
-                let Some(transport_info) = &proc_info.transport_info else {
-                    return None;
-                };
-
-                if !transport_info.playing || *musical > transport_info.clock_musical.end {
-                    return None;
-                } else if *musical <= transport_info.clock_musical.start {
-                    return Some(0);
-                }
-
-                let frames = (transport_info.transport.musical_to_samples(
-                    *musical,
-                    transport_info.start_clock_samples.unwrap(),
-                    proc_info.sample_rate,
-                ) - proc_info.clock_samples.start)
-                    .0
-                    .max(0) as usize;
-
-                if frames < proc_info.frames {
-                    Some(frames as usize)
-                } else {
-                    None
-                }
-            }
-        }
     }
 }
 
@@ -164,11 +92,46 @@ impl Diff for EventInstant {
 impl Patch for EventInstant {
     type Patch = Self;
 
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+    fn patch(data: ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
         match data {
-            ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(*s)),
-            ParamData::InstantSamples(s) => Ok(EventInstant::Samples(*s)),
-            ParamData::InstantMusical(s) => Ok(EventInstant::Musical(*s)),
+            ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(s)),
+            ParamData::InstantSamples(s) => Ok(EventInstant::Samples(s)),
+            ParamData::InstantMusical(s) => Ok(EventInstant::Musical(s)),
+            _ => Err(crate::diff::PatchError::InvalidData),
+        }
+    }
+
+    fn apply(&mut self, patch: Self::Patch) {
+        *self = patch;
+    }
+}
+
+impl Diff for Option<EventInstant> {
+    fn diff<E: crate::diff::EventQueue>(
+        &self,
+        baseline: &Self,
+        path: crate::diff::PathBuilder,
+        event_queue: &mut E,
+    ) {
+        if self != baseline {
+            match self {
+                Some(EventInstant::Seconds(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::Samples(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::Musical(m)) => event_queue.push_param(*m, path),
+                None => event_queue.push_param(ParamData::None, path),
+            }
+        }
+    }
+}
+
+impl Patch for Option<EventInstant> {
+    type Patch = Self;
+
+    fn patch(data: ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
+        match data {
+            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::Seconds(s))),
+            ParamData::InstantSamples(s) => Ok(Some(EventInstant::Samples(s))),
+            ParamData::InstantMusical(s) => Ok(Some(EventInstant::Musical(s))),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
     }
@@ -223,31 +186,6 @@ impl InstantSeconds {
     }
 }
 
-impl Diff for InstantSeconds {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for InstantSeconds {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
-    }
-}
-
 /// An audio clock duration in units of seconds.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -262,31 +200,6 @@ impl DurationSeconds {
 
     pub fn to_samples(self, sample_rate: NonZeroU32) -> DurationSamples {
         DurationSamples(seconds_to_samples(self.0, sample_rate))
-    }
-}
-
-impl Diff for DurationSeconds {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for DurationSeconds {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
     }
 }
 
@@ -413,6 +326,7 @@ pub struct InstantSamples(pub i64);
 
 impl InstantSamples {
     pub const ZERO: Self = Self(0);
+    pub const MAX: Self = Self(i64::MAX);
 
     pub const fn new(samples: i64) -> Self {
         Self(samples)
@@ -462,31 +376,6 @@ impl InstantSamples {
     }
 }
 
-impl Diff for InstantSamples {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for InstantSamples {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
-    }
-}
-
 /// An audio clock duration in units of samples (in a single channel of audio).
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -510,31 +399,6 @@ impl DurationSamples {
 
     pub fn to_seconds(self, sample_rate: NonZeroU32, sample_rate_recip: f64) -> DurationSeconds {
         DurationSeconds(samples_to_seconds(self.0, sample_rate, sample_rate_recip))
-    }
-}
-
-impl Diff for DurationSamples {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for DurationSamples {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
     }
 }
 
@@ -719,31 +583,6 @@ impl InstantMusical {
     }
 }
 
-impl Diff for InstantMusical {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for InstantMusical {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
-    }
-}
-
 /// An audio clock duration in units of musical beats.
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -754,31 +593,6 @@ impl DurationMusical {
 
     pub const fn new(beats: f64) -> Self {
         Self(beats)
-    }
-}
-
-impl Diff for DurationMusical {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for DurationMusical {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
     }
 }
 
@@ -1016,6 +830,16 @@ pub struct ProcTransportInfo {
     /// each frame, and if this is `-0.1`, then the bpm decreased by `0.1`
     /// each frame.
     pub delta_beats_per_minute: f64,
+}
+
+impl ProcTransportInfo {
+    /// Get the BPM at the given frame.
+    ///
+    /// Returns `None` if `frame >= self.frames`.
+    pub fn bpm_at_frame(&self, frame: usize) -> Option<f64> {
+        (frame < self.frames)
+            .then(|| self.beats_per_minute + (self.delta_beats_per_minute * frame as f64))
+    }
 }
 
 /// A musical transport with a single static tempo in beats per minute.

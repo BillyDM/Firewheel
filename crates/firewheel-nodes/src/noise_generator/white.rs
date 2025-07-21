@@ -64,7 +64,6 @@ impl AudioNode for WhiteNoiseGenNode {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -102,15 +101,15 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         _proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<WhiteNoiseGenNode>(|patch| {
-            if let WhiteNoiseGenNodePatch::Volume(vol) = &patch.event {
+        for patch in events.drain_patches::<WhiteNoiseGenNode>() {
+            if let WhiteNoiseGenNodePatch::Volume(vol) = patch {
                 self.gain.set_value(vol.amp_clamped(DEFAULT_AMP_EPSILON));
             }
 
-            self.params.apply(patch.event);
-        });
+            self.params.apply(patch);
+        }
 
         if !self.params.enabled || (self.gain.target_value() == 0.0 && !self.gain.is_smoothing()) {
             self.gain.reset();

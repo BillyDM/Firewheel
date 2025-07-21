@@ -22,6 +22,29 @@ pub fn derive_patch(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Derive this to signify that a struct implements `Clone`, cloning
+/// does not allocate or deallocate data, and the data will not be
+/// dropped on the audio thread if the struct is dropped.
+#[proc_macro_derive(RealtimeClone)]
+pub fn derive_realtime_clone(input: TokenStream) -> TokenStream {
+    derive_realtime_clone_inner(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn derive_realtime_clone_inner(input: TokenStream) -> syn::Result<TokenStream2> {
+    let input: syn::DeriveInput = syn::parse(input)?;
+    let identifier = &input.ident;
+    let (_, diff_path) = get_paths();
+
+    let (impl_generics, ty_generics, where_generics) = input.generics.split_for_impl();
+
+    Ok(quote! {
+        #[automatically_derived]
+        impl #impl_generics #diff_path::RealtimeClone for #identifier #ty_generics #where_generics {}
+    })
+}
+
 fn get_paths() -> (syn::Path, TokenStream2) {
     let firewheel_path =
         firewheel_manifest::FirewheelManifest::default().get_path("firewheel_core");

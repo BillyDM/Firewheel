@@ -101,10 +101,6 @@ impl AudioNode for RmsNode {
                 num_inputs: ChannelCount::MONO,
                 num_outputs: ChannelCount::ZERO,
             })
-            // Wether or not our node uses events. If it does not, then setting
-            // this to `false` will save a bit of memory by not allocating an
-            // event buffer for this node.
-            .uses_events(true)
             // Custom !Send state that can be stored in the Firewheel context and
             // accessed by the user.
             //
@@ -159,9 +155,11 @@ impl AudioNodeProcessor for Processor {
         // Additional information about the process.
         proc_info: &ProcInfo,
         // The list of events for our node to process.
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<RmsNode>(|p| self.params.apply(p.event));
+        for patch in events.drain_patches::<RmsNode>() {
+            self.params.apply(patch);
+        }
 
         if !self.params.enabled {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);

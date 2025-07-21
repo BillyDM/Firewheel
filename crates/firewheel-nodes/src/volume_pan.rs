@@ -2,9 +2,10 @@ use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
     dsp::{pan_law::PanLaw, volume::Volume},
+    event::NodeEventList,
     node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, GetChannels,
-        ProcInfo, ProcessStatus, SimpleAudioProcessor,
+        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
+        ProcInfo, ProcessStatus,
     },
     param::smoother::{SmoothedParam, SmootherConfig},
     SilenceMask,
@@ -75,7 +76,6 @@ impl AudioNode for VolumePanNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -105,7 +105,6 @@ impl AudioNode for VolumePanNode {
             params: *self,
             prev_block_was_silent: true,
             amp_epsilon: config.amp_epsilon,
-            updated: false,
         }
     }
 }
@@ -118,43 +117,28 @@ struct Processor {
 
     prev_block_was_silent: bool,
     amp_epsilon: f32,
-    updated: bool,
 }
 
-impl SimpleAudioProcessor for Processor {
-    type Params = VolumePanNode;
+impl AudioNodeProcessor for Processor {
+    fn process(
+        &mut self,
+        buffers: ProcBuffers,
+        proc_info: &ProcInfo,
+        events: &mut NodeEventList,
+    ) -> ProcessStatus {
+        let mut updated = false;
+        for mut patch in events.drain_patches::<VolumePanNode>() {
+            // here we selectively clamp the panning, leaving
+            // other patches untouched
+            if let VolumePanNodePatch::Pan(p) = &mut patch {
+                *p = p.clamp(-1.0, 1.0);
+            }
 
-    fn apply_patch(&mut self, mut patch: VolumePanNodePatch) {
-        // here we selectively clamp the panning, leaving
-        // other patches untouched
-        if let VolumePanNodePatch::Pan(p) = &mut patch {
-            *p = p.clamp(-1.0, 1.0);
+            self.params.apply(patch);
+            updated = true;
         }
 
-        self.params.apply(patch);
-        self.updated = true;
-    }
-
-    fn can_skip_patch(&self, patch: &VolumePanNodePatch) -> bool {
-        // here we selectively clamp the panning, leaving
-        // other patches untouched
-        match &patch {
-            VolumePanNodePatch::Pan(p) => {
-                let p = p.clamp(-1.0, 1.0);
-
-                (self.params.pan - p).abs() < f32::EPSILON
-            }
-            VolumePanNodePatch::Volume(v) => {
-                (self.params.volume.amp() - v.amp()).abs() < self.amp_epsilon
-            }
-            _ => false,
-        }
-    }
-
-    fn process<B: GetChannels>(&mut self, mut buffers: B, proc_info: &ProcInfo) -> ProcessStatus {
-        let mut buffers = buffers.channels();
-
-        if self.updated {
+        if updated {
             let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);
@@ -166,8 +150,6 @@ impl SimpleAudioProcessor for Processor {
             }
         }
 
-        self.updated = false;
-
         self.prev_block_was_silent = false;
 
         if proc_info.in_silence_mask.all_channels_silent(2) {
@@ -178,10 +160,11 @@ impl SimpleAudioProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let in1 = &buffers.inputs.next().unwrap();
-        let in2 = &buffers.inputs.next().unwrap();
-        let out1 = &mut buffers.outputs.next().unwrap();
-        let out2 = &mut buffers.outputs.next().unwrap();
+        let in1 = &buffers.inputs[0][..proc_info.frames];
+        let in2 = &buffers.inputs[1][..proc_info.frames];
+        let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
+        let out1 = &mut out1[..proc_info.frames];
+        let out2 = &mut out2[0][..proc_info.frames];
 
         if !self.gain_l.is_smoothing() && !self.gain_r.is_smoothing() {
             if self.gain_l.target_value() == 0.0 && self.gain_r.target_value() == 0.0 {
