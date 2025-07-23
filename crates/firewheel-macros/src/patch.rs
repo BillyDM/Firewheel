@@ -92,7 +92,7 @@ pub fn derive_patch(input: TokenStream) -> syn::Result<TokenStream2> {
             type Patch = #patch;
 
             fn patch(
-                data: &#firewheel_path::event::ParamData,
+                data: #firewheel_path::event::ParamData,
                 path: &[u32]
             ) -> #FQResult<Self::Patch, #diff_path::PatchError> {
                 #patch_body

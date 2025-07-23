@@ -8,7 +8,6 @@ pub mod event;
 pub mod node;
 pub mod param;
 pub mod sample_resource;
-pub mod sync_wrapper;
 
 mod silence_mask;
 

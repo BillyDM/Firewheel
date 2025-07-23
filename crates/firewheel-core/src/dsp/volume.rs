@@ -1,11 +1,6 @@
 pub const DEFAULT_AMP_EPSILON: f32 = 0.00001;
 pub const DEFAULT_DB_EPSILON: f32 = -100.0;
 
-use crate::{
-    diff::{Diff, Patch},
-    event::ParamData,
-};
-
 /// A value representing a volume (gain) applied to an audio signal.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Volume {
@@ -116,31 +111,6 @@ impl Volume {
 impl Default for Volume {
     fn default() -> Self {
         Self::UNITY_GAIN
-    }
-}
-
-impl Diff for Volume {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            event_queue.push_param(*self, path);
-        }
-    }
-}
-
-impl Patch for Volume {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        data.try_into()
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
     }
 }
 

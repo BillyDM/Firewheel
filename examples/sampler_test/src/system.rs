@@ -5,7 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
-        sampler::{PlaybackState, RepeatMode, SamplerNode, SequenceType},
+        sampler::{PlaybackState, RepeatMode, SamplerNode},
     },
     FirewheelContext,
 };
@@ -60,7 +60,7 @@ impl AudioSystem {
                         .into_dyn_resource();
 
                 let mut params = SamplerNode::default();
-                params.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
+                params.set_sample(sample);
 
                 let node_id = cx.add_node(params.clone(), None);
 
@@ -87,27 +87,30 @@ impl AudioSystem {
         self.cx.is_audio_stream_running()
     }
 
-    pub fn start_or_restart(
-        &mut self,
-        sampler_i: usize,
-        linear_volume: f32,
-        repeat_mode: RepeatMode,
-    ) {
+    pub fn start_or_restart(&mut self, sampler_i: usize) {
         let sampler = &mut self.samplers[sampler_i];
 
-        let Some(SequenceType::SingleSample {
-            volume: old_volume,
-            repeat_mode: old_repeat_mode,
-            ..
-        }) = sampler.params.sequence.as_mut()
-        else {
-            todo!();
-        };
-
-        *old_volume = Volume::Linear(linear_volume);
-        *old_repeat_mode = repeat_mode;
-
         sampler.params.start_or_restart(None);
+
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
+    }
+
+    pub fn set_volume(&mut self, sampler_i: usize, percent_volume: f32) {
+        let sampler = &mut self.samplers[sampler_i];
+
+        sampler.params.volume = Volume::Linear(percent_volume / 100.0);
+
+        sampler
+            .params
+            .update_memo(&mut self.cx.event_queue(sampler.node_id));
+    }
+
+    pub fn set_repeat_mode(&mut self, sampler_i: usize, repeat_mode: RepeatMode) {
+        let sampler = &mut self.samplers[sampler_i];
+
+        sampler.params.repeat_mode = repeat_mode;
 
         sampler
             .params

@@ -1,5 +1,7 @@
 use core::{error::Error, fmt, num::NonZeroU32};
 
+pub const MAX_CHANNELS: usize = 64;
+
 /// A supported number of channels on an audio node.
 ///
 /// This number cannot be greater than `64`.
@@ -11,7 +13,7 @@ impl ChannelCount {
     pub const ZERO: Self = Self(0);
     pub const MONO: Self = Self(1);
     pub const STEREO: Self = Self(2);
-    pub const MAX: Self = Self(64);
+    pub const MAX: Self = Self(MAX_CHANNELS as u32);
 
     /// Create a new [`ChannelCount`].
     ///

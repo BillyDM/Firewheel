@@ -1,5 +1,12 @@
 //! Garbage-collected smart pointer.
 
+use core::cell::UnsafeCell;
+use std::{
+    any::Any,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
+
 use bevy_platform::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -49,6 +56,15 @@ impl<T: ?Sized + Send + Sync + 'static> ArcGc<T> {
         collector.register(Arc::clone(&data));
 
         Self { data, collector }
+    }
+}
+
+impl ArcGc<dyn Any + Send + Sync + 'static> {
+    pub fn new_any<T: Send + Sync + 'static>(value: T) -> Self {
+        ArcGc::new_unsized(|| {
+            let a: Arc<dyn Any + Send + Sync + 'static> = Arc::new(value);
+            a
+        })
     }
 }
 
@@ -118,6 +134,101 @@ impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> PartialEq for ArcG
 }
 
 impl<T: ?Sized + Send + Sync + 'static, C: Collector + Clone> Eq for ArcGc<T, C> {}
+
+/// An owned resource that automatically collects dropped resources from the
+/// audio thread and drops them on the main thread.
+pub struct OwnedGc<T: ?Sized + Send + 'static, C: Collector = GlobalCollector> {
+    data: ArcGc<OwnedGcWrapper<T>, C>,
+}
+
+impl<T: Send + 'static> OwnedGc<T> {
+    /// Construct a new [`OwnedGc`].
+    pub fn new(value: T) -> Self {
+        Self {
+            data: ArcGc::new(OwnedGcWrapper {
+                data: UnsafeCell::new(value),
+            }),
+        }
+    }
+}
+
+// TODO: Maybe add [`OwnedGc::new_unsized`] and [`OwnedGc::new_any`] methods once
+// [`CoerceUnsized`](https://doc.rust-lang.org/std/ops/trait.CoerceUnsized.html)
+// is stabilized?
+
+impl<T: ?Sized + Send + 'static> OwnedGc<T> {
+    /// Get an immutable reference to the owned value.
+    pub fn get(&self) -> &T {
+        // # Safety
+        //
+        // `OwnedGc` doesn't implement `Clone`, and the internal `ArcGc` is hidden
+        // from the user, so the only two `ArcGc`s to the underlying data that can
+        // exist are the one in this struct instance and the one stored in the
+        // collector. The collector never uses the data (it only drops it), and so
+        // it is gauranteed that the underlying data can only be accessed by one
+        // thread at a time.
+        //
+        // Also, `OwnedGc::get_mut` borrows `self` as mutable, ensuring that
+        // mutable borrowing rules will be upheld.
+        unsafe { &*UnsafeCell::get(&(*self.data).data) }
+    }
+
+    /// Get a mutable reference to the owned value.
+    pub fn get_mut(&mut self) -> &mut T {
+        // # Safety
+        //
+        // `OwnedGc` doesn't implement `Clone`, and the internal `ArcGc` is hidden
+        // from the user, so the only two `ArcGc`s to the underlying data that can
+        // exist are the one in this struct instance and the one stored in the
+        // collector. The collector never uses the data (it only drops it), and so
+        // it is gauranteed that the underlying data can only be accessed by one
+        // thread at a time.
+        //
+        // Also, `OwnedGc::get_mut` borrows `self` as mutable, ensuring that
+        // mutable borrowing rules will be upheld.
+        unsafe { &mut *UnsafeCell::get(&(*self.data).data) }
+    }
+}
+
+impl<T: Send + 'static> OwnedGc<T> {
+    /// Swap the internal value with the given one.
+    pub fn swap(&mut self, data: &mut T) {
+        core::mem::swap(self.get_mut(), data);
+    }
+}
+
+impl<T: ?Sized + Send + 'static> Deref for OwnedGc<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.get()
+    }
+}
+
+impl<T: ?Sized + Send + 'static> DerefMut for OwnedGc<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.get_mut()
+    }
+}
+
+impl<T: Debug + ?Sized + Send + 'static> Debug for OwnedGc<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.get(), f)
+    }
+}
+
+struct OwnedGcWrapper<T: ?Sized + Send + 'static> {
+    data: UnsafeCell<T>,
+}
+
+// # Safety
+//
+// `OwnedGc` doesn't implement `Clone`, and the internal `ArcGc` is hidden
+// from the user, so the only two `ArcGc`s to the underlying data that can
+// exist are the one in this struct instance and the one stored in the
+// collector. The collector never uses the data (it only drops it), and so
+// it is gauranteed that the underlying data can only be accessed by one
+// thread at a time.
+unsafe impl<T: ?Sized + Send + 'static> Sync for OwnedGcWrapper<T> {}
 
 /// The default garbage collector for [`ArcGc`].
 ///

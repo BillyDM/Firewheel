@@ -76,7 +76,6 @@ impl AudioNode for VolumePanNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -125,10 +124,10 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<VolumePanNode>(|mut patch| {
+        for mut patch in events.drain_patches::<VolumePanNode>() {
             // here we selectively clamp the panning, leaving
             // other patches untouched
             if let VolumePanNodePatch::Pan(p) = &mut patch {
@@ -137,7 +136,7 @@ impl AudioNodeProcessor for Processor {
 
             self.params.apply(patch);
             updated = true;
-        });
+        }
 
         if updated {
             let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);

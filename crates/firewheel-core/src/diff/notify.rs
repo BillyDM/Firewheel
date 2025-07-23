@@ -1,5 +1,5 @@
 use crate::{
-    diff::{Diff, Patch},
+    diff::{Diff, Patch, RealtimeClone},
     event::ParamData,
 };
 use bevy_platform::sync::atomic::{AtomicU64, Ordering};
@@ -11,16 +11,7 @@ use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 fn increment_counter() -> u64 {
     static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-    NOTIFY_COUNTER
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current_val| {
-            current_val
-                // Attempt increment
-                .checked_add(1)
-                // If it overflows, return 1 instead
-                .or(Some(1))
-        })
-        // We always return `Some`
-        .unwrap()
+    NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A lightweight wrapper that guarantees an event
@@ -122,7 +113,9 @@ impl<T> core::ops::DerefMut for Notify<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Diff for Notify<T> {
+impl<T: Copy> Copy for Notify<T> {}
+
+impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
         &self,
         baseline: &Self,
@@ -135,10 +128,10 @@ impl<T: Clone + Send + Sync + 'static> Diff for Notify<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Patch for Notify<T> {
+impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
     type Patch = Self;
 
-    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
+    fn patch(data: ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
         data.downcast_ref()
             .ok_or(super::PatchError::InvalidData)
             .cloned()

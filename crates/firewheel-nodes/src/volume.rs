@@ -53,7 +53,6 @@ impl AudioNode for VolumeNode {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -90,9 +89,11 @@ impl AudioNodeProcessor for VolumeProcessor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
-        events.for_each_patch::<VolumeNode>(|VolumeNodePatch::Volume(v)| {
+        for patch in events.drain_patches::<VolumeNode>() {
+            let VolumeNodePatch::Volume(v) = patch;
+
             let mut gain = v.amp_clamped(self.amp_epsilon);
             if gain > 0.99999 && gain < 1.00001 {
                 gain = 1.0;
@@ -103,7 +104,7 @@ impl AudioNodeProcessor for VolumeProcessor {
                 // Previous block was silent, so no need to smooth.
                 self.gain.reset();
             }
-        });
+        }
 
         self.prev_block_was_silent = false;
 

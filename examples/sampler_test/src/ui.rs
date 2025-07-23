@@ -65,15 +65,7 @@ impl App for DemoApp {
                     ui.label(sampler_state.text);
 
                     if ui.button("Start or Restart").clicked() {
-                        self.audio_system.start_or_restart(
-                            i,
-                            sampler_state.percent_volume / 100.0,
-                            if sampler_state.repeat {
-                                RepeatMode::RepeatEndlessly
-                            } else {
-                                RepeatMode::PlayOnce
-                            },
-                        );
+                        self.audio_system.start_or_restart(i);
                     }
 
                     match self.audio_system.playback_state(i) {
@@ -94,18 +86,30 @@ impl App for DemoApp {
                         self.audio_system.stop(i);
                     }
 
-                    ui.checkbox(&mut sampler_state.repeat, "repeat");
+                    if ui.checkbox(&mut sampler_state.repeat, "repeat").changed() {
+                        let repeat_mode = if sampler_state.repeat {
+                            RepeatMode::RepeatEndlessly
+                        } else {
+                            RepeatMode::PlayOnce
+                        };
 
-                    ui.add(
-                        egui::Slider::new(&mut sampler_state.percent_volume, 0.0..=100.0)
-                            .text("volume"),
-                    );
+                        self.audio_system.set_repeat_mode(i, repeat_mode);
+                    }
+
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut sampler_state.percent_volume, 0.0..=100.0)
+                                .text("volume"),
+                        )
+                        .changed()
+                    {
+                        self.audio_system
+                            .set_volume(i, sampler_state.percent_volume);
+                    }
                 });
 
                 ui.separator();
             }
-
-            ui.label("Note, \"repeat\" and \"volume\" are only applied when started/restarted.");
 
             ui.separator();
 

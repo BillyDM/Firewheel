@@ -15,7 +15,7 @@ This crate can be used as-is or as a base for other higher-level audio engines. 
 * Flexible audio graph engine (supports any directed, acyclic graph with support for both one-to-many and many-to-one connections)
 * A suite of essential built-in audio nodes
 * Custom audio node API allowing for a plethora of 3rd party generators and effects
-* A deterministic data-driven API that is friendly to ECS's (entity component systems). Parameter state between nodes and their processors never go out of sync, so no need to poll parameter states.
+* An optional data-driven parameter API that is friendly to ECS's (entity component systems).
 * Silence optimizations (avoid processing if the audio buffer contains all zeros, useful when using "pools" of nodes where the majority of the time nodes are unused)
 * Support for loading a wide variety of audio files using [Symphonium]
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)

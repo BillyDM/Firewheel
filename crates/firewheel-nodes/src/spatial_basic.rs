@@ -200,7 +200,6 @@ impl AudioNode for SpatialBasicNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
-            .uses_events(true)
     }
 
     fn construct_processor(
@@ -267,10 +266,10 @@ impl AudioNodeProcessor for Processor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        mut events: NodeEventList,
+        events: &mut NodeEventList,
     ) -> ProcessStatus {
         let mut updated = false;
-        events.for_each_patch::<SpatialBasicNode>(|mut patch| {
+        for mut patch in events.drain_patches::<SpatialBasicNode>() {
             match &mut patch {
                 SpatialBasicNodePatch::Offset(offset) => {
                     if !offset.is_finite() {
@@ -288,7 +287,7 @@ impl AudioNodeProcessor for Processor {
 
             self.params.apply(patch);
             updated = true;
-        });
+        }
 
         if updated {
             let computed_values = self.params.compute_values(self.amp_epsilon);

@@ -3,8 +3,8 @@ use std::time::Duration;
 use clap::Parser;
 use firewheel::{
     error::UpdateError,
-    nodes::sampler::{RepeatMode, SamplerNode, SamplerState},
-    FirewheelContext, Volume,
+    nodes::sampler::{SamplerNode, SamplerState},
+    FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
 
@@ -46,8 +46,8 @@ fn main() {
             .unwrap()
             .into_dyn_resource();
 
-    sampler_node.set_sample(sample, Volume::UNITY_GAIN, RepeatMode::PlayOnce);
-    cx.queue_event_for(sampler_id, sampler_node.sync_sequence_event());
+    sampler_node.set_sample(sample);
+    cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());
 
     sampler_node.start_or_restart(None);
     cx.queue_event_for(sampler_id, sampler_node.sync_playback_event());

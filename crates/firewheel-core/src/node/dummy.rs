@@ -22,7 +22,6 @@ impl AudioNode for DummyNode {
         AudioNodeInfo::new()
             .debug_name("dummy")
             .channel_config(config.channel_config)
-            .uses_events(false)
     }
 
     fn construct_processor(
@@ -41,7 +40,7 @@ impl AudioNodeProcessor for DummyProcessor {
         &mut self,
         _buffers: ProcBuffers,
         _proc_info: &ProcInfo,
-        _events: NodeEventList,
+        _events: &mut NodeEventList,
     ) -> ProcessStatus {
         ProcessStatus::Bypass
     }

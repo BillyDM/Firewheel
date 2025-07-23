@@ -71,4 +71,12 @@ impl SilenceMask {
             self.0 &= !(0b1 << i);
         }
     }
+
+    pub const fn union(self, other: Self) -> Self {
+        SilenceMask(self.0 & other.0)
+    }
+
+    pub fn union_with(&mut self, other: Self) {
+        self.0 &= other.0;
+    }
 }

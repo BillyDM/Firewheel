@@ -21,7 +21,6 @@ impl AudioNode for StereoToMonoNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::MONO,
             })
-            .uses_events(false)
     }
 
     fn construct_processor(
@@ -40,7 +39,7 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         &mut self,
         buffers: ProcBuffers,
         proc_info: &ProcInfo,
-        _events: NodeEventList,
+        _events: &mut NodeEventList,
     ) -> ProcessStatus {
         if proc_info.in_silence_mask.all_channels_silent(2)
             || buffers.inputs.len() < 2

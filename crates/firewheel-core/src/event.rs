@@ -4,10 +4,11 @@ pub use glam::{Vec2, Vec3};
 
 use crate::{
     clock::{
-        DurationMusical, DurationSamples, DurationSeconds, InstantMusical, InstantSamples,
-        InstantSeconds,
+        DurationMusical, DurationSamples, DurationSeconds, EventInstant, InstantMusical,
+        InstantSamples, InstantSeconds,
     },
-    diff::ParamPath,
+    collector::{ArcGc, OwnedGc},
+    diff::{Notify, ParamPath},
     dsp::volume::Volume,
     node::NodeID,
 };
@@ -16,6 +17,9 @@ use crate::{
 pub struct NodeEvent {
     /// The ID of the node that should receive the event.
     pub node_id: NodeID,
+    /// Optionally, a time to schedule this event at. If `None`, the event is considered
+    /// to be at the start of the next processing period.
+    pub time: Option<EventInstant>,
     /// The type of event.
     pub event: NodeEventType,
 }
@@ -29,46 +33,93 @@ pub enum NodeEventType {
         /// The path to the parameter.
         path: ParamPath,
     },
-    /// Custom event type.
-    Custom(Box<dyn Any + Send + Sync>),
+    /// Custom event type stored on the heap.
+    Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
-    CustomBytes([u8; 16]),
+    CustomBytes([u8; 36]),
+}
+
+impl NodeEventType {
+    pub fn custom<T: Send + 'static>(value: T) -> Self {
+        Self::Custom(OwnedGc::new(Box::new(value)))
+    }
+
+    /// Try to downcast the custom event to an immutable reference to `T`.
+    ///
+    /// If this does not contain [`NodeEventType::Custom`] or if the
+    /// downcast failed, then this returns `None`.
+    pub fn downcast_ref<T: Send + 'static>(&self) -> Option<&T> {
+        if let Self::Custom(owned) = self {
+            owned.downcast_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Try to downcast the custom event to a mutable reference to `T`.
+    ///
+    /// If this does not contain [`NodeEventType::Custom`] or if the
+    /// downcast failed, then this returns `None`.
+    pub fn downcast_mut<T: Send + 'static>(&mut self) -> Option<&mut T> {
+        if let Self::Custom(owned) = self {
+            owned.downcast_mut()
+        } else {
+            None
+        }
+    }
 }
 
 /// Data that can be used to patch an individual parameter.
-///
-/// The [`ParamData::Any`] variant is double-boxed to keep
-/// its size small on the stack.
 #[non_exhaustive]
 pub enum ParamData {
-    Volume(Volume),
     F32(f32),
     F64(f64),
     I32(i32),
     U32(u32),
+    I64(i64),
     U64(u64),
     Bool(bool),
+    Volume(Volume),
     Vector2D(Vec2),
     Vector3D(Vec3),
+
+    EventInstant(EventInstant),
     InstantSeconds(InstantSeconds),
     DurationSeconds(DurationSeconds),
     InstantSamples(InstantSamples),
     DurationSamples(DurationSamples),
     InstantMusical(InstantMusical),
     DurationMusical(DurationMusical),
-    Any(Box<Box<dyn Any + Send + Sync>>),
+
+    /// Custom type stored on the heap.
+    Any(ArcGc<dyn Any + Send + Sync>),
+
+    /// Custom type stored on the stack as raw bytes.
+    CustomBytes([u8; 20]),
+
+    /// No data (i.e. the type is `None`).
+    None,
 }
 
 impl ParamData {
     /// Construct a [`ParamData::Any`] variant.
-    pub fn any<T: Any + Send + Sync>(value: T) -> Self {
-        Self::Any(Box::new(Box::new(value)))
+    pub fn any<T: Send + Sync + 'static>(value: T) -> Self {
+        Self::Any(ArcGc::new_any(value))
+    }
+
+    /// Construct a [`ParamData::OptAny`] variant.
+    pub fn opt_any<T: Any + Send + Sync + 'static>(value: Option<T>) -> Self {
+        if let Some(value) = value {
+            Self::any(value)
+        } else {
+            Self::None
+        }
     }
 
     /// Try to downcast [`ParamData::Any`] into `T`.
     ///
-    /// If this enum doesn't hold [`ParamData::Any`] or
-    /// the downcast fails, this returns `None`.
+    /// If this enum doesn't hold [`ParamData::Any`] or the downcast fails,
+    /// then this returns `None`.
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         match self {
             Self::Any(any) => any.downcast_ref(),
@@ -85,12 +136,51 @@ macro_rules! param_data_from {
             }
         }
 
-        impl TryInto<$ty> for &ParamData {
+        impl TryInto<$ty> for ParamData {
             type Error = crate::diff::PatchError;
 
             fn try_into(self) -> Result<$ty, crate::diff::PatchError> {
                 match self {
-                    ParamData::$variant(value) => Ok(*value),
+                    ParamData::$variant(value) => Ok(value),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
+            }
+        }
+
+        impl From<Option<$ty>> for ParamData {
+            fn from(value: Option<$ty>) -> Self {
+                if let Some(value) = value {
+                    Self::$variant(value)
+                } else {
+                    Self::None
+                }
+            }
+        }
+
+        impl TryInto<Option<$ty>> for ParamData {
+            type Error = crate::diff::PatchError;
+
+            fn try_into(self) -> Result<Option<$ty>, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(Some(value)),
+                    ParamData::None => Ok(None),
+                    _ => Err(crate::diff::PatchError::InvalidData),
+                }
+            }
+        }
+
+        impl From<Notify<$ty>> for ParamData {
+            fn from(value: Notify<$ty>) -> Self {
+                Self::$variant(*value)
+            }
+        }
+
+        impl TryInto<Notify<$ty>> for ParamData {
+            type Error = crate::diff::PatchError;
+
+            fn try_into(self) -> Result<Notify<$ty>, crate::diff::PatchError> {
+                match self {
+                    ParamData::$variant(value) => Ok(Notify::new(value)),
                     _ => Err(crate::diff::PatchError::InvalidData),
                 }
             }
@@ -103,10 +193,12 @@ param_data_from!(f32, F32);
 param_data_from!(f64, F64);
 param_data_from!(i32, I32);
 param_data_from!(u32, U32);
+param_data_from!(i64, I64);
 param_data_from!(u64, U64);
 param_data_from!(bool, Bool);
 param_data_from!(Vec2, Vector2D);
 param_data_from!(Vec3, Vector3D);
+param_data_from!(EventInstant, EventInstant);
 param_data_from!(InstantSeconds, InstantSeconds);
 param_data_from!(DurationSeconds, DurationSeconds);
 param_data_from!(InstantSamples, InstantSamples);
@@ -116,14 +208,20 @@ param_data_from!(DurationMusical, DurationMusical);
 
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct NodeEventList<'a> {
-    event_buffer: &'a mut [NodeEvent],
-    indices: &'a [u32],
+    immediate_event_buffer: &'a mut [Option<NodeEvent>],
+    scheduled_event_arena: &'a mut [Option<NodeEvent>],
+    indices: &'a mut Vec<NodeEventListIndex>,
 }
 
 impl<'a> NodeEventList<'a> {
-    pub fn new(event_buffer: &'a mut [NodeEvent], indices: &'a [u32]) -> Self {
+    pub fn new(
+        immediate_event_buffer: &'a mut [Option<NodeEvent>],
+        scheduled_event_arena: &'a mut [Option<NodeEvent>],
+        indices: &'a mut Vec<NodeEventListIndex>,
+    ) -> Self {
         Self {
-            event_buffer,
+            immediate_event_buffer,
+            scheduled_event_arena,
             indices,
         }
     }
@@ -132,21 +230,22 @@ impl<'a> NodeEventList<'a> {
         self.indices.len()
     }
 
-    pub fn get_event(&mut self, index: usize) -> Option<&mut NodeEventType> {
-        self.indices
-            .get(index)
-            .map(|idx| &mut self.event_buffer[*idx as usize].event)
-    }
-
-    pub fn for_each(&mut self, mut f: impl FnMut(&mut NodeEventType)) {
-        for &idx in self.indices {
-            if let Some(event) = self.event_buffer.get_mut(idx as usize) {
-                (f)(&mut event.event);
+    /// Iterate over all events, draining the events from the list.
+    pub fn drain<'b>(&'b mut self) -> impl IntoIterator<Item = NodeEventType> + use<'b> {
+        self.indices.drain(..).map(|index_type| match index_type {
+            NodeEventListIndex::Immediate(i) => {
+                self.immediate_event_buffer[i as usize]
+                    .take()
+                    .unwrap()
+                    .event
             }
-        }
+            NodeEventListIndex::Scheduled(i) => {
+                self.scheduled_event_arena[i as usize].take().unwrap().event
+            }
+        })
     }
 
-    /// Iterate over patches for `T`.
+    /// Iterate over patches for `T`, draining the events from the list.
     ///
     /// ```
     /// # use firewheel_core::{diff::*, event::NodeEventList};
@@ -157,28 +256,39 @@ impl<'a> NodeEventList<'a> {
     ///     quality: f32,
     /// }
     ///
+    /// let mut node = FilterNode::default();
+    ///
     /// // You can match on individual patch variants.
-    /// event_list.for_each_patch::<FilterNode>(|patch| match patch {
-    ///     FilterNodePatch::Frequency(frequency) => {}
-    ///     FilterNodePatch::Quality(quality) => {}
-    /// });
+    /// for patch in event_list.iter_patch::<FilterNode>() {
+    ///     match patch {
+    ///         FilterNodePatch::Frequency(frequency) => {
+    ///             node.frequency = frequency;
+    ///         }
+    ///         FilterNodePatch::Quality(quality) => {
+    ///             node.quality = quality;
+    ///         }
+    ///     }
+    /// }
     ///
     /// // Or simply apply all of them.
-    /// let mut node = FilterNode::default();
-    /// event_list.for_each_patch::<FilterNode>(|patch| node.apply(patch));
+    /// for patch in event_list.iter_patch::<FilterNode>() { node.apply(patch); }
     /// # }
     /// ```
     ///
     /// Errors produced while constructing patches are simply skipped.
-    pub fn for_each_patch<T: crate::diff::Patch>(&mut self, mut f: impl FnMut(T::Patch)) {
-        for &idx in self.indices {
-            if let Some(patch) = self
-                .event_buffer
-                .get_mut(idx as usize)
-                .and_then(|e| T::patch_event(&e.event))
-            {
-                (f)(patch);
-            }
-        }
+    pub fn drain_patches<'b, T: crate::diff::Patch>(
+        &'b mut self,
+    ) -> impl IntoIterator<Item = <T as crate::diff::Patch>::Patch> + use<'b, T> {
+        // Ideally this would parameterise the `FnMut` over some `impl From<PatchEvent<T>>`
+        // but it would require a marker trait for the `diff::Patch::Patch` assoc type to
+        // prevent overlapping impls.
+        self.drain().into_iter().filter_map(|e| T::patch_event(e))
     }
+}
+
+/// Used internally by the Firewheel processor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeEventListIndex {
+    Immediate(u32),
+    Scheduled(u32),
 }
