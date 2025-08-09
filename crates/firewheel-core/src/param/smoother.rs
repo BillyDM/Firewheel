@@ -15,7 +15,7 @@ pub struct SmootherConfig {
     /// The amount of smoothing in seconds
     ///
     /// By default this is set to 5 milliseconds.
-    pub smooth_secs: f32,
+    pub smooth_seconds: f32,
     /// The threshold at which the smoothing will complete
     ///
     /// By default this is set to `0.00001`.
@@ -25,7 +25,7 @@ pub struct SmootherConfig {
 impl Default for SmootherConfig {
     fn default() -> Self {
         Self {
-            smooth_secs: smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+            smooth_seconds: smoothing_filter::DEFAULT_SMOOTH_SECONDS,
             settle_epsilon: smoothing_filter::DEFAULT_SETTLE_EPSILON,
         }
     }
@@ -44,18 +44,18 @@ pub struct SmoothedParam {
 impl SmoothedParam {
     /// Construct a new smoothed f32 parameter with the given configuration.
     pub fn new(value: f32, config: SmootherConfig, sample_rate: NonZeroU32) -> Self {
-        assert!(config.smooth_secs > 0.0);
-        assert!(config.settle_epsilon > 0.0);
+        let smooth_secs = config.smooth_seconds.max(0.00001);
+        let settle_epsilon = config.settle_epsilon.max(f32::EPSILON);
 
-        let coeff = SmoothingFilterCoeff::new(sample_rate, config.smooth_secs);
+        let coeff = SmoothingFilterCoeff::new(sample_rate, smooth_secs);
 
         Self {
             target_value: value,
             target_times_a: value * coeff.a0,
             filter: SmoothingFilter::new(value),
             coeff,
-            smooth_secs: config.smooth_secs,
-            settle_epsilon: config.settle_epsilon,
+            smooth_secs,
+            settle_epsilon,
         }
     }
 
@@ -103,6 +103,11 @@ impl SmoothedParam {
         } else {
             buffer.fill(self.target_value);
         }
+    }
+
+    pub fn set_smooth_seconds(&mut self, seconds: f32, sample_rate: NonZeroU32) {
+        self.coeff = SmoothingFilterCoeff::new(sample_rate, seconds);
+        self.smooth_secs = seconds;
     }
 
     /// Update the sample rate.

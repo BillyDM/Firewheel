@@ -2,11 +2,11 @@ use std::ops::RangeInclusive;
 
 use eframe::App;
 use egui::{epaint::CircleShape, Color32, Pos2, Sense, Stroke, StrokeKind};
-use firewheel::Volume;
+use firewheel::{nodes::spatial_basic::DistanceModel, Volume};
 
 use crate::system::AudioSystem;
 
-const RANGE: RangeInclusive<f32> = -40.0..=40.0;
+const RANGE: RangeInclusive<f32> = -80.0..=80.0;
 
 pub struct DemoApp {
     audio_system: AudioSystem,
@@ -14,9 +14,9 @@ pub struct DemoApp {
 
 impl DemoApp {
     pub fn new() -> Self {
-        Self {
-            audio_system: AudioSystem::new(),
-        }
+        let audio_system = AudioSystem::new();
+
+        Self { audio_system }
     }
 }
 
@@ -24,15 +24,24 @@ impl App for DemoApp {
     fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(cx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    ui.menu_button("Menu", |ui| {
+                ui.menu_button("Menu", |ui| {
+                    ui.hyperlink_to(
+                        "interactive distance model graph",
+                        "https://www.desmos.com/calculator/g1pbsc5m9y",
+                    );
+                    ui.hyperlink_to(
+                        "interactive muffle model graph",
+                        "https://www.desmos.com/calculator/jxp8t9ero4",
+                    );
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
                         if ui.button("Quit").clicked() {
                             cx.send_viewport_cmd(egui::ViewportCommand::Close)
                         }
-                    });
-                    ui.add_space(16.0);
-                }
+                    }
+                });
+                ui.add_space(16.0);
 
                 egui::widgets::global_theme_preference_switch(ui);
             });
@@ -87,32 +96,77 @@ impl App for DemoApp {
                 )
                 .changed();
 
+            let before = self.audio_system.spatial_basic_node.distance_model;
+            egui::ComboBox::from_label("distance model")
+                .selected_text(match self.audio_system.spatial_basic_node.distance_model {
+                    DistanceModel::Inverse => "Inverse",
+                    DistanceModel::Linear => "Linear",
+                    DistanceModel::Exponential => "Exponential",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        DistanceModel::Inverse,
+                        "Inverse",
+                    );
+                    ui.selectable_value(
+                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        DistanceModel::Linear,
+                        "Linear",
+                    );
+                    ui.selectable_value(
+                        &mut self.audio_system.spatial_basic_node.distance_model,
+                        DistanceModel::Exponential,
+                        "Exponential",
+                    );
+                });
+
+            if self.audio_system.spatial_basic_node.distance_model != before {
+                updated = true;
+            }
+
             ui.horizontal(|ui| {
                 updated |= ui
                     .add(
                         egui::Slider::new(
-                            &mut self.audio_system.spatial_basic_node.damping_distance,
-                            -1.0..=300.0,
+                            &mut self.audio_system.spatial_basic_node.distance_gain_factor,
+                            0.0001..=10.0,
                         )
                         .step_by(0.0)
-                        .text("damping distance"),
+                        .text("distance gain factor"),
                     )
                     .changed();
 
-                ui.label("(negative value = no damping)");
+                ui.label("(value of 0 = no damping)");
             });
 
-            updated |= ui
-                .add(
-                    egui::Slider::new(
-                        &mut self.audio_system.spatial_basic_node.muffle_cutoff_hz,
-                        20.0..=20_480.0,
+            ui.horizontal(|ui| {
+                updated |= ui
+                    .add(
+                        egui::Slider::new(
+                            &mut self.audio_system.spatial_basic_node.reference_distance,
+                            0.0001..=50.0,
+                        )
+                        .step_by(0.0)
+                        .text("reference distance"),
                     )
-                    .step_by(0.0)
-                    .text("muffle cutoff Hz")
-                    .logarithmic(true),
-                )
-                .changed();
+                    .changed();
+            });
+
+            ui.horizontal(|ui| {
+                updated |= ui
+                    .add(
+                        egui::Slider::new(
+                            &mut self.audio_system.spatial_basic_node.max_distance,
+                            1.0..=500.0,
+                        )
+                        .step_by(0.0)
+                        .text("maximum distance"),
+                    )
+                    .changed();
+
+                ui.label("(only has effect with linear distance model)");
+            });
 
             updated |= ui
                 .add(
@@ -125,11 +179,87 @@ impl App for DemoApp {
                 )
                 .changed();
 
+            ui.horizontal(|ui| {
+                updated |= ui
+                    .add(
+                        egui::Slider::new(
+                            &mut self.audio_system.spatial_basic_node.distance_muffle_factor,
+                            0.0..=10.0,
+                        )
+                        .step_by(0.0)
+                        .text("distance muffle factor"),
+                    )
+                    .changed();
+
+                ui.label("(value of 0 = no muffling)");
+            });
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.max_muffle_distance,
+                        1.0..=500.0,
+                    )
+                    .step_by(0.0)
+                    .text("maximum muffle distance"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self
+                            .audio_system
+                            .spatial_basic_node
+                            .max_distance_muffle_cutoff_hz,
+                        20.0..=20_480.0,
+                    )
+                    .step_by(0.0)
+                    .logarithmic(true)
+                    .text("max distance muffle cutoff hz"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.muffle_cutoff_hz,
+                        20.0..=20_480.0,
+                    )
+                    .step_by(0.0)
+                    .logarithmic(true)
+                    .text("muffle cutoff hz"),
+                )
+                .changed();
+
             updated |= ui
                 .add(egui::Checkbox::new(
                     &mut self.audio_system.spatial_basic_node.downmix,
                     "downmix stereo to mono",
                 ))
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.min_gain,
+                        0.0..=1.0,
+                    )
+                    .logarithmic(true)
+                    .step_by(0.0)
+                    .text("minimum gain (raw amplitude, not decibels)"),
+                )
+                .changed();
+
+            updated |= ui
+                .add(
+                    egui::Slider::new(
+                        &mut self.audio_system.spatial_basic_node.smooth_seconds,
+                        0.0..=0.15,
+                    )
+                    .step_by(0.0)
+                    .text("smoothing filter seconds"),
+                )
                 .changed();
 
             let offset = &mut self.audio_system.spatial_basic_node.offset;

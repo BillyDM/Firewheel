@@ -1,7 +1,10 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
+    dsp::{
+        filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+        volume::{Volume, DEFAULT_AMP_EPSILON},
+    },
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -15,34 +18,44 @@ use firewheel_core::{
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumeNodeConfig {
-    /// The time in seconds of the internal smoothing filter.
-    ///
-    /// By default this is set to `0.01` (10ms).
-    pub smooth_secs: f32,
-
     /// The number of input and output channels.
     pub channels: NonZeroChannelCount,
-
-    /// If the resutling amplitude of the volume is less than or equal to this
-    /// value, then the amplitude will be clamped to `0.0` (silence).
-    pub amp_epsilon: f32,
 }
 
 impl Default for VolumeNodeConfig {
     fn default() -> Self {
         Self {
-            smooth_secs: 10.0 / 1_000.0,
             channels: NonZeroChannelCount::STEREO,
-            amp_epsilon: DEFAULT_AMP_EPSILON,
         }
     }
 }
 
-#[derive(Default, Diff, Patch, Debug, Clone, Copy, PartialEq)]
+#[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct VolumeNode {
     pub volume: Volume,
+
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.015` (15ms).
+    pub smooth_seconds: f32,
+    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// than or equal to this value, then the gain will be clamped to
+    /// `0.0` (silence).
+    ///
+    /// By default this is set to `0.00001` (-100 decibels).
+    pub min_gain: f32,
+}
+
+impl Default for VolumeNode {
+    fn default() -> Self {
+        Self {
+            volume: Volume::default(),
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
+        }
+    }
 }
 
 impl AudioNode for VolumeNode {
@@ -59,22 +72,23 @@ impl AudioNode for VolumeNode {
 
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
+        _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let gain = self.volume.amp_clamped(config.amp_epsilon);
+        let min_gain = self.min_gain.max(0.0);
+        let gain = self.volume.amp_clamped(min_gain);
 
         VolumeProcessor {
             gain: SmoothedParam::new(
                 gain,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
             ),
             prev_block_was_silent: true,
-            amp_epsilon: config.amp_epsilon,
+            min_gain,
         }
     }
 }
@@ -83,7 +97,7 @@ struct VolumeProcessor {
     gain: SmoothedParam,
 
     prev_block_was_silent: bool,
-    amp_epsilon: f32,
+    min_gain: f32,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -95,17 +109,25 @@ impl AudioNodeProcessor for VolumeProcessor {
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<VolumeNode>() {
-            let VolumeNodePatch::Volume(v) = patch;
+            match patch {
+                VolumeNodePatch::Volume(v) => {
+                    let mut gain = v.amp_clamped(self.min_gain);
+                    if gain > 0.99999 && gain < 1.00001 {
+                        gain = 1.0;
+                    }
+                    self.gain.set_value(gain);
 
-            let mut gain = v.amp_clamped(self.amp_epsilon);
-            if gain > 0.99999 && gain < 1.00001 {
-                gain = 1.0;
-            }
-            self.gain.set_value(gain);
-
-            if self.prev_block_was_silent {
-                // Previous block was silent, so no need to smooth.
-                self.gain.reset();
+                    if self.prev_block_was_silent {
+                        // Previous block was silent, so no need to smooth.
+                        self.gain.reset();
+                    }
+                }
+                VolumeNodePatch::SmoothSeconds(seconds) => {
+                    self.gain.set_smooth_seconds(seconds, info.sample_rate);
+                }
+                VolumeNodePatch::MinGain(min_gain) => {
+                    self.min_gain = min_gain.max(0.0);
+                }
             }
         }
 

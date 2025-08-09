@@ -3,7 +3,7 @@ use num_traits::Float;
 
 use core::num::NonZeroU32;
 
-pub const DEFAULT_SMOOTH_SECONDS: f32 = 10.0 / 1_000.0;
+pub const DEFAULT_SMOOTH_SECONDS: f32 = 15.0 / 1_000.0;
 pub const DEFAULT_SETTLE_EPSILON: f32 = 0.00001f32;
 
 /// The coefficients for a simple smoothing/declicking filter where:
@@ -17,7 +17,7 @@ pub struct SmoothingFilterCoeff {
 
 impl SmoothingFilterCoeff {
     pub fn new(sample_rate: NonZeroU32, smooth_secs: f32) -> Self {
-        assert!(smooth_secs > 0.0);
+        let smooth_secs = smooth_secs.max(0.00001);
 
         let b1 = (-1.0f32 / (smooth_secs * sample_rate.get() as f32)).exp();
         let a0 = 1.0f32 - b1;

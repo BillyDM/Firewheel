@@ -12,7 +12,6 @@ use crate::FxChain;
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct SpatialBasicChain {
     pub spatial_basic: firewheel_nodes::spatial_basic::SpatialBasicNode,
-    pub config: firewheel_nodes::spatial_basic::SpatialBasicConfig,
 }
 
 impl SpatialBasicChain {
@@ -55,7 +54,7 @@ impl FxChain for SpatialBasicChain {
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
 
-        let spatial_basic_node_id = cx.add_node(spatial_basic_params, Some(self.config));
+        let spatial_basic_node_id = cx.add_node(spatial_basic_params, None);
 
         cx.connect(
             first_node_id,

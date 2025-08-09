@@ -47,10 +47,6 @@ pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 pub struct SamplerConfig {
     /// The number of channels in this node.
     pub channels: NonZeroChannelCount,
-    /// If `true`, then mono samples will be converted to stereo during playback.
-    ///
-    /// By default this is set to `true`.
-    pub mono_to_stereo: bool,
     /// The maximum number of "declickers" present on this node.
     /// The more declickers there are, the more samples that can be declicked
     /// when played in rapid succession. (Note more declickers will allocate
@@ -58,14 +54,6 @@ pub struct SamplerConfig {
     ///
     /// By default this is set to `2`.
     pub num_declickers: u32,
-    /// If true, then samples will be crossfaded when the playhead or sample is
-    /// changed (if a sample was currently playing when the event was sent).
-    ///
-    /// By default this is set to `true`.
-    pub crossfade_on_seek: bool,
-    /// If the resutling amplitude of the volume is less than or equal to this
-    /// value, then the amplitude will be clamped to `0.0` (silence).
-    pub amp_epsilon: f32,
     /// The quality of the resampling algorithm used when changing the playback
     /// speed.
     pub speed_quality: PlaybackSpeedQuality,
@@ -75,10 +63,7 @@ impl Default for SamplerConfig {
     fn default() -> Self {
         Self {
             channels: NonZeroChannelCount::STEREO,
-            mono_to_stereo: true,
             num_declickers: DEFAULT_NUM_DECLICKERS as u32,
-            crossfade_on_seek: true,
-            amp_epsilon: DEFAULT_AMP_EPSILON,
             speed_quality: PlaybackSpeedQuality::default(),
         }
     }
@@ -125,6 +110,22 @@ pub struct SamplerNode {
     /// it lower-pitched), and `> 1.0` means to play the sound faster (which will
     /// make it higher-pitched).
     pub speed: f64,
+
+    /// If `true`, then mono samples will be converted to stereo during playback.
+    ///
+    /// By default this is set to `true`.
+    pub mono_to_stereo: bool,
+    /// If true, then samples will be crossfaded when the playhead or sample is
+    /// changed (if a sample was currently playing when the event was sent).
+    ///
+    /// By default this is set to `true`.
+    pub crossfade_on_seek: bool,
+    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// than or equal to this value, then the gain will be clamped to
+    /// `0.0` (silence).
+    ///
+    /// By default this is set to `0.00001` (-100 decibels).
+    pub min_gain: f32,
 }
 
 impl Default for SamplerNode {
@@ -135,6 +136,9 @@ impl Default for SamplerNode {
             playback: Default::default(),
             repeat_mode: RepeatMode::default(),
             speed: 1.0,
+            mono_to_stereo: true,
+            crossfade_on_seek: true,
+            min_gain: DEFAULT_AMP_EPSILON,
         }
     }
 }
@@ -499,7 +503,7 @@ impl AudioNode for SamplerNode {
             playback_state: *self.playback,
             #[cfg(feature = "scheduled_events")]
             queued_playback_instant: None,
-            amp_epsilon: config.amp_epsilon,
+            min_gain: self.min_gain.max(0.0),
             is_first_process: true,
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
         }
@@ -527,7 +531,7 @@ pub struct SamplerProcessor {
     #[cfg(feature = "scheduled_events")]
     queued_playback_instant: Option<EventInstant>,
 
-    amp_epsilon: f32,
+    min_gain: f32,
 
     is_first_process: bool,
     max_block_frames: usize,
@@ -729,7 +733,7 @@ impl SamplerProcessor {
     }
 
     fn load_sample(&mut self, sample: ArcGc<dyn SampleResource>, num_out_channels: usize) {
-        let mut gain = self.params.volume.amp_clamped(self.amp_epsilon);
+        let mut gain = self.params.volume.amp_clamped(self.min_gain);
         if gain > 0.99999 && gain < 1.00001 {
             gain = 1.0;
         }
@@ -738,7 +742,7 @@ impl SamplerProcessor {
         let sample_num_channels = sample.num_channels();
 
         let sample_mono_to_stereo =
-            self.config.mono_to_stereo && num_out_channels > 1 && sample_num_channels.get() == 1;
+            self.params.mono_to_stereo && num_out_channels > 1 && sample_num_channels.get() == 1;
 
         self.loaded_sample_state = Some(LoadedSampleState {
             sample,
@@ -779,6 +783,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
+                SamplerNodePatch::MinGain(min_gain) => {
+                    self.min_gain = min_gain.max(0.0);
+                }
+                _ => {}
             }
 
             self.params.apply(patch);
@@ -795,6 +803,10 @@ impl AudioNodeProcessor for SamplerProcessor {
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
+                SamplerNodePatch::MinGain(min_gain) => {
+                    self.min_gain = min_gain.max(0.0);
+                }
+                _ => {}
             }
 
             self.params.apply(patch);
@@ -810,7 +822,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         if volume_changed {
             if let Some(loaded_sample) = &mut self.loaded_sample_state {
-                loaded_sample.gain = self.params.volume.amp_clamped(self.amp_epsilon);
+                loaded_sample.gain = self.params.volume.amp_clamped(self.min_gain);
                 if loaded_sample.gain > 0.99999 && loaded_sample.gain < 1.00001 {
                     loaded_sample.gain = 1.0;
                 }
@@ -963,7 +975,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                         } else {
                             if new_playhead_frames != 0
                                 || (self.num_active_stop_declickers > 0
-                                    && self.config.crossfade_on_seek)
+                                    && self.params.crossfade_on_seek)
                             {
                                 self.declicker.reset_to_0();
                                 self.declicker.fade_to_1(&extra.declick_values);

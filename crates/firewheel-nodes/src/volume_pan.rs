@@ -1,7 +1,11 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::{pan_law::PanLaw, volume::Volume},
+    dsp::{
+        filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+        pan_law::PanLaw,
+        volume::{Volume, DEFAULT_AMP_EPSILON},
+    },
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -27,15 +31,17 @@ pub struct VolumePanNode {
     /// The algorithm to use to map a normalized panning value in the range `[-1.0, 1.0]`
     /// to the corresponding gain values for the left and right channels.
     pub pan_law: PanLaw,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct VolumePanNodeConfig {
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.01` (10ms).
-    pub smooth_secs: f32,
+    /// By default this is set to `0.015` (15ms).
+    pub smooth_seconds: f32,
+    /// If the resutling gain (in raw amplitude, not decibels) is less
+    /// than or equal to this value, then the gain will be clamped to
+    /// `0.0` (silence).
+    ///
+    /// By default this is set to `0.00001` (-100 decibels).
+    pub min_gain: f32,
 }
 
 impl VolumePanNode {
@@ -64,6 +70,8 @@ impl Default for VolumePanNode {
             volume: Volume::default(),
             pan: 0.0,
             pan_law: PanLaw::default(),
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            min_gain: DEFAULT_AMP_EPSILON,
         }
     }
 }
@@ -82,16 +90,18 @@ impl AudioNode for VolumePanNode {
 
     fn construct_processor(
         &self,
-        config: &Self::Configuration,
+        _config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> impl AudioNodeProcessor {
-        let (gain_l, gain_r) = self.compute_gains(config.amp_epsilon);
+        let min_gain = self.min_gain.max(0.0);
+
+        let (gain_l, gain_r) = self.compute_gains(self.min_gain);
 
         Processor {
             gain_l: SmoothedParam::new(
                 gain_l,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -99,14 +109,14 @@ impl AudioNode for VolumePanNode {
             gain_r: SmoothedParam::new(
                 gain_r,
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
             ),
             params: *self,
             prev_block_was_silent: true,
-            amp_epsilon: config.amp_epsilon,
+            min_gain,
         }
     }
 }
@@ -118,7 +128,7 @@ struct Processor {
     params: VolumePanNode,
 
     prev_block_was_silent: bool,
-    amp_epsilon: f32,
+    min_gain: f32,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -131,10 +141,18 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         let mut updated = false;
         for mut patch in events.drain_patches::<VolumePanNode>() {
-            // here we selectively clamp the panning, leaving
-            // other patches untouched
-            if let VolumePanNodePatch::Pan(p) = &mut patch {
-                *p = p.clamp(-1.0, 1.0);
+            match &mut patch {
+                VolumePanNodePatch::Pan(p) => {
+                    *p = p.clamp(-1.0, 1.0);
+                }
+                VolumePanNodePatch::SmoothSeconds(seconds) => {
+                    self.gain_l.set_smooth_seconds(*seconds, info.sample_rate);
+                    self.gain_r.set_smooth_seconds(*seconds, info.sample_rate);
+                }
+                VolumePanNodePatch::MinGain(min_gain) => {
+                    self.min_gain = min_gain.max(0.0);
+                }
+                _ => {}
             }
 
             self.params.apply(patch);
@@ -142,7 +160,7 @@ impl AudioNodeProcessor for Processor {
         }
 
         if updated {
-            let (gain_l, gain_r) = self.params.compute_gains(self.amp_epsilon);
+            let (gain_l, gain_r) = self.params.compute_gains(self.min_gain);
             self.gain_l.set_value(gain_l);
             self.gain_r.set_value(gain_r);
 

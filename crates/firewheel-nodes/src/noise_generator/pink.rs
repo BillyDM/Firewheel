@@ -5,7 +5,10 @@
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
+    dsp::{
+        filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
+        volume::{Volume, DEFAULT_AMP_EPSILON},
+    },
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -29,6 +32,10 @@ pub struct PinkNoiseGenNode {
     pub volume: Volume,
     /// Whether or not this node is enabled.
     pub enabled: bool,
+    /// The time in seconds of the internal smoothing filter.
+    ///
+    /// By default this is set to `0.015` (15ms).
+    pub smooth_seconds: f32,
 }
 
 impl Default for PinkNoiseGenNode {
@@ -36,6 +43,7 @@ impl Default for PinkNoiseGenNode {
         Self {
             volume: Volume::Linear(0.4),
             enabled: true,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
         }
     }
 }
@@ -46,18 +54,11 @@ impl Default for PinkNoiseGenNode {
 pub struct PinkNoiseGenConfig {
     /// The starting seed. This cannot be zero.
     pub seed: i32,
-    /// The time in seconds of the internal smoothing filter.
-    ///
-    /// By default this is set to `0.01` (10ms).
-    pub smooth_secs: f32,
 }
 
 impl Default for PinkNoiseGenConfig {
     fn default() -> Self {
-        Self {
-            seed: 17,
-            smooth_secs: 10.0 / 1_000.0,
-        }
+        Self { seed: 17 }
     }
 }
 
@@ -85,7 +86,7 @@ impl AudioNode for PinkNoiseGenNode {
             gain: SmoothedParam::new(
                 self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
                 SmootherConfig {
-                    smooth_secs: config.smooth_secs,
+                    smooth_seconds: self.smooth_seconds,
                     ..Default::default()
                 },
                 cx.stream_info.sample_rate,
@@ -114,14 +115,20 @@ struct Processor {
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
-        _info: &ProcInfo,
+        info: &ProcInfo,
         buffers: ProcBuffers,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         for patch in events.drain_patches::<PinkNoiseGenNode>() {
-            if let PinkNoiseGenNodePatch::Volume(vol) = patch {
-                self.gain.set_value(vol.amp_clamped(DEFAULT_AMP_EPSILON));
+            match patch {
+                PinkNoiseGenNodePatch::Volume(vol) => {
+                    self.gain.set_value(vol.amp_clamped(DEFAULT_AMP_EPSILON));
+                }
+                PinkNoiseGenNodePatch::SmoothSeconds(seconds) => {
+                    self.gain.set_smooth_seconds(seconds, info.sample_rate);
+                }
+                _ => {}
             }
 
             self.params.apply(patch);
