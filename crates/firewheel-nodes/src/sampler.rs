@@ -6,13 +6,14 @@ use firewheel_core::node::{ProcBuffers, ProcExtra};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use bevy_platform::sync::atomic::{AtomicU64, Ordering};
 use bevy_platform::time::Instant;
+use core::sync::atomic::AtomicU32;
 use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
 };
-use firewheel_core::diff::RealtimeClone;
+use firewheel_core::diff::{EventQueue, PatchError, PathBuilder, RealtimeClone};
 use smallvec::SmallVec;
 
 use firewheel_core::{
@@ -100,8 +101,13 @@ pub struct SamplerNode {
     /// [`VolumePanNode`]: crate::volume_pan::VolumePanNode
     pub volume: Volume,
 
-    /// The current playback state.
-    pub playback: Notify<PlaybackState>,
+    /// Whether or not the current sample should start/restart playing (true), or be
+    /// paused/stopped (false).
+    pub play: Notify<bool>,
+
+    /// Defines where the sampler should start playing from when
+    /// [`SamplerNode::play`] is set to `true`.
+    pub play_from: PlayFrom,
 
     /// How many times a sample should be repeated.
     pub repeat_mode: RepeatMode,
@@ -134,7 +140,8 @@ impl Default for SamplerNode {
         Self {
             sample: None,
             volume: Volume::default(),
-            playback: Default::default(),
+            play: Default::default(),
+            play_from: PlayFrom::default(),
             repeat_mode: RepeatMode::default(),
             speed: 1.0,
             mono_to_stereo: true,
@@ -166,11 +173,19 @@ impl SamplerNode {
         }
     }
 
-    /// Returns an event type to sync the `playback` parameter.
-    pub fn sync_playback_event(&self) -> NodeEventType {
+    /// Returns an event type to sync the `play` parameter.
+    pub fn sync_play_event(&self) -> NodeEventType {
         NodeEventType::Param {
-            data: ParamData::any(self.playback.clone()),
+            data: ParamData::Bool(*self.play),
             path: ParamPath::Single(2),
+        }
+    }
+
+    /// Returns an event type to sync the `play_from` parameter.
+    pub fn sync_play_from_event(&self) -> NodeEventType {
+        NodeEventType::Param {
+            data: self.play_from.as_param_data(),
+            path: ParamPath::Single(3),
         }
     }
 
@@ -178,7 +193,7 @@ impl SamplerNode {
     pub fn sync_repeat_mode_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: ParamData::any(self.repeat_mode),
-            path: ParamPath::Single(3),
+            path: ParamPath::Single(4),
         }
     }
 
@@ -186,30 +201,33 @@ impl SamplerNode {
     pub fn sync_speed_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: ParamData::F64(self.speed),
-            path: ParamPath::Single(4),
+            path: ParamPath::Single(5),
         }
     }
 
-    /// Play the sample in this node.
+    /// Start/restart the sample in this node.
     ///
-    /// If a sample is already playing, then it will restart from the given playhead.
-    ///
-    /// * `playhead` - The playhead to start playing from. If this is `None`, then
-    /// the sample will start from the beginning.
-    pub fn start_or_restart(&mut self, playhead: Option<Playhead>) {
-        *self.playback = PlaybackState::Play {
-            playhead: Some(playhead.unwrap_or_default()),
-        };
+    /// If a sample is already playing, then it will restart from the beginning.
+    pub fn start_or_restart(&mut self) {
+        self.play_from = PlayFrom::BEGINNING;
+        *self.play = true;
+    }
+
+    /// Play the sample in this node from the given playhead.
+    pub fn start_from(&mut self, from: PlayFrom) {
+        self.play_from = from;
+        *self.play = true;
     }
 
     /// Pause sample playback.
     pub fn pause(&mut self) {
-        *self.playback = PlaybackState::Pause;
+        self.play_from = PlayFrom::Resume;
+        *self.play = false;
     }
 
-    /// Start/resume sample playback.
+    /// Resume sample playback.
     pub fn resume(&mut self) {
-        *self.playback = PlaybackState::Play { playhead: None };
+        *self.play = true;
     }
 
     /// Stop sample playback.
@@ -217,7 +235,28 @@ impl SamplerNode {
     /// Calling [`SamplerNode::resume`] after this will restart the sample from
     /// the beginning.
     pub fn stop(&mut self) {
-        *self.playback = PlaybackState::Stop;
+        self.play_from = PlayFrom::BEGINNING;
+        *self.play = false;
+    }
+
+    /// Returns `true` if the current state is set to restart the sample.
+    pub fn start_or_restart_requested(&self) -> bool {
+        *self.play && self.play_from == PlayFrom::BEGINNING
+    }
+
+    /// Returns `true` if the current state is set to resume the sample.
+    pub fn resume_requested(&self) -> bool {
+        *self.play && self.play_from == PlayFrom::Resume
+    }
+
+    /// Returns `true` if the current state is set to pause the sample.
+    pub fn pause_requested(&self) -> bool {
+        !*self.play && self.play_from == PlayFrom::Resume
+    }
+
+    /// Returns `true` if the current state is set to stop the sample.
+    pub fn stop_requested(&self) -> bool {
+        !*self.play && self.play_from != PlayFrom::Resume
     }
 }
 
@@ -267,7 +306,9 @@ impl SamplerState {
             return frames;
         };
 
-        if self.shared_state.playing.load(Ordering::Relaxed) {
+        if SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
+            == SharedPlaybackState::Playing
+        {
             DurationSamples(
                 frames.0
                     + InstantSeconds(update_instant.elapsed().as_secs_f64())
@@ -296,16 +337,47 @@ impl SamplerState {
         )
     }
 
+    /// Returns `true` if the sample is currently playing.
+    pub fn playing(&self) -> bool {
+        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
+            == SharedPlaybackState::Playing
+    }
+
+    /// Returns `true` if the sample is currently paused.
+    pub fn paused(&self) -> bool {
+        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
+            == SharedPlaybackState::Paused
+    }
+
     /// Returns `true` if the sample has either not started playing yet or has finished
     /// playing.
     pub fn stopped(&self) -> bool {
-        self.shared_state.stopped.load(Ordering::Relaxed)
+        SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
+            == SharedPlaybackState::Stopped
+    }
+
+    /// Manually set the shared `playing` flag. This can be useful to account for the delay
+    /// between sending a play event and the node's processor receiving that event.
+    pub fn mark_playing(&self) {
+        self.shared_state
+            .playback_state
+            .store(SharedPlaybackState::Playing as u32, Ordering::Relaxed);
+    }
+
+    /// Manually set the shared `paused` flag. This can be useful to account for the delay
+    /// between sending a play event and the node's processor receiving that event.
+    pub fn mark_paused(&self) {
+        self.shared_state
+            .playback_state
+            .store(SharedPlaybackState::Paused as u32, Ordering::Relaxed);
     }
 
     /// Manually set the shared `stopped` flag. This can be useful to account for the delay
     /// between sending a play event and the node's processor receiving that event.
-    pub fn mark_stopped(&self, stopped: bool) {
-        self.shared_state.stopped.store(stopped, Ordering::Release);
+    pub fn mark_stopped(&self) {
+        self.shared_state
+            .playback_state
+            .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
     }
 
     /// Returns the ID stored in the "finished" flag.
@@ -322,33 +394,31 @@ impl SamplerState {
     /// higher the score, the better the candidate.
     pub fn worker_score(&self, params: &SamplerNode) -> u64 {
         if params.sample.is_some() {
-            let stopped = self.stopped();
+            let playback_state = SharedPlaybackState::from_u32(
+                self.shared_state.playback_state.load(Ordering::Relaxed),
+            );
 
-            match *params.playback {
-                PlaybackState::Stop => u64::MAX - 1,
-                PlaybackState::Pause => {
-                    if stopped {
-                        u64::MAX - 2
+            if *params.play {
+                let playhead_frames = self.playhead_frames();
+
+                if playback_state == SharedPlaybackState::Stopped {
+                    if playhead_frames.0 > 0 {
+                        // Sequence has likely finished playing.
+                        u64::MAX - 4
                     } else {
-                        u64::MAX - 3
+                        // Sequence has likely not started playing yet.
+                        u64::MAX - 5
                     }
+                } else {
+                    // The older the sample is, the better it is as a candidate to steal
+                    // work from.
+                    playhead_frames.0 as u64
                 }
-                PlaybackState::Play { .. } => {
-                    let playhead_frames = self.playhead_frames();
-
-                    if stopped {
-                        if playhead_frames.0 > 0 {
-                            // Sequence has likely finished playing.
-                            u64::MAX - 4
-                        } else {
-                            // Sequence has likely not started playing yet.
-                            u64::MAX - 5
-                        }
-                    } else {
-                        // The older the sample is, the better it is as a candidate to steal
-                        // work from.
-                        playhead_frames.0 as u64
-                    }
+            } else {
+                match playback_state {
+                    SharedPlaybackState::Stopped => u64::MAX - 1,
+                    SharedPlaybackState::Paused => u64::MAX - 2,
+                    SharedPlaybackState::Playing => u64::MAX - 3,
                 }
             }
         } else {
@@ -357,83 +427,76 @@ impl SamplerState {
     }
 }
 
-/// A parameter representing the current playback state of a sample.
-#[derive(Default, Debug, Clone, Copy, PartialEq, RealtimeClone)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub enum PlaybackState {
-    /// Stop the sample.
-    ///
-    /// If the sample is started again with `PlaybackState::Play { playhead: None}`,
-    /// it will restart from the beginning.
-    #[default]
-    Stop,
-    /// Pause the sample.
-    ///
-    /// If the sample is started again with `PlaybackState::Play { playhead: None}`,
-    /// it will resume from where it left off.
-    Pause,
-    /// Play the sample.
-    Play {
-        /// If this is `None`, then one of the two will happen:
-        /// * If the previous state was `PlaybackState::Stop`, then the sample will
-        /// be restarted from the beginning.
-        /// * If the previous state was `PlaybackState::Pause`, then the sample will
-        /// resume where it left off.
-        ///
-        /// If this is `Some`, then the sample will jump to the given position
-        /// when the event is recieved. If the scheduled instant of this
-        /// `PlaybackState` event is in the past when this node receives this
-        /// event, then the delay will automatically be accounted for.
-        playhead: Option<Playhead>,
-    },
-}
-
-impl PlaybackState {
-    pub const RESUME: Self = Self::Play { playhead: None };
-    pub const RESTART: Self = Self::Play {
-        playhead: Some(Playhead::ZERO),
-    };
-
-    pub fn is_playing(&self) -> bool {
-        if let PlaybackState::Play { .. } = self {
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// The playhead of a sample.
+/// Defines where the sampler should start playing from when
+/// [`SamplerNode::play`] is set to `true`.
 #[derive(Debug, Clone, Copy, PartialEq, RealtimeClone)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub enum Playhead {
-    /// The playhead in units of seconds.
+pub enum PlayFrom {
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will resume
+    /// playing from where it last left off.
+    Resume,
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will begin
+    /// playing  from this position in the sample in units of seconds.
     Seconds(f64),
-    /// The playhead in units of frames (samples in a single channel of audio).
+    /// When [`SamplerNode::play`] is set to `true`, the sampler will begin
+    /// playing from this position in the sample in units of frames (samples
+    /// in a single channel of audio).
     Frames(u64),
 }
 
-impl Playhead {
-    pub const ZERO: Self = Playhead::Frames(0);
+impl PlayFrom {
+    pub const BEGINNING: Self = Self::Frames(0);
 
-    pub fn as_frames(&self, sample_rate: NonZeroU32) -> u64 {
+    pub fn as_frames(&self, sample_rate: NonZeroU32) -> Option<u64> {
         match *self {
-            Self::Seconds(seconds) => {
-                if seconds <= 0.0 {
-                    0
-                } else {
-                    (seconds.floor() as u64 * sample_rate.get() as u64)
-                        + (seconds.fract() * sample_rate.get() as f64).round() as u64
-                }
-            }
-            Self::Frames(frames) => frames,
+            Self::Resume => None,
+            Self::Seconds(seconds) => Some(if seconds <= 0.0 {
+                0
+            } else {
+                (seconds.floor() as u64 * sample_rate.get() as u64)
+                    + (seconds.fract() * sample_rate.get() as f64).round() as u64
+            }),
+            Self::Frames(frames) => Some(frames),
+        }
+    }
+
+    pub fn as_param_data(&self) -> ParamData {
+        match self {
+            Self::Resume => ParamData::None,
+            Self::Seconds(s) => ParamData::F64(*s),
+            Self::Frames(f) => ParamData::U64(*f),
         }
     }
 }
 
-impl Default for Playhead {
+impl Default for PlayFrom {
     fn default() -> Self {
-        Self::ZERO
+        Self::BEGINNING
+    }
+}
+
+impl Diff for PlayFrom {
+    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+        if self != baseline {
+            event_queue.push_param(self.as_param_data(), path);
+        }
+    }
+}
+
+impl Patch for PlayFrom {
+    type Patch = Self;
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
+        match data {
+            ParamData::None => Ok(PlayFrom::Resume),
+            ParamData::F64(s) => Ok(PlayFrom::Seconds(*s)),
+            ParamData::U64(f) => Ok(PlayFrom::Frames(*f)),
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn apply(&mut self, value: Self::Patch) {
+        *self = value;
     }
 }
 
@@ -501,7 +564,8 @@ impl AudioNode for SamplerNode {
             num_active_stop_declickers: 0,
             resampler: Some(Resampler::new(config.speed_quality)),
             speed: self.speed.max(MIN_PLAYBACK_SPEED),
-            playback_state: *self.playback,
+            playing: *self.play,
+            paused: !*self.play && self.play_from == PlayFrom::Resume,
             #[cfg(feature = "scheduled_events")]
             queued_playback_instant: None,
             min_gain: self.min_gain.max(0.0),
@@ -520,7 +584,8 @@ pub struct SamplerProcessor {
 
     declicker: Declicker,
 
-    playback_state: PlaybackState,
+    playing: bool,
+    paused: bool,
 
     stop_declicker_buffers: Option<InstanceBuffer<f32, MAX_OUT_CHANNELS>>,
     stop_declickers: SmallVec<[StopDeclickerState; DEFAULT_NUM_DECLICKERS]>,
@@ -667,8 +732,7 @@ impl SamplerProcessor {
         if self.params.sample.is_none() {
             false
         } else {
-            self.playback_state.is_playing()
-                || (self.playback_state == PlaybackState::Pause && !self.declicker.is_settled())
+            self.playing || (self.paused && !self.declicker.is_settled())
         }
     }
 
@@ -766,10 +830,10 @@ impl AudioNodeProcessor for SamplerProcessor {
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
         let mut sample_changed = self.is_first_process;
-        let mut playback_changed = false;
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
         let mut volume_changed = false;
+        let mut new_playing: Option<bool> = None;
 
         #[cfg(feature = "scheduled_events")]
         let mut playback_instant: Option<EventInstant> = None;
@@ -779,8 +843,8 @@ impl AudioNodeProcessor for SamplerProcessor {
             match patch {
                 SamplerNodePatch::Sample(_) => sample_changed = true,
                 SamplerNodePatch::Volume(_) => volume_changed = true,
-                SamplerNodePatch::Playback(_) => {
-                    playback_changed = true;
+                SamplerNodePatch::Play(play) => {
+                    new_playing = Some(*play);
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -798,9 +862,9 @@ impl AudioNodeProcessor for SamplerProcessor {
             match patch {
                 SamplerNodePatch::Sample(_) => sample_changed = true,
                 SamplerNodePatch::Volume(_) => volume_changed = true,
-                SamplerNodePatch::Playback(_) => {
-                    playback_changed = true;
+                SamplerNodePatch::Play(play) => {
                     playback_instant = timestamp;
+                    new_playing = Some(*play);
                 }
                 SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
                 SamplerNodePatch::Speed(_) => speed_changed = true,
@@ -837,185 +901,172 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if sample_changed {
-            if !playback_changed {
-                playback_changed = true;
+            self.stop(buffers.outputs.len(), extra);
 
-                #[cfg(feature = "scheduled_events")]
+            #[cfg(feature = "scheduled_events")]
+            if new_playing == Some(true) && playback_instant.is_none() {
                 if let Some(queued_playback_instant) = self.queued_playback_instant.take() {
                     if queued_playback_instant.to_samples(info).is_some() {
                         playback_instant = Some(queued_playback_instant);
-                    } else {
-                        // Handle an edge case where the user sent a scheduled play event at
-                        // a musical time, but there is no sample and a musical transport
-                        // is not playing.
-                        playback_changed = false;
                     }
                 }
             }
 
-            self.stop(buffers.outputs.len(), extra);
+            if new_playing.is_none() && self.playing {
+                self.playing = false;
+                self.paused = false;
+            }
 
             self.loaded_sample_state = None;
 
             if let Some(sample) = &self.params.sample {
                 self.load_sample(ArcGc::clone(sample), buffers.outputs.len());
-            } else {
-                self.shared_state.stopped.store(true, Ordering::Relaxed);
             }
-
-            self.playback_state = PlaybackState::Stop;
         }
 
-        if playback_changed {
-            match *self.params.playback {
-                PlaybackState::Stop => {
-                    self.stop(buffers.outputs.len(), extra);
-                    self.shared_state
-                        .finished
-                        .store(self.params.playback.id(), Ordering::Relaxed);
+        if let Some(mut new_playing) = new_playing {
+            self.paused = false;
 
-                    self.playback_state = PlaybackState::Stop;
-                }
-                PlaybackState::Pause => {
-                    if self.playback_state.is_playing() {
-                        self.playback_state = PlaybackState::Pause;
+            if new_playing {
+                let mut playhead_frames_at_play_instant = None;
 
-                        self.declicker.fade_to_0(&extra.declick_values);
-                    }
-                }
-                PlaybackState::Play { playhead } => {
-                    if self.playback_state.is_playing() && playhead.is_none() {
+                if self.params.play_from == PlayFrom::Resume {
+                    // Resume
+                    if self.playing {
                         // Sample is already playing, no need to do anything.
                         #[cfg(feature = "scheduled_events")]
                         {
                             self.queued_playback_instant = None;
                         }
-                    } else if self.loaded_sample_state.is_some() {
-                        let loaded_sample_state = self.loaded_sample_state.as_mut().unwrap();
-                        let prev_playhead_frames = loaded_sample_state.playhead_frames;
-
-                        if playhead.is_some() {
-                            loaded_sample_state.num_times_looped_back = 0;
-                        }
-
-                        let playhead_frames_at_play_instant = playhead
-                            .map(|p| p.as_frames(info.sample_rate))
-                            .unwrap_or_else(|| match self.playback_state {
-                                PlaybackState::Stop => 0,
-                                _ => prev_playhead_frames,
-                            });
-
-                        #[cfg(feature = "scheduled_events")]
-                        let mut new_playhead_frames =
-                            if let Some(playback_instant) = playback_instant {
-                                let playback_instant_samples = playback_instant
-                                    .to_samples(info)
-                                    .unwrap_or(info.clock_samples);
-                                let delay = if playback_instant_samples < info.clock_samples {
-                                    (info.clock_samples - playback_instant_samples).0 as u64
-                                } else {
-                                    0
-                                };
-
-                                playhead_frames_at_play_instant + delay
-                            } else {
-                                playhead_frames_at_play_instant
-                            };
-
-                        #[cfg(not(feature = "scheduled_events"))]
-                        let mut new_playhead_frames = playhead_frames_at_play_instant;
-
-                        if new_playhead_frames >= loaded_sample_state.sample_len_frames {
-                            match self.params.repeat_mode {
-                                RepeatMode::PlayOnce => {
-                                    new_playhead_frames = loaded_sample_state.sample_len_frames
-                                }
-                                RepeatMode::RepeatEndlessly => {
-                                    while new_playhead_frames
-                                        >= loaded_sample_state.sample_len_frames
-                                    {
-                                        new_playhead_frames -=
-                                            loaded_sample_state.sample_len_frames;
-                                        loaded_sample_state.num_times_looped_back += 1;
-                                    }
-                                }
-                                RepeatMode::RepeatMultiple {
-                                    num_times_to_repeat,
-                                } => {
-                                    while new_playhead_frames
-                                        >= loaded_sample_state.sample_len_frames
-                                    {
-                                        if loaded_sample_state.num_times_looped_back
-                                            == num_times_to_repeat as u64
-                                        {
-                                            new_playhead_frames =
-                                                loaded_sample_state.sample_len_frames;
-                                            break;
-                                        }
-
-                                        new_playhead_frames -=
-                                            loaded_sample_state.sample_len_frames;
-                                        loaded_sample_state.num_times_looped_back += 1;
-                                    }
-                                }
-                            }
-                        }
-
-                        if prev_playhead_frames != new_playhead_frames {
-                            self.stop(buffers.outputs.len(), extra);
-
-                            self.loaded_sample_state.as_mut().unwrap().playhead_frames =
-                                new_playhead_frames;
-
-                            self.shared_state
-                                .sample_playhead_frames
-                                .store(new_playhead_frames, Ordering::Relaxed);
-                        }
-
-                        if new_playhead_frames
-                            == self.loaded_sample_state.as_ref().unwrap().sample_len_frames
-                        {
-                            self.playback_state = PlaybackState::Stop;
-                            self.shared_state
-                                .finished
-                                .store(self.params.playback.id(), Ordering::Relaxed);
-                        } else {
-                            if new_playhead_frames != 0
-                                || (self.num_active_stop_declickers > 0
-                                    && self.params.crossfade_on_seek)
-                            {
-                                self.declicker.reset_to_0();
-                                self.declicker.fade_to_1(&extra.declick_values);
-                            } else {
-                                self.declicker.reset_to_1();
-                            }
-
-                            self.playback_state = PlaybackState::Play { playhead };
-                        }
-
-                        #[cfg(feature = "scheduled_events")]
-                        {
-                            self.queued_playback_instant = None;
-                        }
+                    } else if let Some(loaded_sample_state) = &self.loaded_sample_state {
+                        playhead_frames_at_play_instant = Some(loaded_sample_state.playhead_frames);
+                    }
+                } else {
+                    // Play from the given playhead
+                    if let Some(loaded_sample_state) = &mut self.loaded_sample_state {
+                        loaded_sample_state.num_times_looped_back = 0;
+                        playhead_frames_at_play_instant =
+                            Some(self.params.play_from.as_frames(info.sample_rate).unwrap());
                     } else {
-                        self.playback_state = PlaybackState::Stop;
-
                         #[cfg(feature = "scheduled_events")]
                         {
                             self.queued_playback_instant = playback_instant;
                         }
                     }
                 }
+
+                if let Some(playhead_frames_at_play_instant) = playhead_frames_at_play_instant {
+                    let loaded_sample_state = self.loaded_sample_state.as_mut().unwrap();
+                    let prev_playhead_frames = loaded_sample_state.playhead_frames;
+
+                    #[cfg(feature = "scheduled_events")]
+                    let mut new_playhead_frames = if let Some(playback_instant) = playback_instant {
+                        let playback_instant_samples = playback_instant
+                            .to_samples(info)
+                            .unwrap_or(info.clock_samples);
+                        let delay = if playback_instant_samples < info.clock_samples {
+                            (info.clock_samples - playback_instant_samples).0 as u64
+                        } else {
+                            0
+                        };
+
+                        playhead_frames_at_play_instant + delay
+                    } else {
+                        playhead_frames_at_play_instant
+                    };
+
+                    #[cfg(not(feature = "scheduled_events"))]
+                    let mut new_playhead_frames = playhead_frames_at_play_instant;
+
+                    if new_playhead_frames >= loaded_sample_state.sample_len_frames {
+                        match self.params.repeat_mode {
+                            RepeatMode::PlayOnce => {
+                                new_playhead_frames = loaded_sample_state.sample_len_frames
+                            }
+                            RepeatMode::RepeatEndlessly => {
+                                while new_playhead_frames >= loaded_sample_state.sample_len_frames {
+                                    new_playhead_frames -= loaded_sample_state.sample_len_frames;
+                                    loaded_sample_state.num_times_looped_back += 1;
+                                }
+                            }
+                            RepeatMode::RepeatMultiple {
+                                num_times_to_repeat,
+                            } => {
+                                while new_playhead_frames >= loaded_sample_state.sample_len_frames {
+                                    if loaded_sample_state.num_times_looped_back
+                                        == num_times_to_repeat as u64
+                                    {
+                                        new_playhead_frames = loaded_sample_state.sample_len_frames;
+                                        break;
+                                    }
+
+                                    new_playhead_frames -= loaded_sample_state.sample_len_frames;
+                                    loaded_sample_state.num_times_looped_back += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if prev_playhead_frames != new_playhead_frames {
+                        self.stop(buffers.outputs.len(), extra);
+
+                        self.loaded_sample_state.as_mut().unwrap().playhead_frames =
+                            new_playhead_frames;
+
+                        self.shared_state
+                            .sample_playhead_frames
+                            .store(new_playhead_frames, Ordering::Relaxed);
+                    }
+
+                    if new_playhead_frames
+                        == self.loaded_sample_state.as_ref().unwrap().sample_len_frames
+                    {
+                        self.shared_state
+                            .finished
+                            .store(self.params.play.id(), Ordering::Relaxed);
+
+                        new_playing = false;
+                    } else if new_playhead_frames != 0
+                        || (self.num_active_stop_declickers > 0 && self.params.crossfade_on_seek)
+                    {
+                        self.declicker.reset_to_0();
+                        self.declicker.fade_to_1(&extra.declick_values);
+                    } else {
+                        self.declicker.reset_to_1();
+                    }
+
+                    #[cfg(feature = "scheduled_events")]
+                    {
+                        self.queued_playback_instant = None;
+                    }
+                }
+            } else {
+                if self.params.play_from == PlayFrom::Resume {
+                    // Pause
+                    self.declicker.fade_to_0(&extra.declick_values);
+                    self.paused = true;
+                } else {
+                    // Stop
+                    self.stop(buffers.outputs.len(), extra);
+                    self.shared_state
+                        .finished
+                        .store(self.params.play.id(), Ordering::Relaxed);
+                }
             }
+
+            self.playing = new_playing;
         }
 
         self.is_first_process = false;
 
-        self.shared_state
-            .playing
-            .store(self.playback_state.is_playing(), Ordering::Relaxed);
-        self.shared_state.stopped.store(
-            self.playback_state == PlaybackState::Stop,
+        self.shared_state.playback_state.store(
+            if self.playing {
+                SharedPlaybackState::Playing
+            } else if self.paused {
+                SharedPlaybackState::Paused
+            } else {
+                SharedPlaybackState::Stopped
+            } as u32,
             Ordering::Relaxed,
         );
 
@@ -1046,11 +1097,14 @@ impl AudioNodeProcessor for SamplerProcessor {
             );
 
             if finished {
-                self.playback_state = PlaybackState::Stop;
-                self.shared_state.stopped.store(true, Ordering::Relaxed);
+                self.playing = false;
+
+                self.shared_state
+                    .playback_state
+                    .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
                 self.shared_state
                     .finished
-                    .store(self.params.playback.id(), Ordering::Relaxed);
+                    .store(self.params.play.id(), Ordering::Relaxed);
             }
         }
 
@@ -1128,9 +1182,11 @@ impl AudioNodeProcessor for SamplerProcessor {
             // the incorrect sample rate and the user must reload them.
             self.params.sample = None;
             self.loaded_sample_state = None;
-            self.playback_state = PlaybackState::Stop;
-            self.shared_state.playing.store(false, Ordering::Relaxed);
-            self.shared_state.stopped.store(true, Ordering::Relaxed);
+            self.playing = false;
+            self.paused = false;
+            self.shared_state
+                .playback_state
+                .store(SharedPlaybackState::Stopped as u32, Ordering::Relaxed);
             self.shared_state.finished.store(0, Ordering::Relaxed);
         }
     }
@@ -1138,8 +1194,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
 struct SharedState {
     sample_playhead_frames: AtomicU64,
-    playing: AtomicBool,
-    stopped: AtomicBool,
+    playback_state: AtomicU32,
     finished: AtomicU64,
 }
 
@@ -1147,9 +1202,26 @@ impl Default for SharedState {
     fn default() -> Self {
         Self {
             sample_playhead_frames: AtomicU64::new(0),
-            playing: AtomicBool::new(false),
-            stopped: AtomicBool::new(true),
+            playback_state: AtomicU32::new(SharedPlaybackState::Stopped as u32),
             finished: AtomicU64::new(0),
+        }
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum SharedPlaybackState {
+    Stopped = 0,
+    Paused,
+    Playing,
+}
+
+impl SharedPlaybackState {
+    fn from_u32(val: u32) -> Self {
+        match val {
+            1 => Self::Paused,
+            2 => Self::Playing,
+            _ => Self::Stopped,
         }
     }
 }

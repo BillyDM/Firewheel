@@ -4,7 +4,7 @@ use firewheel_core::{
     node::NodeID,
 };
 use firewheel_graph::{backend::AudioBackend, ContextQueue, FirewheelCtx};
-use firewheel_nodes::sampler::{PlaybackState, SamplerConfig, SamplerNode, SamplerState};
+use firewheel_nodes::sampler::{SamplerConfig, SamplerNode, SamplerState};
 
 use crate::{PoolError, PoolableNode};
 
@@ -25,11 +25,7 @@ impl PoolableNode for SamplerPool {
     /// Return `true` if the given parameters signify that the sequence is stopped,
     /// `false` otherwise.
     fn params_stopped(params: &SamplerNode) -> bool {
-        if let PlaybackState::Stop = *params.playback {
-            true
-        } else {
-            false
-        }
+        params.stop_requested()
     }
 
     /// Return `true` if the node state of the given node is stopped.
@@ -68,22 +64,18 @@ impl PoolableNode for SamplerPool {
         new.diff(baseline, PathBuilder::default(), event_queue);
     }
 
-    /// Notify the node state that a sequence is playing/stopped.
-    ///
-    /// If `stopped` is `true`, then the sequence has been stopped. If `stopped` is
-    /// `false`, then a new sequence has been started.
+    /// Notify the node state that a sequence is playing.
     ///
     /// This is used to account for the delay between sending an event to the node
     /// and the node receiving the event.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn mark_stopped<B: AudioBackend>(
-        stopped: bool,
+    fn mark_playing<B: AudioBackend>(
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
     ) -> Result<(), PoolError> {
         cx.node_state_mut::<SamplerState>(node_id)
-            .map(|s| s.mark_stopped(stopped))
+            .map(|s| s.mark_playing())
             .ok_or(PoolError::InvalidNodeID(node_id))
     }
 

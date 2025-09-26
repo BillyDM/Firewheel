@@ -49,14 +49,14 @@ fn main() {
     sampler_node.set_sample(sample);
     cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());
 
-    sampler_node.start_or_restart(None);
-    cx.queue_event_for(sampler_id, sampler_node.sync_playback_event());
+    sampler_node.start_or_restart();
+    cx.queue_event_for(sampler_id, sampler_node.sync_play_event());
 
     // Manually set the shared `stopped` flag. This is needed to account for the delay
     // between sending a play event and the node's processor receiving that event.
     cx.node_state::<SamplerState>(sampler_id)
         .unwrap()
-        .mark_stopped(false);
+        .mark_stopped();
 
     // --- Simulated update loop ---------------------------------------------------------
 

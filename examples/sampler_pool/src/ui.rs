@@ -37,7 +37,7 @@ impl App for DemoApp {
             ui.label("Default VolumePan FX Chain");
 
             if ui.button("Play").clicked() {
-                self.audio_system.sampler_node.start_or_restart(None);
+                self.audio_system.sampler_node.start_or_restart();
 
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_1.new_worker(
@@ -69,7 +69,7 @@ impl App for DemoApp {
             ui.label("Custom FX Chain");
 
             if ui.button("Play").clicked() {
-                self.audio_system.sampler_node.start_or_restart(None);
+                self.audio_system.sampler_node.start_or_restart();
 
                 // The `worker_id` can be later used to reference this piece of work being done.
                 let _worker_id = self.audio_system.sampler_pool_2.new_worker(

@@ -5,7 +5,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
-        sampler::{PlaybackState, RepeatMode, SamplerNode},
+        sampler::{RepeatMode, SamplerNode, SamplerState},
     },
     FirewheelContext,
 };
@@ -90,7 +90,7 @@ impl AudioSystem {
     pub fn start_or_restart(&mut self, sampler_i: usize) {
         let sampler = &mut self.samplers[sampler_i];
 
-        sampler.params.start_or_restart(None);
+        sampler.params.start_or_restart();
 
         sampler
             .params
@@ -154,8 +154,18 @@ impl AudioSystem {
         }
     }
 
-    pub fn playback_state(&self, sampler_i: usize) -> &PlaybackState {
-        &self.samplers[sampler_i].params.playback
+    pub fn is_playing(&self, sampler_i: usize) -> bool {
+        self.cx
+            .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
+            .unwrap()
+            .playing()
+    }
+
+    pub fn is_paused(&self, sampler_i: usize) -> bool {
+        self.cx
+            .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
+            .unwrap()
+            .paused()
     }
 
     pub fn update(&mut self) {

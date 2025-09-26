@@ -42,7 +42,7 @@ impl AudioSystem {
         let mut sampler_node = SamplerNode::default();
         sampler_node.set_sample(sample);
         sampler_node.repeat_mode = RepeatMode::RepeatEndlessly;
-        sampler_node.start_or_restart(None);
+        sampler_node.start_or_restart();
 
         let sampler_node_id = cx.add_node(sampler_node.clone(), None);
 

@@ -116,17 +116,13 @@ pub trait PoolableNode {
         event_queue: &mut ContextQueue<B>,
     );
 
-    /// Notify the node state that a sequence is playing/stopped.
-    ///
-    /// If `stopped` is `true`, then the sequence has been stopped. If `stopped` is
-    /// `false`, then a new sequence has been started.
+    /// Notify the node state that a sequence is playing.
     ///
     /// This is used to account for the delay between sending an event to the node
     /// and the node receiving the event.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn mark_stopped<B: AudioBackend>(
-        stopped: bool,
+    fn mark_playing<B: AudioBackend>(
         node_id: NodeID,
         cx: &mut FirewheelCtx<B>,
     ) -> Result<(), PoolError>;
@@ -288,7 +284,7 @@ where
 
         worker.first_node_params = params.clone();
 
-        N::mark_stopped(false, worker.first_node_id, cx).unwrap();
+        N::mark_playing(worker.first_node_id, cx).unwrap();
 
         (fx_chain)(&mut worker.fx_state, cx);
 
