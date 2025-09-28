@@ -1,10 +1,14 @@
+use std::sync::Arc;
+
 use firewheel::{
-    channel_config::NonZeroChannelCount,
+    channel_config::{ChannelCount, NonZeroChannelCount},
+    collector::ArcGc,
     error::{AddEdgeError, UpdateError},
     event::NodeEventType,
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        convolution::{ConvolutionNode, ConvolutionNodeConfig},
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -15,8 +19,10 @@ use firewheel::{
         volume_pan::VolumePanNode,
         StereoToMonoNode,
     },
+    sample_resource::SampleResourceF32,
     ContextQueue, CpalBackend, FirewheelContext,
 };
+use symphonium::SymphoniumLoader;
 
 use crate::ui::GuiAudioNode;
 
@@ -35,18 +41,84 @@ pub enum NodeType {
     SVF,
     MixMono,
     MixStereo,
+    // Wrapping both convolutions into one enum makes ui initializtion easier
+    Convolution { stereo: bool },
 }
 
 pub struct AudioSystem {
     cx: FirewheelContext,
+    pub(crate) ir_samples: Vec<(&'static str, ArcGc<dyn SampleResourceF32>)>,
 }
+
+const IR_SAMPLE_PATHS: [&'static str; 2] = [
+    "assets/test_files/ir_outside.wav",
+    "assets/test_files/ir_hall.wav",
+];
 
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
         cx.start_stream(Default::default()).unwrap();
 
-        Self { cx }
+        let sample_rate = cx.stream_info().unwrap().sample_rate;
+
+        let mut loader = SymphoniumLoader::new();
+
+        // Load samples for IR node TODO: This is unnecessarily long and can be
+        // improved
+        let loaded = IR_SAMPLE_PATHS
+            .iter()
+            .map(|path| {
+                let sample_resource =
+                    firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
+                        .unwrap()
+                        .into_dyn_resource();
+                let mut buffers = vec![
+                    vec![0.0; sample_resource.len_frames() as usize];
+                    sample_resource.num_channels().get()
+                ];
+                let mut mut_slices: Vec<&mut [f32]> =
+                    buffers.iter_mut().map(|v| v.as_mut_slice()).collect();
+
+                sample_resource.fill_buffers(
+                    &mut mut_slices,
+                    0..sample_resource.len_frames() as usize,
+                    0,
+                );
+
+                let ir: Vec<Vec<f32>> = buffers;
+
+                let arc: Arc<dyn SampleResourceF32> = Arc::new(ir);
+                ArcGc::from(arc)
+            })
+            .collect::<Vec<_>>();
+
+        let channel_to_vec = |sample: ArcGc<dyn SampleResourceF32>, channel: usize| -> Vec<f32> {
+            sample
+                .channel(channel)
+                .unwrap()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        };
+
+        // Process samples to get multiple channels from few files
+        let ir_samples = vec![
+            ("Outside (Mono)", {
+                let arc: Arc<dyn SampleResourceF32> =
+                    Arc::new(vec![channel_to_vec(loaded[0].clone(), 0)]);
+                ArcGc::from(arc)
+            }),
+            ("Outside (Stereo)", loaded[0].clone()),
+            ("Hall (Mono)", {
+                let arc: Arc<dyn SampleResourceF32> =
+                    Arc::new(vec![channel_to_vec(loaded[1].clone(), 0)]);
+                ArcGc::from(arc)
+            }),
+            ("Hall (Stereo)", loaded[1].clone()),
+        ];
+
+        Self { cx, ir_samples }
     }
 
     pub fn remove_node(&mut self, node_id: NodeID) {
@@ -92,6 +164,15 @@ impl AudioSystem {
                     channels: NonZeroChannelCount::STEREO,
                 }),
             ),
+            NodeType::Convolution { stereo } => match stereo {
+                false => self.cx.add_node(
+                    ConvolutionNode::<1>::default(),
+                    Some(ConvolutionNodeConfig {
+                        max_impulse_channel_count: ChannelCount::MONO,
+                    }),
+                ),
+                true => self.cx.add_node(ConvolutionNode::<2>::default(), None),
+            },
         };
 
         match node_type {
@@ -144,6 +225,11 @@ impl AudioSystem {
                 id,
                 params: Default::default(),
             },
+            NodeType::Convolution { stereo } => GuiAudioNode::Convolution {
+                id,
+                params: Default::default(),
+                stereo,
+            },
         }
     }
 
@@ -185,9 +271,8 @@ impl AudioSystem {
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)
                 //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (event if it's a dummy
-                // output device).
+                // Typically you should start a new stream as soon as possible
+                // to resume processing (event if it's a dummy output device).
                 //
                 // In this example we just quit the application.
                 panic!("Stream stopped unexpectedly.");
