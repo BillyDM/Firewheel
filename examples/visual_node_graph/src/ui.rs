@@ -726,6 +726,19 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     {
                         params.wet_gain = Volume::Linear(linear_volume);
                     }
+
+                    ui.horizontal(|ui| {
+                        ui.add_enabled_ui(!params.paused, |ui| {
+                            if ui.button("Pause").clicked() {
+                                params.paused = true;
+                            }
+                        });
+                        ui.add_enabled_ui(params.paused, |ui| {
+                            if ui.button("Play").clicked() {
+                                params.paused = false;
+                            }
+                        });
+                    });
                 });
 
                 params.update_memo(&mut self.audio_system.event_queue(*id));

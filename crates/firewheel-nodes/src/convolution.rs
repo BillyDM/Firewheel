@@ -7,6 +7,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         buffer::ChannelBuffer,
+        declick::{DeclickFadeCurve, Declicker},
         fade::FadeCurve,
         mix::{Mix, MixDSP},
         volume::Volume,
@@ -23,6 +24,11 @@ use firewheel_core::{
 #[derive(Diff, Patch, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 pub struct ConvolutionNode<const CHANNELS: usize> {
+    /// Defaults to true. When true, the node is enabled and will convolve
+    /// audio. When false, the state of the convolver will be paused and can be
+    /// later resumed. This is useful for applications such as pausing a
+    /// convolved sound during a game pause menu.
+    pub paused: bool,
     /// The wet/dry mix.
     pub mix: Mix,
     pub fade_curve: FadeCurve,
@@ -63,6 +69,7 @@ impl<const CHANNELS: usize> Default for ConvolutionNode<CHANNELS> {
             fade_curve: FadeCurve::default(),
             impulse_response: None,
             wet_gain: Volume::Decibels(-20.0),
+            paused: false,
         }
     }
 }
@@ -118,6 +125,7 @@ impl<const CHANNELS: usize> AudioNode for ConvolutionNode<CHANNELS> {
                 cx.stream_info.sample_rate,
             ),
             wet_gain_buffer: vec![0.0; block_frames],
+            declick: Declicker::default(),
         }
     }
 }
@@ -131,6 +139,7 @@ struct ConvolutionProcessor<const CHANNELS: usize> {
     mix: MixDSP,
     wet_gain_smoothed: SmoothedParam,
     wet_gain_buffer: Vec<f32>,
+    declick: Declicker,
 }
 
 impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS> {
@@ -139,8 +148,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
         info: &firewheel_core::node::ProcInfo,
         buffers: firewheel_core::node::ProcBuffers,
         events: &mut firewheel_core::event::ProcEvents,
-        _extra: &mut firewheel_core::node::ProcExtra,
+        extra: &mut firewheel_core::node::ProcExtra,
     ) -> ProcessStatus {
+        // Determines if processing will pause next block
+        let mut will_pause = false;
         for patch in events.drain_patches::<ConvolutionNode<CHANNELS>>() {
             match patch {
                 ConvolutionNodePatch::Mix(mix) => {
@@ -179,7 +190,21 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
                 ConvolutionNodePatch::WetGain(gain) => {
                     self.wet_gain_smoothed.set_value(gain.amp());
                 }
+                ConvolutionNodePatch::Paused(paused) => {
+                    // Immediately remove pause and start processing again if playing. Otherwise,
+                    // save the value for the end of the processing block, and finish the current block when pausing
+                    if !paused {
+                        self.params.paused = false;
+                    } else {
+                        will_pause = true;
+                    }
+                    self.declick.fade_to_enabled(!paused, &extra.declick_values);
+                }
             }
+        }
+
+        if self.params.paused {
+            return ProcessStatus::ClearAllOutputs;
         }
 
         // Bypass if no impulse response is supplied
@@ -187,58 +212,73 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
             return ProcessStatus::Bypass;
         }
 
-        // Amount to scale based on wet signal gain
-        self.wet_gain_smoothed
-            .process_into_buffer(&mut self.wet_gain_buffer);
+        if !self.params.paused {
+            // Amount to scale based on wet signal gain
+            self.wet_gain_smoothed
+                .process_into_buffer(&mut self.wet_gain_buffer);
 
-        for (input_index, input) in buffers.inputs.iter().enumerate() {
-            self.convolvers[input_index]
-                .process(input, buffers.outputs[input_index])
-                .unwrap();
+            for (input_index, input) in buffers.inputs.iter().enumerate() {
+                self.convolvers[input_index]
+                    .process(input, buffers.outputs[input_index])
+                    .unwrap();
 
-            // Apply wet signal gain
-            for (output_sample, gain) in buffers.outputs[input_index]
+                // Apply wet signal gain
+                for (output_sample, gain) in buffers.outputs[input_index]
+                    .iter_mut()
+                    .zip(self.wet_gain_buffer.iter())
+                {
+                    *output_sample *= gain;
+                }
+            }
+
+            match CHANNELS {
+                // Use the stored buffers to mix back into the signal a block later
+                1 => {
+                    self.mix.mix_dry_into_wet_mono(
+                        self.input_buffers.channels::<CHANNELS>()[0],
+                        buffers.outputs[0],
+                        info.frames,
+                    );
+                }
+                2 => {
+                    let (left, right) = buffers.outputs.split_at_mut(1);
+                    self.mix.mix_dry_into_wet_stereo(
+                        self.input_buffers.channels::<CHANNELS>()[0],
+                        self.input_buffers.channels::<CHANNELS>()[1],
+                        left[0],
+                        right[0],
+                        info.frames,
+                    );
+                }
+                _ => panic!("Only Mono and Stereo are supported"),
+            }
+
+            // Copy the input to the processor's internal buffers Surely there is a
+            // better way to do this, right?
+            for (internal_buffer, input) in self
+                .input_buffers
+                .channels_mut::<CHANNELS>()
                 .iter_mut()
-                .zip(self.wet_gain_buffer.iter())
+                .zip(buffers.inputs.iter())
             {
-                *output_sample *= gain;
+                for (copy_into, copy_from) in internal_buffer.iter_mut().zip(input.iter()) {
+                    *copy_into = *copy_from;
+                }
             }
         }
 
-        match CHANNELS {
-            // Use the stored buffers to mix back into the signal a block later
-            1 => {
-                self.mix.mix_dry_into_wet_mono(
-                    self.input_buffers.channels::<CHANNELS>()[0],
-                    buffers.outputs[0],
-                    info.frames,
-                );
-            }
-            2 => {
-                let (left, right) = buffers.outputs.split_at_mut(1);
-                self.mix.mix_dry_into_wet_stereo(
-                    self.input_buffers.channels::<CHANNELS>()[0],
-                    self.input_buffers.channels::<CHANNELS>()[1],
-                    left[0],
-                    right[0],
-                    info.frames,
-                );
-            }
-            _ => panic!("Only Mono and Stereo are supported"),
+        self.declick.process(
+            buffers.outputs,
+            0..info.frames,
+            &extra.declick_values,
+            1.0,
+            DeclickFadeCurve::EqualPower3dB,
+        );
+
+        if will_pause {
+            self.params.paused = true;
         }
 
-        // Copy the input to the processor's internal buffers Surely there is a
-        // better way to do this, right?
-        for (internal_buffer, input) in self
-            .input_buffers
-            .channels_mut::<CHANNELS>()
-            .iter_mut()
-            .zip(buffers.inputs.iter())
-        {
-            for (copy_into, copy_from) in internal_buffer.iter_mut().zip(input.iter()) {
-                *copy_into = *copy_from;
-            }
-        }
         buffers.check_for_silence_on_outputs(f32::EPSILON)
     }
 }
