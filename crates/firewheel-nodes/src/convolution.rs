@@ -1,3 +1,5 @@
+use std::f32;
+
 use fft_convolver::FFTConvolver;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -237,8 +239,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
                 *copy_into = *copy_from;
             }
         }
-
-        ProcessStatus::OutputsModified
+        buffers.check_for_silence_on_outputs(f32::EPSILON)
     }
 }
 
