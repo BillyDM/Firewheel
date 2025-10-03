@@ -9,6 +9,7 @@ use firewheel::{
     dsp::{fade::FadeCurve, mix::Mix},
     nodes::{
         beep_test::BeepTestNode,
+        convolution::ConvolutionNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
@@ -81,6 +82,11 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<MixNode>,
     },
+    Convolution {
+        id: firewheel::node::NodeID,
+        params: Memo<ConvolutionNode<2>>,
+        stereo: bool,
+    },
 }
 
 impl GuiAudioNode {
@@ -101,6 +107,7 @@ impl GuiAudioNode {
             &Self::SVF { id, .. } => id,
             &Self::MixMono { id, .. } => id,
             &Self::MixStereo { id, .. } => id,
+            &Self::Convolution { id, .. } => id,
         }
     }
 
@@ -121,6 +128,10 @@ impl GuiAudioNode {
             &Self::SVF { .. } => "SVF",
             &Self::MixMono { .. } => "Mix (Mono)",
             &Self::MixStereo { .. } => "Mix (Stereo)",
+            &Self::Convolution { stereo, .. } => match stereo {
+                true => "Convolution (Stereo)",
+                false => "Convolution (Mono)",
+            },
         }
         .into()
     }
@@ -142,6 +153,10 @@ impl GuiAudioNode {
             &Self::SVF { .. } => 2,
             &Self::MixMono { .. } => 2,
             &Self::MixStereo { .. } => 4,
+            &Self::Convolution { stereo, .. } => match stereo {
+                false => 1,
+                true => 2,
+            },
         }
     }
 
@@ -162,6 +177,10 @@ impl GuiAudioNode {
             &Self::SVF { .. } => 2,
             &Self::MixMono { .. } => 1,
             &Self::MixStereo { .. } => 2,
+            &Self::Convolution { stereo, .. } => match stereo {
+                false => 1,
+                true => 2,
+            },
         }
     }
 }
@@ -284,16 +303,18 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
-        if ui.button("Volume (mono)").clicked() {
-            let node = self.audio_system.add_node(NodeType::VolumeMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
-        }
-        if ui.button("Volume (stereo)").clicked() {
-            let node = self.audio_system.add_node(NodeType::VolumeStereo);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
-        }
+        ui.menu_button("Volume", |ui| {
+            if ui.button("Volume (mono)").clicked() {
+                let node = self.audio_system.add_node(NodeType::VolumeMono);
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+            if ui.button("Volume (stereo)").clicked() {
+                let node = self.audio_system.add_node(NodeType::VolumeStereo);
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+        });
         if ui.button("Volume & Pan").clicked() {
             let node = self.audio_system.add_node(NodeType::VolumePan);
             snarl.insert_node(pos, node);
@@ -319,16 +340,35 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }
-        if ui.button("Mix (Mono)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
-        }
-        if ui.button("Mix (Stereo)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixStereo);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
-        }
+        // Mono section
+        ui.menu_button("Mix", |ui| {
+            if ui.button("Mix (Mono)").clicked() {
+                let node = self.audio_system.add_node(NodeType::MixMono);
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+            if ui.button("Mix (Stereo)").clicked() {
+                let node = self.audio_system.add_node(NodeType::MixStereo);
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+        });
+        ui.menu_button("Convolution", |ui| {
+            if ui.button("Convolution (Mono)").clicked() {
+                let node = self
+                    .audio_system
+                    .add_node(NodeType::Convolution { stereo: false });
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+            if ui.button("Convolution (Stereo)").clicked() {
+                let node = self
+                    .audio_system
+                    .add_node(NodeType::Convolution { stereo: true });
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+        });
     }
 
     fn has_dropped_wire_menu(
@@ -387,6 +427,22 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
         ui: &mut Ui,
         snarl: &mut Snarl<GuiAudioNode>,
     ) {
+        // Reusable ui to show a fade curve
+        fn fade_curve_ui(ui: &mut Ui, curve: &mut FadeCurve) {
+            egui::ComboBox::from_label("fade curve")
+                .selected_text(match curve {
+                    FadeCurve::EqualPower3dB => "Equal Power 3dB",
+                    FadeCurve::EqualPower6dB => "Equal Power 6dB",
+                    FadeCurve::SquareRoot => "Square Root",
+                    FadeCurve::Linear => "Linear",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(curve, FadeCurve::EqualPower3dB, "Equal Power 3dB");
+                    ui.selectable_value(curve, FadeCurve::EqualPower6dB, "Equal Power 6dB");
+                    ui.selectable_value(curve, FadeCurve::SquareRoot, "Square Root");
+                    ui.selectable_value(curve, FadeCurve::Linear, "Linear");
+                });
+        }
         match snarl.get_node_mut(node).unwrap() {
             GuiAudioNode::BeepTest { id, params } => {
                 ui.vertical(|ui| {
@@ -603,38 +659,89 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                     ui.add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"));
                     params.mix = Mix::new(mix);
 
-                    egui::ComboBox::from_label("fade curve")
-                        .selected_text(match params.fade_curve {
-                            FadeCurve::EqualPower3dB => "Equal Power 3dB",
-                            FadeCurve::EqualPower6dB => "Equal Power 6dB",
-                            FadeCurve::SquareRoot => "Square Root",
-                            FadeCurve::Linear => "Linear",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut params.fade_curve,
-                                FadeCurve::EqualPower3dB,
-                                "Equal Power 3dB",
-                            );
-                            ui.selectable_value(
-                                &mut params.fade_curve,
-                                FadeCurve::EqualPower6dB,
-                                "Equal Power 6dB",
-                            );
-                            ui.selectable_value(
-                                &mut params.fade_curve,
-                                FadeCurve::SquareRoot,
-                                "Square Root",
-                            );
-                            ui.selectable_value(
-                                &mut params.fade_curve,
-                                FadeCurve::Linear,
-                                "Linear",
-                            );
-                        });
+                    fade_curve_ui(ui, &mut params.fade_curve);
 
                     params.update_memo(&mut self.audio_system.event_queue(*id));
                 });
+            }
+
+            GuiAudioNode::Convolution { id, params, .. } => {
+                ui.vertical(|ui| {
+                    ui.add(
+                        egui::Slider::from_get_set(0.0..=1.0, |val: Option<f64>| {
+                            if let Some(val) = val {
+                                params.mix = Mix::new(val as f32);
+                            }
+                            params.mix.get() as f64
+                        })
+                        .text("mix"),
+                    );
+                    fade_curve_ui(ui, &mut params.fade_curve);
+                    let ir_sample_id = format!("ir_sample_id_{}", ui.id().value());
+                    let current_ir_sample_id: Option<usize> = ui
+                        .memory(|mem| mem.data.get_temp(ir_sample_id.clone().into()))
+                        .unwrap_or_default();
+                    egui::ComboBox::from_label("Impulse response")
+                        .selected_text(match current_ir_sample_id {
+                            Some(sample_index) => self.audio_system.ir_samples[sample_index].0,
+                            None => "None",
+                        })
+                        .show_ui(ui, |ui| {
+                            let change_ir_id = move |ui: &mut Ui, id: Option<usize>| {
+                                ui.memory_mut(|mem| {
+                                    *mem.data.get_temp_mut_or_insert_with::<Option<usize>>(
+                                        ir_sample_id.clone().into(),
+                                        || id,
+                                    ) = id;
+                                });
+                            };
+
+                            if ui
+                                .selectable_value(&mut params.impulse_response, None, "None")
+                                .clicked()
+                            {
+                                change_ir_id(ui, None);
+                            }
+
+                            for (sample_index, (name, sample)) in
+                                self.audio_system.ir_samples.iter().enumerate()
+                            {
+                                if ui
+                                    .selectable_value(
+                                        &mut params.impulse_response,
+                                        Some(sample.clone()),
+                                        *name,
+                                    )
+                                    .clicked()
+                                {
+                                    change_ir_id(ui, Some(sample_index));
+                                }
+                            }
+                        });
+
+                    let mut linear_volume = params.wet_gain.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("wet gain"))
+                        .changed()
+                    {
+                        params.wet_gain = Volume::Linear(linear_volume);
+                    }
+
+                    ui.horizontal(|ui| {
+                        ui.add_enabled_ui(!params.paused, |ui| {
+                            if ui.button("Pause").clicked() {
+                                params.paused = true;
+                            }
+                        });
+                        ui.add_enabled_ui(params.paused, |ui| {
+                            if ui.button("Play").clicked() {
+                                params.paused = false;
+                            }
+                        });
+                    });
+                });
+
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             _ => {}
         }

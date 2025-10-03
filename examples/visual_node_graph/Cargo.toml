@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 firewheel = { path = "../../", features = ["all_nodes"] }
+symphonium = { version = "0.6.1", features = ["wav"] }
 log.workspace = true
 egui = "0.32"
 egui-snarl = "0.8"
