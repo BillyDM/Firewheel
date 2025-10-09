@@ -53,6 +53,10 @@ impl<T> Notify<T> {
         }
     }
 
+    pub(crate) fn from_raw(value: T, counter: u64) -> Self {
+        Self { value, counter }
+    }
+
     /// Get this instance's unique ID.
     ///
     /// After each mutable dereference, this ID will be replaced
@@ -142,9 +146,11 @@ impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
     }
 }
 
-impl<T: PartialEq> PartialEq for Notify<T> {
+impl<T> PartialEq for Notify<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value && self.counter == other.counter
+        // under normal usage, it is not possible that the inner value
+        // can change without incrementing the counter
+        self.counter == other.counter
     }
 }
 

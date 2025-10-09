@@ -86,6 +86,8 @@ svf_node = ["firewheel-nodes/svf"]
 delay_compensation_node = ["firewheel-nodes/delay_compensation"]
 # Enables the mix node
 mix_node = ["firewheel-nodes/mix"]
+# Enables the freeverb node
+freeverb_node = ["firewheel-nodes/freeverb"]
 # Enables `Component` derive macros for node parameters
 bevy = ["firewheel-nodes/bevy", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros for node parameters
