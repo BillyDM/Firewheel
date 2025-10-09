@@ -3,8 +3,8 @@ use core::{num::NonZeroUsize, ops::Range};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-/// A resource of audio samples.
-pub trait SampleResource: Send + Sync + 'static {
+/// Trait returning information about a resource of audio samples
+pub trait SampleResourceInfo: Send + Sync + 'static {
     /// The number of channels in this resource.
     fn num_channels(&self) -> NonZeroUsize;
 
@@ -12,7 +12,10 @@ pub trait SampleResource: Send + Sync + 'static {
     ///
     /// Not to be confused with video frames.
     fn len_frames(&self) -> u64;
+}
 
+/// A resource of audio samples.
+pub trait SampleResource: SampleResourceInfo {
     /// Fill the given buffers with audio data starting from the given
     /// starting frame in the resource.
     ///
@@ -32,12 +35,18 @@ pub trait SampleResource: Send + Sync + 'static {
     );
 }
 
+/// A resource of audio samples stored as de-interleaved f32 values.
+pub trait SampleResourceF32: SampleResourceInfo {
+    /// Get the the buffer for a given channel.
+    fn channel(&self, i: usize) -> Option<&[f32]>;
+}
+
 pub struct InterleavedResourceI16 {
     pub data: Vec<i16>,
     pub channels: NonZeroUsize,
 }
 
-impl SampleResource for InterleavedResourceI16 {
+impl SampleResourceInfo for InterleavedResourceI16 {
     fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
@@ -45,7 +54,9 @@ impl SampleResource for InterleavedResourceI16 {
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
+}
 
+impl SampleResource for InterleavedResourceI16 {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -68,7 +79,7 @@ pub struct InterleavedResourceU16 {
     pub channels: NonZeroUsize,
 }
 
-impl SampleResource for InterleavedResourceU16 {
+impl SampleResourceInfo for InterleavedResourceU16 {
     fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
@@ -76,7 +87,9 @@ impl SampleResource for InterleavedResourceU16 {
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
+}
 
+impl SampleResource for InterleavedResourceU16 {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -99,7 +112,7 @@ pub struct InterleavedResourceF32 {
     pub channels: NonZeroUsize,
 }
 
-impl SampleResource for InterleavedResourceF32 {
+impl SampleResourceInfo for InterleavedResourceF32 {
     fn num_channels(&self) -> NonZeroUsize {
         self.channels
     }
@@ -107,7 +120,8 @@ impl SampleResource for InterleavedResourceF32 {
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
     }
-
+}
+impl SampleResource for InterleavedResourceF32 {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -125,7 +139,7 @@ impl SampleResource for InterleavedResourceF32 {
     }
 }
 
-impl SampleResource for Vec<Vec<i16>> {
+impl SampleResourceInfo for Vec<Vec<i16>> {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.len()).unwrap()
     }
@@ -133,7 +147,9 @@ impl SampleResource for Vec<Vec<i16>> {
     fn len_frames(&self) -> u64 {
         self[0].len() as u64
     }
+}
 
+impl SampleResource for Vec<Vec<i16>> {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -150,7 +166,7 @@ impl SampleResource for Vec<Vec<i16>> {
     }
 }
 
-impl SampleResource for Vec<Vec<u16>> {
+impl SampleResourceInfo for Vec<Vec<u16>> {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.len()).unwrap()
     }
@@ -158,7 +174,9 @@ impl SampleResource for Vec<Vec<u16>> {
     fn len_frames(&self) -> u64 {
         self[0].len() as u64
     }
+}
 
+impl SampleResource for Vec<Vec<u16>> {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -175,7 +193,7 @@ impl SampleResource for Vec<Vec<u16>> {
     }
 }
 
-impl SampleResource for Vec<Vec<f32>> {
+impl SampleResourceInfo for Vec<Vec<f32>> {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.len()).unwrap()
     }
@@ -183,7 +201,9 @@ impl SampleResource for Vec<Vec<f32>> {
     fn len_frames(&self) -> u64 {
         self[0].len() as u64
     }
+}
 
+impl SampleResource for Vec<Vec<f32>> {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -191,6 +211,12 @@ impl SampleResource for Vec<Vec<f32>> {
         start_frame: u64,
     ) {
         fill_buffers_deinterleaved_f32(buffers, buffer_range, start_frame as usize, self);
+    }
+}
+
+impl SampleResourceF32 for Vec<Vec<f32>> {
+    fn channel(&self, i: usize) -> Option<&[f32]> {
+        self.get(i).map(|data| data.as_slice())
     }
 }
 
@@ -338,7 +364,7 @@ impl From<DecodedAudio> for crate::collector::ArcGc<dyn SampleResource> {
 }
 
 #[cfg(feature = "symphonium")]
-impl SampleResource for DecodedAudio {
+impl SampleResourceInfo for DecodedAudio {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
     }
@@ -346,7 +372,10 @@ impl SampleResource for DecodedAudio {
     fn len_frames(&self) -> u64 {
         self.0.frames() as u64
     }
+}
 
+#[cfg(feature = "symphonium")]
+impl SampleResource for DecodedAudio {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
@@ -393,7 +422,7 @@ impl DecodedAudioF32 {
 }
 
 #[cfg(feature = "symphonium")]
-impl SampleResource for DecodedAudioF32 {
+impl SampleResourceInfo for DecodedAudioF32 {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
     }
@@ -401,7 +430,10 @@ impl SampleResource for DecodedAudioF32 {
     fn len_frames(&self) -> u64 {
         self.0.frames() as u64
     }
+}
 
+#[cfg(feature = "symphonium")]
+impl SampleResource for DecodedAudioF32 {
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],
