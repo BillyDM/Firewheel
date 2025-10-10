@@ -562,6 +562,7 @@ impl AudioGraph {
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
                     processor: entry.dyn_node.construct_processor(cx),
+                    is_pre_process: entry.info.channel_config.is_empty(),
                 });
             }
         }

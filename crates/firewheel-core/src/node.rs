@@ -93,6 +93,17 @@ impl AudioNodeInfo {
         self
     }
 
+    /// Specify that this node is a "pre process" node. Pre-process nodes have zero
+    /// inputs and outputs, and they are processed before all other nodes in the
+    /// graph.
+    pub const fn is_pre_process(mut self) -> Self {
+        self.channel_config = ChannelConfig {
+            num_inputs: ChannelCount::ZERO,
+            num_outputs: ChannelCount::ZERO,
+        };
+        self
+    }
+
     /// Set to `true` if this node wishes to have the Firewheel context call
     /// [`AudioNode::update`] on every update cycle.
     ///

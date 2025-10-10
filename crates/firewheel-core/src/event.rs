@@ -320,18 +320,27 @@ impl TryInto<Notify<()>> for &ParamData {
     }
 }
 
+/// Used internally by the Firewheel processor
+#[cfg(feature = "scheduled_events")]
+pub struct ScheduledEventEntry {
+    pub event: NodeEvent,
+    pub is_pre_process: bool,
+}
+
 /// A list of events for an [`AudioNodeProcessor`][crate::node::AudioNodeProcessor].
 pub struct ProcEvents<'a> {
     immediate_event_buffer: &'a mut [Option<NodeEvent>],
     #[cfg(feature = "scheduled_events")]
-    scheduled_event_arena: &'a mut [Option<NodeEvent>],
+    scheduled_event_arena: &'a mut [Option<ScheduledEventEntry>],
     indices: &'a mut Vec<ProcEventsIndex>,
 }
 
 impl<'a> ProcEvents<'a> {
     pub fn new(
         immediate_event_buffer: &'a mut [Option<NodeEvent>],
-        #[cfg(feature = "scheduled_events")] scheduled_event_arena: &'a mut [Option<NodeEvent>],
+        #[cfg(feature = "scheduled_events")] scheduled_event_arena: &'a mut [Option<
+            ScheduledEventEntry,
+        >],
         indices: &'a mut Vec<ProcEventsIndex>,
     ) -> Self {
         Self {
@@ -357,7 +366,11 @@ impl<'a> ProcEvents<'a> {
             }
             #[cfg(feature = "scheduled_events")]
             ProcEventsIndex::Scheduled(i) => {
-                self.scheduled_event_arena[i as usize].take().unwrap().event
+                self.scheduled_event_arena[i as usize]
+                    .take()
+                    .unwrap()
+                    .event
+                    .event
             }
         })
     }
@@ -382,7 +395,7 @@ impl<'a> ProcEvents<'a> {
             ProcEventsIndex::Scheduled(i) => {
                 let event = self.scheduled_event_arena[i as usize].take().unwrap();
 
-                (event.event, event.time)
+                (event.event.event, event.event.time)
             }
         })
     }

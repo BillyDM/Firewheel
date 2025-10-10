@@ -251,6 +251,7 @@ impl Default for MaskType {
 pub struct ConnectedMask(pub u64);
 
 impl ConnectedMask {
+    pub const NONE_CONNECTED: Self = Self(0);
     pub const MONO_CONNECTED: Self = Self(0b1);
     pub const STEREO_CONNECTED: Self = Self(0b11);
 

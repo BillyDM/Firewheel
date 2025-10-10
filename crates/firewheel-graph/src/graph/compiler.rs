@@ -11,7 +11,7 @@ use crate::error::CompileGraphError;
 mod schedule;
 
 pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
-use schedule::{InBufferAssignment, OutBufferAssignment, ScheduledNode};
+use schedule::{InBufferAssignment, OutBufferAssignment, PreProcNode, ScheduledNode};
 
 pub struct NodeEntry {
     pub id: NodeID,
@@ -154,6 +154,9 @@ struct GraphIR<'a> {
     nodes: &'a mut Arena<NodeEntry>,
     edges: &'a mut Arena<Edge>,
 
+    /// Nodes with zero inputs and outputs are "pre process nodes" that get
+    /// processed before all other nodes.
+    pre_proc_nodes: Vec<PreProcNode>,
     /// The topologically sorted schedule of the graph. Built internally.
     schedule: Vec<ScheduledNode>,
     /// The maximum number of buffers used.
@@ -195,6 +198,7 @@ impl<'a> GraphIR<'a> {
         Self {
             nodes,
             edges,
+            pre_proc_nodes: vec![],
             schedule: vec![],
             max_num_buffers: 0,
             graph_in_id,
@@ -233,7 +237,16 @@ impl<'a> GraphIR<'a> {
         for (_, node_entry) in self.nodes.iter() {
             if node_entry.incoming.is_empty() && node_entry.id.0.slot() != self.graph_in_id.0.slot()
             {
-                queue.push_back(node_entry.id.0.slot());
+                // If the number of inputs and outputs on a node is zero, then it
+                // is a "pre process" node.
+                if node_entry.info.channel_config.is_empty() {
+                    self.pre_proc_nodes.push(PreProcNode {
+                        id: node_entry.id,
+                        debug_name: node_entry.info.debug_name,
+                    });
+                } else {
+                    queue.push_back(node_entry.id.0.slot());
+                }
             }
         }
 
@@ -434,6 +447,7 @@ impl<'a> GraphIR<'a> {
     /// Merge the GraphIR into a [CompiledSchedule].
     fn merge(self) -> CompiledSchedule {
         CompiledSchedule::new(
+            self.pre_proc_nodes,
             self.schedule,
             self.max_num_buffers,
             self.max_block_frames,

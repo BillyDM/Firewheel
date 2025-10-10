@@ -97,6 +97,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     old_schedule_data.removed_nodes.push(NodeHeapData {
                         id: *node_id,
                         processor: node_entry.processor,
+                        is_pre_process: false,
                     });
                 }
             }
@@ -116,7 +117,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                     NodeEntry {
                         processor: n.processor,
                         prev_output_was_silent: true,
-                        event_data: NodeEventSchedulerData::default(),
+                        event_data: NodeEventSchedulerData::new(n.is_pre_process),
                     }
                 )
                 .is_none());

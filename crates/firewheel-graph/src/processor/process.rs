@@ -87,6 +87,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             #[cfg(feature = "musical_transport")]
             let block_frames = proc_transport_info.frames;
 
+            // If any pre-process node has a scheduled event this block, process up to
+            // that change.
+            #[cfg(feature = "scheduled_events")]
+            let block_frames = self.num_pre_process_frames(block_frames, clock_samples);
+
             // Prepare graph input buffers.
             self.schedule_data
                 .as_mut()
@@ -154,6 +159,27 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 *s = s.fract();
             }
         }
+    }
+
+    #[cfg(feature = "scheduled_events")]
+    fn num_pre_process_frames(
+        &mut self,
+        block_frames: usize,
+        clock_samples: InstantSamples,
+    ) -> usize {
+        if self.schedule_data.is_none() {
+            return block_frames;
+        }
+        let schedule_data = self.schedule_data.as_ref().unwrap();
+
+        if !schedule_data.schedule.has_pre_proc_nodes() {
+            return block_frames;
+        }
+
+        let clock_samples_range =
+            clock_samples..clock_samples + DurationSamples(block_frames as i64);
+        self.event_scheduler
+            .num_pre_process_frames(block_frames, clock_samples_range)
     }
 
     fn process_block(

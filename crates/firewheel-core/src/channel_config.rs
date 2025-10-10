@@ -165,6 +165,10 @@ impl ChannelConfig {
             Ok(())
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.num_inputs == ChannelCount::ZERO && self.num_outputs == ChannelCount::ZERO
+    }
 }
 
 impl From<(usize, usize)> for ChannelConfig {

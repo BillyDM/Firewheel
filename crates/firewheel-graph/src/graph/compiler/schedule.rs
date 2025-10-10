@@ -14,6 +14,27 @@ use super::{InsertedSum, NodeID};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{vec, Box, Vec};
 
+/// A special scheduled node that has zero inputs and outputs. It
+/// processes before all other nodes in the graph.
+#[derive(Clone)]
+pub(super) struct PreProcNode {
+    /// The node ID
+    pub id: NodeID,
+    pub debug_name: &'static str,
+}
+
+impl Debug for PreProcNode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{{ {}-{}-{}",
+            self.debug_name,
+            self.id.0.slot(),
+            self.id.0.generation()
+        )
+    }
+}
+
 /// A [ScheduledNode] is a node that has been assigned buffers
 /// and a place in the schedule.
 #[derive(Clone)]
@@ -142,6 +163,7 @@ pub(super) struct OutBufferAssignment {
 pub struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
+    pub is_pre_process: bool,
     //pub event_buffer_indices: Vec<u32>,
 }
 
@@ -202,6 +224,7 @@ impl BufferFlags {
 
 /// A [CompiledSchedule] is the output of the graph compiler.
 pub struct CompiledSchedule {
+    pre_proc_nodes: Vec<PreProcNode>,
     schedule: Vec<ScheduledNode>,
 
     buffers: Vec<f32>,
@@ -214,6 +237,16 @@ pub struct CompiledSchedule {
 impl Debug for CompiledSchedule {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "CompiledSchedule {{")?;
+
+        if !self.pre_proc_nodes.is_empty() {
+            writeln!(f, "    pre process nodes: {{")?;
+
+            for n in self.pre_proc_nodes.iter() {
+                writeln!(f, "        {:?}", n)?;
+            }
+
+            writeln!(f, "    }}")?;
+        }
 
         writeln!(f, "    schedule: {{")?;
 
@@ -232,6 +265,7 @@ impl Debug for CompiledSchedule {
 
 impl CompiledSchedule {
     pub(super) fn new(
+        pre_proc_nodes: Vec<PreProcNode>,
         schedule: Vec<ScheduledNode>,
         num_buffers: usize,
         max_block_frames: usize,
@@ -244,6 +278,7 @@ impl CompiledSchedule {
         buffers.resize(num_buffers * max_block_frames, 0.0);
 
         Self {
+            pre_proc_nodes,
             schedule,
             buffers,
             buffer_flags: vec![
@@ -360,6 +395,10 @@ impl CompiledSchedule {
         (read_outputs)(outputs.as_slice(), silence_mask);
     }
 
+    pub fn has_pre_proc_nodes(&self) -> bool {
+        !self.pre_proc_nodes.is_empty()
+    }
+
     pub fn process<'a, 'b>(
         &mut self,
         frames: usize,
@@ -380,6 +419,26 @@ impl CompiledSchedule {
 
         let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
+
+        for pre_proc_node in self.pre_proc_nodes.iter() {
+            if pre_proc_node.id == self.graph_in_node_id {
+                continue;
+            }
+
+            (process)(
+                pre_proc_node.id,
+                SilenceMask::NONE_SILENT,
+                SilenceMask::NONE_SILENT,
+                ConstantMask::NONE_CONSTANT,
+                ConstantMask::NONE_CONSTANT,
+                ConnectedMask::NONE_CONNECTED,
+                ConnectedMask::NONE_CONNECTED,
+                ProcBuffers {
+                    inputs: &[],
+                    outputs: &mut [],
+                },
+            );
+        }
 
         for scheduled_node in self.schedule.iter() {
             if scheduled_node.id == self.graph_in_node_id {
