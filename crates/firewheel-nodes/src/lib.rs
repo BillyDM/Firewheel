@@ -30,6 +30,9 @@ pub mod delay_compensation;
 #[cfg(feature = "mix")]
 pub mod mix;
 
+#[cfg(feature = "convolution")]
+pub mod convolution;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;

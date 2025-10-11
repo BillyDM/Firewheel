@@ -37,6 +37,7 @@ all_nodes = [
     "noise_generators",
     "delay_compensation",
     "mix",
+    "convolution",
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -61,6 +62,8 @@ stream = ["std", "dep:fixed-resample"]
 delay_compensation = ["dep:smallvec"]
 # Enables the mix node
 mix = []
+# Enables the convolution node
+convolution = ["dep:fft-convolver"]
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros
@@ -80,3 +83,4 @@ fixed-resample = { version = "0.9.1", features = [
 bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
+fft-convolver = { version = "0.2.0", optional = true }
