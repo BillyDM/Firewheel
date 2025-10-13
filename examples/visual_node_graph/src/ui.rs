@@ -12,6 +12,7 @@ use firewheel::{
     nodes::{
         beep_test::BeepTestNode,
         convolution::{ConvolutionNode, ImpulseResponse},
+        echo::EchoNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
@@ -102,6 +103,14 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<ConvolutionNode<2>>,
     },
+    EchoMono {
+        id: firewheel::node::NodeID,
+        params: Memo<EchoNode<1>>,
+    },
+    EchoStereo {
+        id: firewheel::node::NodeID,
+        params: Memo<EchoNode<2>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -126,6 +135,8 @@ impl GuiAudioNode {
             &Self::Freeverb { id, .. } => id,
             &Self::ConvolutionMono { id, .. } => id,
             &Self::ConvolutionStereo { id, .. } => id,
+            &Self::EchoMono { id, .. } => id,
+            &Self::EchoStereo { id, .. } => id,
         }
     }
 
@@ -150,6 +161,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => "Freeverb",
             &Self::ConvolutionMono { .. } => "Convolution (Mono)",
             &Self::ConvolutionStereo { .. } => "Convolution (Stereo)",
+            &Self::EchoMono { .. } => "Echo (Mono)",
+            &Self::EchoStereo { .. } => "Echo (Stereo)",
         }
         .into()
     }
@@ -175,6 +188,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::EchoMono { .. } => 1,
+            &Self::EchoStereo { .. } => 2,
         }
     }
 
@@ -199,6 +214,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::EchoMono { .. } => 1,
+            &Self::EchoStereo { .. } => 2,
         }
     }
 }
@@ -415,6 +432,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             }
             if ui.button("Convolution (Stereo)").clicked() {
                 let node = self.audio_system.add_node(NodeType::ConvolutionStereo);
+            }
+        });
+        ui.menu_button("Echo", |ui| {
+            if ui.button("Echo (Mono)").clicked() {
+                let node = self.audio_system.add_node(NodeType::EchoMono);
+                snarl.insert_node(pos, node);
+                ui.close_kind(UiKind::Menu);
+            }
+            if ui.button("Echo (Stereo)").clicked() {
+                let node = self.audio_system.add_node(NodeType::EchoStereo);
                 snarl.insert_node(pos, node);
                 ui.close_kind(UiKind::Menu);
             }
@@ -796,6 +823,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 convolution_ui(ui, params, self.audio_system, *id);
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
+            GuiAudioNode::EchoMono { id, params } => {
+                if echo_ui(ui, params) {
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                }
+            }
+            GuiAudioNode::EchoStereo { id, params } => {
+                if echo_ui(ui, params) {
+                    params.update_memo(&mut self.audio_system.event_queue(*id));
+                }
+            }
             _ => {}
         }
     }
@@ -895,6 +932,109 @@ fn convolution_ui<const CHANNELS: usize>(
             }
         });
     });
+}
+
+// Reusable echo UI for any amount of channels
+fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNELS>>) -> bool {
+    // The padding of the boxes used to contain each channel's controls
+    let mut changed = false;
+    const PADDING: f32 = 4.0;
+    ui.vertical(|ui| {
+        for channel in (0..CHANNELS).into_iter() {
+            let mut controls = |ui: &mut Ui| {
+                let delay = &mut params.delay_seconds[channel];
+                if ui
+                    .add(egui::Slider::new(delay, 0.0..=3.0).text("delay"))
+                    .changed()
+                {
+                    changed = true;
+                };
+
+                let feedback = &mut params.feedback[channel];
+                let mut feedback_volume = feedback.linear();
+                if ui
+                    .add(egui::Slider::new(&mut feedback_volume, 0.0..=1.0).text("feedback"))
+                    .changed()
+                {
+                    changed = true;
+                    *feedback = Volume::Linear(feedback_volume);
+                }
+
+                if CHANNELS > 1 {
+                    let crossfeed = &mut params.crossfeed[channel];
+                    let mut crossfeed_volume = crossfeed.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut crossfeed_volume, 0.0..=1.0).text("crossfeed"))
+                        .changed()
+                    {
+                        changed = true;
+                        *crossfeed = Volume::Linear(crossfeed_volume);
+                    }
+                }
+            };
+
+            // Group each channel visually if multichannel
+            if CHANNELS > 1 {
+                egui::Frame::default()
+                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                    .corner_radius(ui.visuals().widgets.noninteractive.corner_radius)
+                    .inner_margin(PADDING)
+                    .show(ui, |ui| {
+                        ui.label(if channel == 0 { "Left" } else { "Right" });
+                        controls(ui);
+                    });
+            } else {
+                controls(ui);
+            }
+        }
+
+        if ui
+            .add(
+                egui::Slider::new(&mut params.feedback_lpf, MIN_HZ..=MAX_HZ)
+                    .logarithmic(true)
+                    .text("feedback lpf"),
+            )
+            .changed()
+            || ui
+                .add(
+                    egui::Slider::new(&mut params.feedback_hpf, MIN_HZ..=MAX_HZ)
+                        .logarithmic(true)
+                        .text("feedback hpf"),
+                )
+                .changed()
+        {
+            changed = true;
+        }
+
+        let mut mix = params.mix.get();
+        if ui
+            .add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"))
+            .changed()
+        {
+            changed = true;
+        };
+        params.mix = Mix::new(mix);
+
+        ui.horizontal(|ui| {
+            if ui.button("Stop").clicked() {
+                changed = true;
+                params.paused = true;
+                params.stop.notify();
+            }
+            if !params.paused {
+                if ui.button("Pause").clicked() {
+                    changed = true;
+                    params.paused = true;
+                }
+            } else {
+                if ui.button("Play").clicked() {
+                    changed = true;
+                    params.paused = false;
+                }
+            }
+        });
+    });
+    changed
 }
 
 pub struct DemoApp {
