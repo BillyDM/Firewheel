@@ -1,6 +1,6 @@
 use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
 
-use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::RmsNode};
+use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::RmsNode, clap_plugin::ClapPluginNode};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
@@ -8,10 +8,12 @@ pub struct AudioSystem {
     pub noise_gen_node: Memo<NoiseGenNode>,
     pub filter_node: Memo<FilterNode>,
     pub rms_node: Memo<RmsNode>,
+    pub clap_node: Memo<ClapPluginNode>,
 
     pub noise_gen_node_id: NodeID,
     pub filter_node_id: NodeID,
-    pub rms_node_id: NodeID,
+    pub rms_node_id: NodeID,    
+    pub clap_node_id: NodeID,
 }
 
 impl AudioSystem {
@@ -23,9 +25,17 @@ impl AudioSystem {
         let filter_node = FilterNode::default();
         let rms_node = RmsNode::default();
 
+        let clap_node = ClapPluginNode {
+            // Change this to your actual path
+            path: "C:/Program Files/CLAP/MyPlugin.clap".into(),
+            enabled: true,
+            // TODO: add parameters to talk to the plugin
+        };
+
         let noise_gen_node_id = cx.add_node(noise_gen_node, None);
         let filter_node_id = cx.add_node(filter_node, None);
         let rms_node_id = cx.add_node(rms_node.clone(), None);
+        let clap_node_id = cx.add_node(clap_node.clone(), None);
 
         let graph_out_node_id = cx.graph_out_node_id();
 
@@ -35,15 +45,20 @@ impl AudioSystem {
             .unwrap();
         cx.connect(filter_node_id, graph_out_node_id, &[(0, 0), (0, 1)], false)
             .unwrap();
+        cx.connect(clap_node_id, graph_out_node_id, &[(0, 0), (1, 1)], false)
+            .unwrap();
 
         Self {
             cx,
             noise_gen_node: Memo::new(noise_gen_node),
             filter_node: Memo::new(filter_node),
             rms_node: Memo::new(rms_node),
+            clap_node: Memo::new(clap_node),
+
             noise_gen_node_id,
             filter_node_id,
             rms_node_id,
+            clap_node_id,
         }
     }
 

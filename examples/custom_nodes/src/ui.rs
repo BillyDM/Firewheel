@@ -107,6 +107,23 @@ impl App for DemoApp {
 
             // The rms value is quite low, so scale it up to register on the meter better.
             ui.add(ProgressBar::new(rms_value * 2.0).fill(Color32::DARK_GREEN));
+
+            ui.separator();
+            ui.label("CLAP plugin");
+
+            if ui
+                .checkbox(&mut self.audio_system.clap_node.enabled, "enabled")
+                .changed()
+            {
+                self.audio_system.clap_node.update_memo(
+                    &mut self
+                        .audio_system
+                        .cx
+                        .event_queue(self.audio_system.clap_node_id),
+                );
+            }
+
+
         });
 
         self.audio_system.update();

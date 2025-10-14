@@ -21,3 +21,10 @@ eframe = { version = "0.32", default-features = false, features = [
     "x11",
     "wayland",
 ] }
+clack_host = { git = "https://github.com/prokopyl/clack", package = "clack-host", features = ["clack-plugin"] }
+clack_extensions = { git = "https://github.com/prokopyl/clack", package = "clack-extensions", features = ["params", "note-ports"] }
+clack_plugin = { git = "https://github.com/prokopyl/clack", package = "clack-plugin" }
+clack_common = { git = "https://github.com/prokopyl/clack", package = "clack-common" }
+cpal = "0.16.0"
+clap-sys = "0.4.0"
+windows-sys = { version = "0.52", features = ["Win32_System_LibraryLoader"] }
