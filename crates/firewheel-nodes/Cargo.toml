@@ -38,6 +38,7 @@ all_nodes = [
     "delay_compensation",
     "mix",
     "freeverb",
+    "echo",
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -64,6 +65,8 @@ delay_compensation = ["dep:smallvec"]
 mix = []
 # Enables the freeverb node
 freeverb = []
+# Enables the echo node
+echo = []
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros
