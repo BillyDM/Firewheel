@@ -1,11 +1,12 @@
 use firewheel::{
-    channel_config::NonZeroChannelCount,
+    channel_config::{ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
     error::{AddEdgeError, UpdateError},
     event::NodeEventType,
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        convolution::{ConvolutionNode, ConvolutionNodeConfig},
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -49,12 +50,20 @@ pub enum NodeType {
     MixStereo,
     Sampler,
     Freeverb,
+    ConvolutionMono,
+    ConvolutionStereo,
 }
 
 pub struct AudioSystem {
     cx: FirewheelContext,
     pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
+    pub(crate) ir_samples: Vec<(&'static str, Vec<Vec<f32>>)>,
 }
+
+const IR_SAMPLE_PATHS: [&'static str; 2] = [
+    "assets/test_files/ir_outside.wav",
+    "assets/test_files/ir_hall.wav",
+];
 
 impl AudioSystem {
     pub fn new() -> Self {
@@ -75,7 +84,45 @@ impl AudioSystem {
             })
             .collect();
 
-        Self { cx, samples }
+        // Load samples for IR node TODO: This is unnecessarily long and can be
+        // improved
+        let loaded = IR_SAMPLE_PATHS
+            .iter()
+            .map(|path| {
+                let sample_resource =
+                    firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
+                        .unwrap()
+                        .into_dyn_resource();
+                let mut buffers = vec![
+                    vec![0.0; sample_resource.len_frames() as usize];
+                    sample_resource.num_channels().get()
+                ];
+                let mut mut_slices: Vec<&mut [f32]> =
+                    buffers.iter_mut().map(|v| v.as_mut_slice()).collect();
+
+                sample_resource.fill_buffers(
+                    &mut mut_slices,
+                    0..sample_resource.len_frames() as usize,
+                    0,
+                );
+
+                buffers
+            })
+            .collect::<Vec<_>>();
+
+        // Process samples to get multiple channels from few files
+        let ir_samples = vec![
+            ("Outside (Mono)", { vec![loaded[0][0].clone()] }),
+            ("Outside (Stereo)", { loaded[0].clone() }),
+            ("Hall (Mono)", { vec![loaded[1][0].clone()] }),
+            ("Hall (Stereo)", { loaded[1].clone() }),
+        ];
+
+        Self {
+            cx,
+            ir_samples,
+            samples,
+        }
     }
 
     pub fn remove_node(&mut self, node_id: NodeID) {
@@ -123,6 +170,14 @@ impl AudioSystem {
             ),
             NodeType::Sampler => self.cx.add_node(SamplerNode::default(), None),
             NodeType::Freeverb => self.cx.add_node(FreeverbNode::default(), None),
+            NodeType::ConvolutionMono => self.cx.add_node(
+                ConvolutionNode::<1>::default(),
+                Some(ConvolutionNodeConfig {
+                    max_impulse_channel_count: ChannelCount::MONO,
+                    ..Default::default()
+                }),
+            ),
+            NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
         };
 
         match node_type {
@@ -180,6 +235,14 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::Freeverb => GuiAudioNode::Freeverb {
+                id,
+                params: Default::default(),
+            },
+            NodeType::ConvolutionMono => GuiAudioNode::ConvolutionMono {
+                id,
+                params: Default::default(),
+            },
+            NodeType::ConvolutionStereo => GuiAudioNode::ConvolutionStereo {
                 id,
                 params: Default::default(),
             },
@@ -241,7 +304,6 @@ impl AudioSystem {
         }
     }
 
-    #[expect(dead_code)]
     pub fn queue_event(&mut self, node_id: NodeID, event: NodeEventType) {
         self.cx.queue_event_for(node_id, event);
     }
