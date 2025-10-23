@@ -33,6 +33,9 @@ pub mod mix;
 #[cfg(feature = "freeverb")]
 pub mod freeverb;
 
+#[cfg(feature = "echo")]
+pub mod echo;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;

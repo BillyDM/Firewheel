@@ -6,6 +6,7 @@ use firewheel::{
     node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
+        echo::EchoNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -49,6 +50,8 @@ pub enum NodeType {
     MixStereo,
     Sampler,
     Freeverb,
+    EchoMono,
+    EchoStereo,
 }
 
 pub struct AudioSystem {
@@ -123,6 +126,8 @@ impl AudioSystem {
             ),
             NodeType::Sampler => self.cx.add_node(SamplerNode::default(), None),
             NodeType::Freeverb => self.cx.add_node(FreeverbNode::default(), None),
+            NodeType::EchoMono => self.cx.add_node(EchoNode::<1>::default(), None),
+            NodeType::EchoStereo => self.cx.add_node(EchoNode::<2>::default(), None),
         };
 
         match node_type {
@@ -180,6 +185,14 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::Freeverb => GuiAudioNode::Freeverb {
+                id,
+                params: Default::default(),
+            },
+            NodeType::EchoMono => GuiAudioNode::EchoMono {
+                id,
+                params: Default::default(),
+            },
+            NodeType::EchoStereo => GuiAudioNode::EchoStereo {
                 id,
                 params: Default::default(),
             },
