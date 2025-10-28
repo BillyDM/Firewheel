@@ -75,7 +75,7 @@ impl SampleResource for InterleavedResourceI16 {
     }
 }
 
-impl std::fmt::Debug for InterleavedResourceI16 {
+impl core::fmt::Debug for InterleavedResourceI16 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -120,7 +120,7 @@ impl SampleResource for InterleavedResourceU16 {
     }
 }
 
-impl std::fmt::Debug for InterleavedResourceU16 {
+impl core::fmt::Debug for InterleavedResourceU16 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -165,7 +165,7 @@ impl SampleResource for InterleavedResourceF32 {
     }
 }
 
-impl std::fmt::Debug for InterleavedResourceF32 {
+impl core::fmt::Debug for InterleavedResourceF32 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
