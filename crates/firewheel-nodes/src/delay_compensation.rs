@@ -8,6 +8,7 @@ use firewheel_core::{
     },
 };
 use smallvec::{smallvec, SmallVec};
+use bevy_platform::prelude::Vec;
 
 /// The configuration for a [`DelayCompensationNode`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

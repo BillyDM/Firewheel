@@ -17,6 +17,9 @@ use firewheel_core::{
 use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
 
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 #[cfg(all(not(feature = "std"), feature = "musical_transport"))]
 use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]

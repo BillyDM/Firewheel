@@ -41,6 +41,20 @@ all_nodes = [
     "convolution",
     "fast_rms"
 ]
+# All nodes which are no_std compatible
+all_nodes_no_std = [
+    "beep_test",
+    "peak_meter",
+    "sampler",
+    "spatial_basic",
+    "fast_filters",
+    "svf",
+    "noise_generators",
+    "delay_compensation",
+    "mix",
+    "freeverb",
+    "fast_rms"
+]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the "beep test" node
@@ -58,7 +72,7 @@ svf = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode
 noise_generators = []
 # Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread.
+# directly to/from the audio graph from another thread. (requires std)
 stream = ["std", "dep:fixed-resample"]
 # Enables the delay compensation node
 delay_compensation = ["dep:smallvec"]
@@ -66,7 +80,7 @@ delay_compensation = ["dep:smallvec"]
 mix = []
 # Enables the freeverb node
 freeverb = []
-# Enables the convolution node
+# Enables the convolution node (requires std)
 convolution = ["dep:fft-convolver"]
 # Enables the FastRmsNode for measuring loudness
 fast_rms = []

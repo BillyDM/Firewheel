@@ -13,6 +13,9 @@ use firewheel_core::{
     StreamInfo,
 };
 
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
+
 /// A lightweight node that measures the loudness of a mono signal using a rough RMS
 /// (root mean square) estimate.
 ///

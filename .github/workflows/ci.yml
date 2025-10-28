@@ -36,10 +36,9 @@ jobs:
         run: |
           cargo test --locked --workspace --all-features --all-targets
 
-      - name: Run tests with minimal features
+      - name: Check no_std build
         run: |
-          cargo test --package firewheel-core --locked --all-targets --no-default-features --features libm
-          cargo test --locked --all-targets --no-default-features --features libm
+          cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool"
 
   # Check formatting.
   format:

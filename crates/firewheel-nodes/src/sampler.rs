@@ -157,7 +157,7 @@ impl Default for SamplerNode {
     }
 }
 
-impl std::fmt::Debug for SamplerNode {
+impl core::fmt::Debug for SamplerNode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut f = f.debug_struct("SamplerNode");
         f.field("has_sample", &self.sample.is_some());

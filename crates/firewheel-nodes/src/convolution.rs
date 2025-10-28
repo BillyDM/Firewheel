@@ -1,4 +1,4 @@
-use std::f32;
+use core::f32;
 
 use fft_convolver::FFTConvolver;
 use firewheel_core::{

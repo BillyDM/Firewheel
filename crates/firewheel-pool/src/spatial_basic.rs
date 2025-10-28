@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{vec, Vec};
+
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
 

@@ -1,3 +1,5 @@
+use bevy_platform::prelude::Vec;
+
 #[derive(Debug)]
 pub struct DelayLine {
     buffer: Vec<f64>,

@@ -62,6 +62,8 @@ symphonium_stretch = ["firewheel-core/symphonium_stretch"]
 pool = ["dep:firewheel-pool"]
 # Enables all built-in factory nodes
 all_nodes = ["firewheel-nodes/all_nodes"]
+# Enables all built-in factory nodes which are no_std compatible
+all_nodes_no_std = ["firewheel-nodes/all_nodes_no_std"]
 # Enables the "beep test" node
 beep_test_node = ["firewheel-nodes/beep_test"]
 # Enables the peak meter node
@@ -74,7 +76,7 @@ spatial_basic_node = [
     "firewheel-pool?/spatial_basic",
 ]
 # Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread.
+# directly to/from the audio graph from another thread. (requires std)
 stream_nodes = ["firewheel-nodes/stream"]
 # Enables the white and pink noise generator nodes
 noise_gen_nodes = ["firewheel-nodes/noise_generators"]
@@ -88,7 +90,7 @@ delay_compensation_node = ["firewheel-nodes/delay_compensation"]
 mix_node = ["firewheel-nodes/mix"]
 # Enables the freeverb node
 freeverb_node = ["firewheel-nodes/freeverb"]
-# Enables the convolution node
+# Enables the convolution node (requires std)
 convolution_node = ["firewheel-nodes/convolution"]
 # Enables the FastRmsNode for measuring loudness
 fast_rms_node = ["firewheel-nodes/fast_rms"]

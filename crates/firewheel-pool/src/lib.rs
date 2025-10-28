@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
 use firewheel_core::{
     channel_config::NonZeroChannelCount,
     node::{AudioNode, NodeID},

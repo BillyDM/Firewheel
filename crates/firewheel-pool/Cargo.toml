@@ -17,7 +17,12 @@ all-features = true
 
 [features]
 default = ["std", "sampler"]
-std = ["firewheel-core/std", "firewheel-graph/std", "firewheel-nodes/std"]
+std = [
+    "firewheel-core/std",
+    "firewheel-graph/std",
+    "firewheel-nodes/std",
+    "bevy_platform/std",
+]
 scheduled_events = [
     "firewheel-core/scheduled_events",
     "firewheel-graph/scheduled_events",
@@ -32,3 +37,4 @@ firewheel-nodes = { path = "../firewheel-nodes", version = "0.9.0", default-feat
 smallvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
+bevy_platform.workspace = true

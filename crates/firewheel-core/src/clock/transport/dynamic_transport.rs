@@ -1,6 +1,8 @@
 use core::cmp::Ordering;
 use core::num::NonZeroU32;
 
+use bevy_platform::prelude::Vec;
+
 use crate::clock::{
     beats_per_second, seconds_per_beat, DurationMusical, DurationSeconds, InstantMusical,
     InstantSamples, InstantSeconds, ProcTransportInfo,
