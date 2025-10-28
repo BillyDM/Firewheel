@@ -425,10 +425,6 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// Process the given block of audio. Only process data in the
     /// buffers up to `samples`.
     ///
-    /// WARNING: The node *MUST* either completely fill all output buffers
-    /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
-    /// Failing to do this will result in audio glitches.
-    ///
     /// * `info` - Information about this processing block.
     /// * `buffers` - The buffers of data to process.
     /// * `events` - A list of events for this node to process.
