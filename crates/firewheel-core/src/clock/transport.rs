@@ -1,8 +1,8 @@
 mod dynamic_transport;
 mod static_transport;
 
-use bevy_platform::sync::Arc;
 use bevy_platform::prelude::Vec;
+use bevy_platform::sync::Arc;
 
 use core::{fmt::Debug, num::NonZeroU32, ops::Range};
 
