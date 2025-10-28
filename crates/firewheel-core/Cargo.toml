@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-core"
-version = "0.9.0"
+version = "0.9.1"
 description = "Shared types for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-core"
 repository.workspace = true
