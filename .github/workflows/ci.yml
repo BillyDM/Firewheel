@@ -36,6 +36,11 @@ jobs:
         run: |
           cargo test --locked --workspace --all-features --all-targets
 
+      - name: Run tests with minimal features
+        run: |
+          cargo test --package firewheel-core --locked --all-targets --no-default-features --features libm
+          cargo test --locked --all-targets --no-default-features --features libm
+
   # Check formatting.
   format:
     name: Format
