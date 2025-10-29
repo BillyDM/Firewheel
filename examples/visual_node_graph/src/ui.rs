@@ -333,117 +333,83 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
     }
 
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<GuiAudioNode>) {
+        let mut add_node = |ui: &mut Ui, node_type: NodeType| {
+            let node = self.audio_system.add_node(node_type);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        };
+
         ui.label("Add node");
         if ui.button("Beep Test").clicked() {
-            let node = self.audio_system.add_node(NodeType::BeepTest);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::BeepTest);
         }
         if ui.button("White Noise Generator").clicked() {
-            let node = self.audio_system.add_node(NodeType::WhiteNoiseGen);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::WhiteNoiseGen);
         }
         if ui.button("Pink Noise Generator").clicked() {
-            let node = self.audio_system.add_node(NodeType::PinkNoiseGen);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::PinkNoiseGen);
         }
         if ui.button("Stereo To Mono").clicked() {
-            let node = self.audio_system.add_node(NodeType::StereoToMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::StereoToMono);
         }
         ui.menu_button("Volume", |ui| {
             if ui.button("Volume (mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::VolumeMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::VolumeMono);
             }
             if ui.button("Volume (stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::VolumeStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::VolumeStereo);
             }
         });
         if ui.button("Volume & Pan").clicked() {
-            let node = self.audio_system.add_node(NodeType::VolumePan);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::VolumePan);
         }
         if ui.button("Fast Lowpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastLowpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastLowpass);
         }
         if ui.button("Fast Highpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastHighpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastHighpass);
         }
         if ui.button("Fast Bandpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastBandpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastBandpass);
         }
         if ui.button("SVF").clicked() {
-            let node = self.audio_system.add_node(NodeType::SVF);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::SVF);
         }
         if ui.button("Mix (Mono)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::MixMono);
         }
         if ui.button("Mix (Stereo)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixStereo);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::MixStereo);
         }
         if ui.button("Sampler").clicked() {
-            let node = self.audio_system.add_node(NodeType::Sampler);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::Sampler);
         }
         if ui.button("Freeverb").clicked() {
-            let node = self.audio_system.add_node(NodeType::Freeverb);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::Freeverb);
         }
         // Mono section
         ui.menu_button("Mix", |ui| {
             if ui.button("Mix (Mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::MixMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::MixMono);
             }
             if ui.button("Mix (Stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::MixStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::MixStereo);
             }
         });
         ui.menu_button("Convolution", |ui| {
             if ui.button("Convolution (Mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::ConvolutionMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::ConvolutionMono);
             }
             if ui.button("Convolution (Stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::ConvolutionStereo);
+                add_node(ui, NodeType::ConvolutionStereo);
             }
         });
         ui.menu_button("Echo", |ui| {
             if ui.button("Echo (Mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::EchoMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::EchoMono);
             }
             if ui.button("Echo (Stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::EchoStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::EchoStereo);
             }
         });
     }
@@ -1018,7 +984,6 @@ fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNE
         ui.horizontal(|ui| {
             if ui.button("Stop").clicked() {
                 changed = true;
-                params.paused = true;
                 params.stop.notify();
             }
             if !params.paused {
