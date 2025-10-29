@@ -6,6 +6,7 @@ use firewheel_core::{
     dsp::{
         buffer::ChannelBuffer,
         declick::{DeclickFadeCurve, Declicker},
+        delay_line::DelayLine,
         fade::FadeCurve,
         filter::{
             single_pole_iir::{
@@ -23,7 +24,6 @@ use firewheel_core::{
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
-use num_traits::Signed;
 
 /// The configuration for an [`EchoNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,7 +166,7 @@ impl<const CHANNELS: usize> AudioNode for EchoNode<CHANNELS> {
             delay_seconds_smoothed_buffer: ChannelBuffer::<f32, CHANNELS>::new(max_frames),
             feedback_smoothed_buffer: ChannelBuffer::<f32, CHANNELS>::new(max_frames),
             crossfeed_smoothed_buffer: ChannelBuffer::<f32, CHANNELS>::new(max_frames),
-            delay_buffers: from_fn(|_| DelayLine::<f32>::initialized(config.buffer_capacity)),
+            delay_buffers: from_fn(|_| DelayLine::new(config.buffer_capacity)),
             mix_dsp: MixDSP::new(
                 self.mix,
                 self.fade_curve,
@@ -222,7 +222,7 @@ struct Processor<const CHANNELS: usize> {
     feedback_smoothed: [SmoothedParam; CHANNELS],
     crossfeed_smoothed: [SmoothedParam; CHANNELS],
     // Should always be the same count as `CHANNELS`
-    delay_buffers: [DelayLine<f32>; CHANNELS],
+    delay_buffers: [DelayLine; CHANNELS],
     // We need to calculate all of these buffers at once, so scratch buffers may
     // not be enough depending on channels
     delay_seconds_smoothed_buffer: ChannelBuffer<f32, CHANNELS>,
@@ -369,7 +369,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
                 // Target delay, in fractional samples. This will act as the final state of our lerp (1.0).
                 let mut next_delay_sample = self.delay_buffers[channel_index]
-                    .read_delay_seconds(next_secs_delay, info.sample_rate);
+                    .read_seconds(next_secs_delay, info.sample_rate)
+                    .unwrap() as f32;
 
                 // If we aren't transitioning time, we're done at this point!
                 // However, if the delay_seconds_smoothed is still settling,
@@ -380,7 +381,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 if let Some(prev_secs_delay) = self.prev_delay_seconds[channel_index] {
                     // Get the sample that will act as position 0.0 of the interpolation
                     let prev_delay_sample = self.delay_buffers[channel_index]
-                        .read_delay_seconds(prev_secs_delay, info.sample_rate);
+                        .read_seconds(prev_secs_delay, info.sample_rate)
+                        .unwrap() as f32;
 
                     // We can now calculate how much to interpolate, based on the completion of the delay smoother buffer
                     let current_secs_delay =
@@ -454,7 +456,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
             for channel_index in 0..CHANNELS {
                 self.delay_buffers[channel_index]
-                    .write_and_advance(next_buffer_samples[channel_index]);
+                    .write_and_advance(next_buffer_samples[channel_index] as f64);
                 buffers.outputs[channel_index][sample_index] = delayed_samples[channel_index];
             }
         }
@@ -500,104 +502,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         // Clear internal buffers if signaled, such as when stopping
         if clear_buffers && self.declicker.has_settled() {
             for buffer in self.delay_buffers.iter_mut() {
-                buffer.buffer.fill(0.0);
+                buffer.reset();
             }
         }
 
         buffers.check_for_silence_on_outputs(f32::EPSILON)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DelayLine<T> {
-    buffer: Vec<T>,
-    index: usize,
-}
-
-impl<T> DelayLine<T> {
-    #[inline(always)]
-    pub fn write_and_advance(&mut self, value: T) {
-        if self.index == self.buffer.len() - 1 {
-            self.index = 0;
-        } else {
-            self.index += 1;
-        }
-        self.buffer[self.index] = value;
-    }
-
-    #[inline(always)]
-    pub fn read(&self) -> &T {
-        // Buffer is non-zero, so this will never panic.
-        &self.buffer[self.index]
-    }
-
-    #[inline(always)]
-    pub fn read_delay_samples(&self, num_samples_delay: usize) -> &T {
-        // Len: 6
-        //
-        // 0, 1, 2, 3, 4, 5
-        //          ^
-        //        Index
-        let buffer_len = self.buffer.len();
-
-        // Delay: 5 samples
-        // 3  2  1  0  5  4  <-- Relative offset
-        // 0, 1, 2, 3, 4, 5
-        //          ^
-        //        Index
-        let index = match num_samples_delay > self.index {
-            // Wrap
-            true => buffer_len - (num_samples_delay - self.index),
-            false => self.index - num_samples_delay,
-        };
-
-        &self.buffer[index]
-    }
-}
-
-// TODO: Move to delayline in DSP
-impl<T> DelayLine<T>
-where
-    T: num_traits::Float,
-{
-    /// Create an initialized delayline filled with zeros
-    pub fn initialized(capacity: usize) -> Self {
-        Self {
-            buffer: vec![T::zero(); capacity],
-            index: 0,
-        }
-    }
-
-    #[inline(always)]
-    pub fn read_delay_seconds(&self, seconds: f32, sample_rate: NonZeroU32) -> T {
-        // TODO: Ensure seconds is within bounds
-
-        // Seconds will likely be a fractional number
-        let samples_delay_frac = seconds * sample_rate.get() as f32;
-        let mut index_f = self.index as f32 - samples_delay_frac;
-
-        if index_f.is_negative() {
-            // If negative, wrap to the end of the buffer
-            index_f = ((self.buffer.len() - 1) as f32) - index_f.abs();
-        }
-
-        let index_a = index_f.floor() as usize;
-        let mut index_b = index_a + 1;
-
-        // Should only ever reach up to, never greater than length
-        if index_b == self.buffer.len() {
-            // If setting to len, wrap
-            index_b = 0;
-        }
-
-        let sample_a = self.buffer[index_a];
-        let sample_b = self.buffer[index_b];
-
-        let frac = T::from(index_f - index_f.floor()).unwrap();
-
-        let mix_a = sample_a.mul(T::one() - frac);
-        let mix_b = sample_b.mul(frac);
-
-        mix_a + mix_b
     }
 }

@@ -2,6 +2,7 @@ pub mod algo;
 pub mod buffer;
 pub mod coeff_update;
 pub mod declick;
+pub mod delay_line;
 pub mod distance_attenuation;
 pub mod fade;
 pub mod filter;

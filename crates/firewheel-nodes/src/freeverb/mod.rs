@@ -18,7 +18,6 @@ use firewheel_core::{
 
 mod all_pass;
 mod comb;
-mod delay_line;
 mod freeverb;
 
 /// A simple, relatively cheap stereo reverb.

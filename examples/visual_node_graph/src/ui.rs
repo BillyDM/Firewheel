@@ -790,14 +790,12 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             GuiAudioNode::EchoMono { id, params } => {
-                if echo_ui(ui, params) {
-                    params.update_memo(&mut self.audio_system.event_queue(*id));
-                }
+                echo_ui(ui, params);
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             GuiAudioNode::EchoStereo { id, params } => {
-                if echo_ui(ui, params) {
-                    params.update_memo(&mut self.audio_system.event_queue(*id));
-                }
+                echo_ui(ui, params);
+                params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             _ => {}
         }
@@ -901,20 +899,15 @@ fn convolution_ui<const CHANNELS: usize>(
 }
 
 // Reusable echo UI for any amount of channels
-fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNELS>>) -> bool {
+fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNELS>>) {
     // The padding of the boxes used to contain each channel's controls
-    let mut changed = false;
     const PADDING: f32 = 4.0;
     ui.vertical(|ui| {
         for channel in (0..CHANNELS).into_iter() {
             let mut controls = |ui: &mut Ui| {
                 let delay = &mut params.delay_seconds[channel];
-                if ui
-                    .add(egui::Slider::new(delay, 0.0..=3.0).text("delay"))
-                    .changed()
-                {
-                    changed = true;
-                };
+                ui.add(egui::Slider::new(delay, 0.0..=3.0).text("delay"))
+                    .changed();
 
                 let feedback = &mut params.feedback[channel];
                 let mut feedback_volume = feedback.linear();
@@ -922,7 +915,6 @@ fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNE
                     .add(egui::Slider::new(&mut feedback_volume, 0.0..=1.0).text("feedback"))
                     .changed()
                 {
-                    changed = true;
                     *feedback = Volume::Linear(feedback_volume);
                 }
 
@@ -933,7 +925,6 @@ fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNE
                         .add(egui::Slider::new(&mut crossfeed_volume, 0.0..=1.0).text("crossfeed"))
                         .changed()
                     {
-                        changed = true;
                         *crossfeed = Volume::Linear(crossfeed_volume);
                     }
                 }
@@ -954,52 +945,36 @@ fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNE
             }
         }
 
-        if ui
-            .add(
-                egui::Slider::new(&mut params.feedback_lpf, MIN_HZ..=MAX_HZ)
-                    .logarithmic(true)
-                    .text("feedback lpf"),
-            )
-            .changed()
-            || ui
-                .add(
-                    egui::Slider::new(&mut params.feedback_hpf, MIN_HZ..=MAX_HZ)
-                        .logarithmic(true)
-                        .text("feedback hpf"),
-                )
-                .changed()
-        {
-            changed = true;
-        }
+        ui.add(
+            egui::Slider::new(&mut params.feedback_lpf, MIN_HZ..=MAX_HZ)
+                .logarithmic(true)
+                .text("feedback lpf"),
+        );
+        ui.add(
+            egui::Slider::new(&mut params.feedback_hpf, MIN_HZ..=MAX_HZ)
+                .logarithmic(true)
+                .text("feedback hpf"),
+        );
 
         let mut mix = params.mix.get();
-        if ui
-            .add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"))
-            .changed()
-        {
-            changed = true;
-        };
+        ui.add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"));
         params.mix = Mix::new(mix);
 
         ui.horizontal(|ui| {
             if ui.button("Stop").clicked() {
-                changed = true;
                 params.stop.notify();
             }
             if !params.paused {
                 if ui.button("Pause").clicked() {
-                    changed = true;
                     params.paused = true;
                 }
             } else {
                 if ui.button("Play").clicked() {
-                    changed = true;
                     params.paused = false;
                 }
             }
         });
     });
-    changed
 }
 
 pub struct DemoApp {
