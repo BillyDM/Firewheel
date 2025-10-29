@@ -286,6 +286,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
                 EchoNodePatch::Stop(_) => {
                     clear_buffers = true;
+                    self.params.paused = true;
                     self.declicker.fade_to_enabled(false, &extra.declick_values);
                 }
                 EchoNodePatch::Paused(is_paused) => {
@@ -554,6 +555,7 @@ impl<T> DelayLine<T> {
     }
 }
 
+// TODO: Move to delayline in DSP
 impl<T> DelayLine<T>
 where
     T: num_traits::Float,
