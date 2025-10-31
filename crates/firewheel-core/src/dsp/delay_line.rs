@@ -75,7 +75,11 @@ impl DelayLine {
         }
 
         // Find the two indices to interpolate between
-        let index_a = index_f.floor() as usize % buffer_len;
+        let mut index_a = index_f.floor() as usize;
+        // Account for rounding errors
+        if index_a == buffer_len {
+            index_a -= 1;
+        }
         let index_b = (index_a + 1) % buffer_len;
 
         let sample_a = self.buffer[index_a];
