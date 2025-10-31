@@ -66,13 +66,14 @@ impl DelayLine {
 
         // Get the actual index of the delay, as a fraction
         let mut index_f = self.index as f32 - num_samples_delay_f;
+
         // If negative, wrap to the end of the buffer
         if index_f.is_sign_negative() {
             index_f = buffer_len as f32 - index_f.abs();
         }
 
         // Find the two indices to interpolate between
-        let index_a = index_f.floor() as usize;
+        let index_a = index_f.floor() as usize % buffer_len;
         let index_b = (index_a + 1) % buffer_len;
 
         let sample_a = self.buffer[index_a];
