@@ -25,6 +25,8 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
 };
 
+const DEFAULT_DELAY_SMOOTH_SECONDS: f32 = 0.25;
+
 /// The configuration for an [`EchoNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
@@ -104,6 +106,13 @@ pub struct EchoNode<const CHANNELS: usize> {
     /// Defaults to `0.015` (15ms).
     pub smooth_seconds: f32,
 
+    /// Adjusts the time in seconds over which the delay time is smoothed.
+    /// This value is set separately from `smooth_seconds` to prevent clicking
+    /// when quickly changing delay times.
+    ///
+    /// Defaults to `0.25` (250ms).
+    pub delay_smooth_seconds: f32,
+
     pub stop: Notify<()>,
     pub paused: bool,
 }
@@ -121,6 +130,7 @@ impl<const CHANNELS: usize> Default for EchoNode<CHANNELS> {
             feedback: [Volume::from_percent(30.0); CHANNELS],
             crossfeed: [Volume::from_percent(0.0); CHANNELS],
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
+            delay_smooth_seconds: 0.25,
         }
     }
 }
@@ -154,9 +164,16 @@ impl<const CHANNELS: usize> AudioNode for EchoNode<CHANNELS> {
         Processor::<CHANNELS> {
             params: *self,
             declicker: Declicker::default(),
-            delay_seconds_smoothed: self
-                .delay_seconds
-                .map(|channel| SmoothedParam::new(channel, smoother_config, sample_rate)),
+            delay_seconds_smoothed: self.delay_seconds.map(|channel| {
+                SmoothedParam::new(
+                    channel,
+                    SmootherConfig {
+                        smooth_seconds: DEFAULT_DELAY_SMOOTH_SECONDS,
+                        ..Default::default()
+                    },
+                    sample_rate,
+                )
+            }),
             feedback_smoothed: self
                 .feedback
                 .map(|channel| SmoothedParam::new(channel.linear(), smoother_config, sample_rate)),
@@ -246,7 +263,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         for mut patch in events.drain_patches::<EchoNode<CHANNELS>>() {
             match &mut patch {
                 EchoNodePatch::SmoothSeconds(seconds) => {
-                    // Change all smoothed parameters to new smoothing
+                    // Change all smoothed parameters to new smoothing, except for delay
                     let update_smoothing = |param: &mut SmoothedParam| {
                         param.set_smooth_seconds(*seconds, info.sample_rate);
                     };
@@ -254,7 +271,15 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                         .iter_mut()
                         .chain(self.feedback_smoothed.iter_mut())
                         .chain([self.feedback_hpf_smoothed, self.feedback_lpf_smoothed].iter_mut())
-                        .chain(self.delay_seconds_smoothed.iter_mut())
+                        .for_each(update_smoothing);
+                }
+                EchoNodePatch::DelaySmoothSeconds(seconds) => {
+                    // Change delay smoothed parameters to new smoothing
+                    let update_smoothing = |param: &mut SmoothedParam| {
+                        param.set_smooth_seconds(*seconds, info.sample_rate);
+                    };
+                    self.delay_seconds_smoothed
+                        .iter_mut()
                         .for_each(update_smoothing);
                 }
                 EchoNodePatch::FeedbackLpf(cutoff_hz) => {
@@ -267,7 +292,6 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                     self.mix_dsp.set_mix(*mix, self.params.fade_curve);
                 }
                 EchoNodePatch::DelaySeconds((index, delay_seconds)) => {
-                    // TODO: make more robust
                     // Check to see if settled.
                     if self.prev_delay_seconds[*index].is_none() {
                         self.prev_delay_seconds[*index] =
