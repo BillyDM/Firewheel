@@ -1,6 +1,8 @@
 use core::num::NonZeroU32;
 
 use bevy_platform::prelude::Vec;
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
 
 #[derive(Debug)]
 pub struct DelayLine {
