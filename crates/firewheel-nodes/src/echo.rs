@@ -24,6 +24,8 @@ use firewheel_core::{
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
+#[cfg(not(feature = "std"))]
+use num_traits::Float;
 
 const DEFAULT_DELAY_SMOOTH_SECONDS: f32 = 0.25;
 
