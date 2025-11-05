@@ -12,6 +12,7 @@ use firewheel::{
     nodes::{
         beep_test::BeepTestNode,
         convolution::{ConvolutionNode, ImpulseResponse},
+        echo::EchoNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
@@ -102,6 +103,14 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<ConvolutionNode<2>>,
     },
+    EchoMono {
+        id: firewheel::node::NodeID,
+        params: Memo<EchoNode<1>>,
+    },
+    EchoStereo {
+        id: firewheel::node::NodeID,
+        params: Memo<EchoNode<2>>,
+    },
 }
 
 impl GuiAudioNode {
@@ -126,6 +135,8 @@ impl GuiAudioNode {
             &Self::Freeverb { id, .. } => id,
             &Self::ConvolutionMono { id, .. } => id,
             &Self::ConvolutionStereo { id, .. } => id,
+            &Self::EchoMono { id, .. } => id,
+            &Self::EchoStereo { id, .. } => id,
         }
     }
 
@@ -150,6 +161,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => "Freeverb",
             &Self::ConvolutionMono { .. } => "Convolution (Mono)",
             &Self::ConvolutionStereo { .. } => "Convolution (Stereo)",
+            &Self::EchoMono { .. } => "Echo (Mono)",
+            &Self::EchoStereo { .. } => "Echo (Stereo)",
         }
         .into()
     }
@@ -175,6 +188,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::EchoMono { .. } => 1,
+            &Self::EchoStereo { .. } => 2,
         }
     }
 
@@ -199,6 +214,8 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::EchoMono { .. } => 1,
+            &Self::EchoStereo { .. } => 2,
         }
     }
 }
@@ -316,107 +333,83 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
     }
 
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<GuiAudioNode>) {
+        let mut add_node = |ui: &mut Ui, node_type: NodeType| {
+            let node = self.audio_system.add_node(node_type);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        };
+
         ui.label("Add node");
         if ui.button("Beep Test").clicked() {
-            let node = self.audio_system.add_node(NodeType::BeepTest);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::BeepTest);
         }
         if ui.button("White Noise Generator").clicked() {
-            let node = self.audio_system.add_node(NodeType::WhiteNoiseGen);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::WhiteNoiseGen);
         }
         if ui.button("Pink Noise Generator").clicked() {
-            let node = self.audio_system.add_node(NodeType::PinkNoiseGen);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::PinkNoiseGen);
         }
         if ui.button("Stereo To Mono").clicked() {
-            let node = self.audio_system.add_node(NodeType::StereoToMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::StereoToMono);
         }
         ui.menu_button("Volume", |ui| {
             if ui.button("Volume (mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::VolumeMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::VolumeMono);
             }
             if ui.button("Volume (stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::VolumeStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::VolumeStereo);
             }
         });
         if ui.button("Volume & Pan").clicked() {
-            let node = self.audio_system.add_node(NodeType::VolumePan);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::VolumePan);
         }
         if ui.button("Fast Lowpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastLowpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastLowpass);
         }
         if ui.button("Fast Highpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastHighpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastHighpass);
         }
         if ui.button("Fast Bandpass").clicked() {
-            let node = self.audio_system.add_node(NodeType::FastBandpass);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::FastBandpass);
         }
         if ui.button("SVF").clicked() {
-            let node = self.audio_system.add_node(NodeType::SVF);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::SVF);
         }
         if ui.button("Mix (Mono)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixMono);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::MixMono);
         }
         if ui.button("Mix (Stereo)").clicked() {
-            let node = self.audio_system.add_node(NodeType::MixStereo);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::MixStereo);
         }
         if ui.button("Sampler").clicked() {
-            let node = self.audio_system.add_node(NodeType::Sampler);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::Sampler);
         }
         if ui.button("Freeverb").clicked() {
-            let node = self.audio_system.add_node(NodeType::Freeverb);
-            snarl.insert_node(pos, node);
-            ui.close_kind(UiKind::Menu);
+            add_node(ui, NodeType::Freeverb);
         }
         // Mono section
         ui.menu_button("Mix", |ui| {
             if ui.button("Mix (Mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::MixMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::MixMono);
             }
             if ui.button("Mix (Stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::MixStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::MixStereo);
             }
         });
         ui.menu_button("Convolution", |ui| {
             if ui.button("Convolution (Mono)").clicked() {
-                let node = self.audio_system.add_node(NodeType::ConvolutionMono);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::ConvolutionMono);
             }
             if ui.button("Convolution (Stereo)").clicked() {
-                let node = self.audio_system.add_node(NodeType::ConvolutionStereo);
-                snarl.insert_node(pos, node);
-                ui.close_kind(UiKind::Menu);
+                add_node(ui, NodeType::ConvolutionStereo);
+            }
+        });
+        ui.menu_button("Echo", |ui| {
+            if ui.button("Echo (Mono)").clicked() {
+                add_node(ui, NodeType::EchoMono);
+            }
+            if ui.button("Echo (Stereo)").clicked() {
+                add_node(ui, NodeType::EchoStereo);
             }
         });
     }
@@ -796,6 +789,14 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 convolution_ui(ui, params, self.audio_system, *id);
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
+            GuiAudioNode::EchoMono { id, params } => {
+                echo_ui(ui, params);
+                params.update_memo(&mut self.audio_system.event_queue(*id));
+            }
+            GuiAudioNode::EchoStereo { id, params } => {
+                echo_ui(ui, params);
+                params.update_memo(&mut self.audio_system.event_queue(*id));
+            }
             _ => {}
         }
     }
@@ -891,6 +892,85 @@ fn convolution_ui<const CHANNELS: usize>(
             } else {
                 if ui.button("Play").clicked() {
                     params.pause = false;
+                }
+            }
+        });
+    });
+}
+
+// Reusable echo UI for any amount of channels
+fn echo_ui<const CHANNELS: usize>(ui: &mut Ui, params: &mut Memo<EchoNode<CHANNELS>>) {
+    // The padding of the boxes used to contain each channel's controls
+    const PADDING: f32 = 4.0;
+    ui.vertical(|ui| {
+        for channel in (0..CHANNELS).into_iter() {
+            let mut controls = |ui: &mut Ui| {
+                let delay = &mut params.delay_seconds[channel];
+                ui.add(egui::Slider::new(delay, 0.0..=3.0).text("delay"))
+                    .changed();
+
+                let feedback = &mut params.feedback[channel];
+                let mut feedback_volume = feedback.linear();
+                if ui
+                    .add(egui::Slider::new(&mut feedback_volume, 0.0..=1.0).text("feedback"))
+                    .changed()
+                {
+                    *feedback = Volume::Linear(feedback_volume);
+                }
+
+                if CHANNELS > 1 {
+                    let crossfeed = &mut params.crossfeed[channel];
+                    let mut crossfeed_volume = crossfeed.linear();
+                    if ui
+                        .add(egui::Slider::new(&mut crossfeed_volume, 0.0..=1.0).text("crossfeed"))
+                        .changed()
+                    {
+                        *crossfeed = Volume::Linear(crossfeed_volume);
+                    }
+                }
+            };
+
+            // Group each channel visually if multichannel
+            if CHANNELS > 1 {
+                egui::Frame::default()
+                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                    .corner_radius(ui.visuals().widgets.noninteractive.corner_radius)
+                    .inner_margin(PADDING)
+                    .show(ui, |ui| {
+                        ui.label(if channel == 0 { "Left" } else { "Right" });
+                        controls(ui);
+                    });
+            } else {
+                controls(ui);
+            }
+        }
+
+        ui.add(
+            egui::Slider::new(&mut params.feedback_lpf, MIN_HZ..=MAX_HZ)
+                .logarithmic(true)
+                .text("feedback lpf"),
+        );
+        ui.add(
+            egui::Slider::new(&mut params.feedback_hpf, MIN_HZ..=MAX_HZ)
+                .logarithmic(true)
+                .text("feedback hpf"),
+        );
+
+        let mut mix = params.mix.get();
+        ui.add(egui::Slider::new(&mut mix, 0.0..=1.0).text("mix"));
+        params.mix = Mix::new(mix);
+
+        ui.horizontal(|ui| {
+            if ui.button("Stop").clicked() {
+                params.stop.notify();
+            }
+            if !params.paused {
+                if ui.button("Pause").clicked() {
+                    params.paused = true;
+                }
+            } else {
+                if ui.button("Play").clicked() {
+                    params.paused = false;
                 }
             }
         });
