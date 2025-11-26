@@ -25,9 +25,10 @@ mod freeverb;
 ///
 /// Freeverb tends to have a somewhat metallic sound, but
 /// its minimal computational cost makes it highly versatile.
-#[derive(Diff, Patch, Clone, Debug, PartialEq)]
+#[derive(Diff, Patch, Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FreeverbNode {
     /// Set the size of the emulated room, expressed from 0 to 1.
     ///
@@ -51,6 +52,7 @@ pub struct FreeverbNode {
     pub pause: bool,
 
     /// Reset the reverb, clearing its internal state.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub reset: Notify<()>,
 
     /// Adjusts the time in seconds over which parameters are smoothed.
