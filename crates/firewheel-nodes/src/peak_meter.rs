@@ -17,6 +17,7 @@ use firewheel_core::{
 
 /// The configuration for a [`PeakMeterSmoother`]
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PeakMeterSmootherConfig {
@@ -160,6 +161,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
 /// A node that calculates the peak amplitude of a signal, and then sends that value
 /// to [`PeakMeterState`].
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PeakMeterNode<const NUM_CHANNELS: usize> {

@@ -24,8 +24,10 @@ use firewheel_core::{
 ///
 /// Convolution is often used to achieve reverb effects, but is more
 /// computationally expensive than algorithmic reverb.
-#[derive(Clone, Copy, Patch, Diff, PartialEq)]
+#[derive(Patch, Diff, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConvolutionNode<const CHANNELS: usize> {
     /// Pause the convolution processing.
     ///
@@ -65,6 +67,7 @@ pub struct ConvolutionNode<const CHANNELS: usize> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConvolutionNodeConfig<const CHANNELS: usize> {
     /// The maximum number of supported IR channels (must be
     /// `ChannelCount::MONO` or `ChannelCount::STEREO`). This determines the

@@ -94,8 +94,12 @@ pub enum PlaybackSpeedQuality {
 /// It supports pausing, resuming, looping, and changing the playback speed.
 #[derive(Clone, Diff, Patch, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SamplerNode {
     /// The sample resource to use.
+    #[cfg_attr(feature = "bevy_reflect", reflect(ignore))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub sample: Option<ArcGc<dyn SampleResource>>,
 
     /// The volume to play the sample at.
@@ -109,6 +113,7 @@ pub struct SamplerNode {
 
     /// Whether or not the current sample should start/restart playing (true), or be
     /// paused/stopped (false).
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub play: Notify<bool>,
 
     /// Defines where the sampler should start playing from when
@@ -453,6 +458,7 @@ impl SamplerState {
 /// [`SamplerNode::play`] is set to `true`.
 #[derive(Debug, Clone, Copy, PartialEq, RealtimeClone)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlayFrom {
     /// When [`SamplerNode::play`] is set to `true`, the sampler will resume
     /// playing from where it last left off.
@@ -525,6 +531,7 @@ impl Patch for PlayFrom {
 /// How many times a sample should be repeated.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RepeatMode {
     /// Play the sample once and then stop.
     #[default]
