@@ -7,6 +7,7 @@ use firewheel::{
     nodes::{
         beep_test::BeepTestNode,
         convolution::{ConvolutionNode, ConvolutionNodeConfig},
+        echo::EchoNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -52,6 +53,8 @@ pub enum NodeType {
     Freeverb,
     ConvolutionMono,
     ConvolutionStereo,
+    EchoMono,
+    EchoStereo,
 }
 
 pub struct AudioSystem {
@@ -178,6 +181,8 @@ impl AudioSystem {
                 }),
             ),
             NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
+            NodeType::EchoMono => self.cx.add_node(EchoNode::<1>::default(), None),
+            NodeType::EchoStereo => self.cx.add_node(EchoNode::<2>::default(), None),
         };
 
         match node_type {
@@ -243,6 +248,14 @@ impl AudioSystem {
                 params: Default::default(),
             },
             NodeType::ConvolutionStereo => GuiAudioNode::ConvolutionStereo {
+                id,
+                params: Default::default(),
+            },
+            NodeType::EchoMono => GuiAudioNode::EchoMono {
+                id,
+                params: Default::default(),
+            },
+            NodeType::EchoStereo => GuiAudioNode::EchoStereo {
                 id,
                 params: Default::default(),
             },
