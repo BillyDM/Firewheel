@@ -23,6 +23,9 @@ use num_traits::Float;
 /// algorithm using a sliding window.) But it should be good enough for games that
 /// simply wish to react to player audio.
 #[derive(Debug, Diff, Patch, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FastRmsNode {
     /// Whether or not this node is enabled.
     pub enabled: bool,
