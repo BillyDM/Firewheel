@@ -82,7 +82,7 @@ impl OnePoleIirHPF {
 
     #[inline(always)]
     pub fn process(&mut self, s: f32, coeff: OnePoleIirHPFCoeff) -> f32 {
-        self.yz1 = (coeff.a0 * s) + (coeff.b1 * self.yz1) - self.xz1;
+        self.yz1 = (coeff.b1 * self.yz1) + (coeff.a0 * (s - self.xz1));
         self.xz1 = s;
         self.yz1
     }
@@ -322,7 +322,7 @@ impl<const LANES: usize> OnePoleIirHPFSimd<LANES> {
         coeff: &OnePoleIirHPFCoeffSimd<LANES>,
     ) -> [f32; LANES] {
         core::array::from_fn(|i| {
-            self.yz1[i] = (coeff.a0[i] * input[i]) + (coeff.b1[i] * self.yz1[i]) - self.xz1[i];
+            self.yz1[i] = (coeff.b1[i] * self.yz1[i]) + (coeff.a0[i] * (input[i] - self.xz1[i]));
             self.xz1[i] = input[i];
             self.yz1[i]
         })

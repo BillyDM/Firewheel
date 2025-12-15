@@ -25,9 +25,6 @@ pub type FastHighpassStereoNode = FastHighpassNode<2>;
 
 /// A simple single-pole IIR highpass filter that is computationally
 /// efficient
-///
-/// It is computationally efficient, but it doesn't do that great of
-/// a job at attenuating low frequencies.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
