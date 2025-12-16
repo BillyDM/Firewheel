@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-pool"
-version = "0.9.1"
+version = "0.9.2"
 description = "FX chain pools for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-pool"
 repository.workspace = true
@@ -31,9 +31,9 @@ sampler = ["firewheel-nodes/sampler"]
 spatial_basic = ["firewheel-nodes/spatial_basic"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.9.1", default-features = false }
-firewheel-graph = { path = "../firewheel-graph", version = "0.9.1", default-features = false }
-firewheel-nodes = { path = "../firewheel-nodes", version = "0.9.1", default-features = false }
+firewheel-core = { path = "../firewheel-core", version = "0.9.2", default-features = false }
+firewheel-graph = { path = "../firewheel-graph", version = "0.9.2", default-features = false }
+firewheel-nodes = { path = "../firewheel-nodes", version = "0.9.2", default-features = false }
 smallvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
