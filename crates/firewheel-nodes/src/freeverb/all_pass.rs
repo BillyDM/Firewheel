@@ -1,4 +1,4 @@
-use super::delay_line::DelayLine;
+use firewheel_core::dsp::delay_line::DelayLine;
 
 #[derive(Debug)]
 pub struct AllPass {
@@ -13,7 +13,7 @@ impl AllPass {
     }
 
     pub fn tick(&mut self, input: f64) -> f64 {
-        let delayed = self.delay_line.read();
+        let delayed = self.delay_line.read_last();
         let output = -input + delayed;
 
         // in the original version of freeverb this is a member which is never modified
