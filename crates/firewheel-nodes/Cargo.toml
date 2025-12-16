@@ -39,7 +39,8 @@ all_nodes = [
     "mix",
     "freeverb",
     "convolution",
-    "fast_rms"
+    "fast_rms",
+    "triple_buffer",
 ]
 # All nodes which are no_std compatible
 all_nodes_no_std = [
@@ -53,7 +54,8 @@ all_nodes_no_std = [
     "delay_compensation",
     "mix",
     "freeverb",
-    "fast_rms"
+    "fast_rms",
+    "triple_buffer"
 ]
 # Enables event scheduling support in some nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -74,6 +76,10 @@ noise_generators = []
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread. (requires std)
 stream = ["std", "dep:fixed-resample"]
+# Enables the triple buffer node for sending raw audio data from the
+# audio graph to another thread. Useful for cases where you only care
+# about the latest data in the buffer, such as for creating visualizers.
+triple_buffer = ["dep:triple_buffer"]
 # Enables the delay compensation node
 delay_compensation = ["dep:smallvec"]
 # Enables the mix node
@@ -104,3 +110,4 @@ bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 fft-convolver = { version = "0.2.0", optional = true }
+triple_buffer = { version = "8.1.1", optional = true }

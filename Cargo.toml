@@ -78,6 +78,10 @@ spatial_basic_node = [
 # Enables the stream writer/reader nodes for sending/receiving audio
 # directly to/from the audio graph from another thread. (requires std)
 stream_nodes = ["firewheel-nodes/stream"]
+# Enables the triple buffer node for sending raw audio data from the
+# audio graph to another thread. Useful for cases where you only care
+# about the latest data in the buffer, such as for creating visualizers.
+triple_buffer_node = ["firewheel-nodes/triple_buffer"]
 # Enables the white and pink noise generator nodes
 noise_gen_nodes = ["firewheel-nodes/noise_generators"]
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
@@ -155,7 +159,7 @@ members = [
     "examples/spatial_basic",
     "examples/stream_nodes",
     "examples/visual_node_graph",
-    "examples/memoized",
+    "examples/memoized", "examples/visualizer",
 ]
 
 [workspace.dependencies]

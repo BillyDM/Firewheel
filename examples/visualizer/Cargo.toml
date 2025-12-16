@@ -1,0 +1,23 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+firewheel = { path = "../../", features = ["triple_buffer_node"] }
+log.workspace = true
+egui = "0.32"
+eframe = { version = "0.32", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "x11",
+    "wayland",
+] }
+symphonium = { version = "0.6.5", features = ["mp3", "flac"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+simple-log = "2.1.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
