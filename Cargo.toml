@@ -159,7 +159,8 @@ members = [
     "examples/spatial_basic",
     "examples/stream_nodes",
     "examples/visual_node_graph",
-    "examples/memoized", "examples/visualizer",
+    "examples/memoized",
+    "examples/visualizer",
 ]
 
 [workspace.dependencies]

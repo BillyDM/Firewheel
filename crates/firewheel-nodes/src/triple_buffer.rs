@@ -11,7 +11,10 @@ use firewheel_core::{
     StreamInfo,
 };
 
-/// The configuration of a [`StreamReaderNode`]
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
+
+/// The configuration of a [`TripleBufferNode`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
