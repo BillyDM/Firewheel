@@ -47,7 +47,7 @@ pub struct SpatialBasicNode {
     /// * `-x` is to the left of the listener, and `+x` is to the right of the listener
     /// * Larger absolute `y` and `z` values will make the signal sound farther away.
     /// (The algorithm used by this node makes no distinction between `-y`, `+y`, `-z`,
-    /// and `+z`). 
+    /// and `+z`).
     ///
     /// By default this is set to `(0.0, 0.0, 0.0)`
     pub offset: Vec3,
