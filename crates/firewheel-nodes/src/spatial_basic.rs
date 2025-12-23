@@ -1,6 +1,6 @@
-//! A 3D spatial positioning node using a basic (and naive) algorithm. It does
-//! not make use of any fancy binaural algorithms, rather it just applies basic
-//! panning and filtering.
+//! A 3D spatial positioning node using a basic (and naive) algorithm. (It can also
+//! be used for 2D audio.) It does not make use of any fancy binaural algorithms,
+//! rather it just applies basic panning and filtering.
 
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
@@ -27,8 +27,9 @@ use firewheel_core::{
     vector::Vec3,
 };
 
-/// A 3D spatial positioning node using a basic but fast algorithm. It does not make use
-/// of any fancy binaural algorithms, rather it just applies basic panning and filtering.
+/// A 3D spatial positioning node using a basic but fast algorithm. (It can also be used
+/// for 2D audio). It does not make use of any fancy binaural algorithms, rather it just
+/// applies basic panning and filtering.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -40,11 +41,13 @@ pub struct SpatialBasicNode {
     /// A 3D vector representing the offset between the listener and the
     /// sound source.
     ///
-    /// The coordinates are `(x, y, z)`.
+    /// The coordinates are `(x, y, z)`. (This node can also be used for 2D audio by
+    /// setting the z value to `0.0`.)
     ///
-    /// * `-x` is to the left of the listener, and `+x` is the the right of the listener
-    /// * `-y` is below the listener, and `+y` is above the listener.
-    /// * `-z` is in front of the listener, and `+z` is behind the listener
+    /// * `-x` is to the left of the listener, and `+x` is to the right of the listener
+    /// * Larger absolute `y` and `z` values will make the signal sound farther away.
+    /// (The algorithm used by this node makes no distinction between `-y`, `+y`, `-z`,
+    /// and `+z`). 
     ///
     /// By default this is set to `(0.0, 0.0, 0.0)`
     pub offset: Vec3,

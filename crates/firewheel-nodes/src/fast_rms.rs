@@ -31,7 +31,7 @@ pub struct FastRmsNode {
     pub enabled: bool,
     /// The size of the window used for measuring the RMS value.
     ///
-    /// Smaller values are better at detecting short bursts of loundess (transients),
+    /// Smaller values are better at detecting short bursts of loudness (transients),
     /// while larger values are better for measuring loudness on a broader time scale.
     ///
     /// By default this is set to `0.05` (50ms).
