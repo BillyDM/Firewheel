@@ -1,8 +1,8 @@
 [package]
 name = "firewheel-nodes"
-version = "0.9.2"
 description = "Official factory nodes for the Firewheel audio engine"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-nodes"
+version.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -98,7 +98,7 @@ bevy_reflect = ["dep:bevy_reflect", "firewheel-core/bevy_reflect"]
 serde = ["dep:serde"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.9.2", default-features = false }
+firewheel-core = { path = "../firewheel-core", version = "0.9.3", default-features = false }
 bevy_platform.workspace = true
 num-traits.workspace = true
 smallvec = { workspace = true, optional = true }

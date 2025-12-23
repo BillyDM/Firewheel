@@ -1,8 +1,8 @@
 [package]
 name = "firewheel-macros"
-version = "0.9.2"
 description = "Macros for Firewheel crates"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-macros"
+version.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
