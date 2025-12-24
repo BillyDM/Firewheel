@@ -56,7 +56,7 @@ bevy_reflect = ["dep:bevy_reflect"]
 unsafe_flush_denormals_to_zero = []
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.9.3", default-features = false }
+firewheel-core = { path = "../firewheel-core", version = "0.9.4", default-features = false }
 log.workspace = true
 ringbuf.workspace = true
 triple_buffer.workspace = true

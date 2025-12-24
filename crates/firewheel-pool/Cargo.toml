@@ -31,9 +31,9 @@ sampler = ["firewheel-nodes/sampler"]
 spatial_basic = ["firewheel-nodes/spatial_basic"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.9.3", default-features = false }
-firewheel-graph = { path = "../firewheel-graph", version = "0.9.3", default-features = false }
-firewheel-nodes = { path = "../firewheel-nodes", version = "0.9.3", default-features = false }
+firewheel-core = { path = "../firewheel-core", version = "0.9.4", default-features = false }
+firewheel-graph = { path = "../firewheel-graph", version = "0.9.4", default-features = false }
+firewheel-nodes = { path = "../firewheel-nodes", version = "0.9.4", default-features = false }
 smallvec.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
