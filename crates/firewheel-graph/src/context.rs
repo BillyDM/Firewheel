@@ -646,7 +646,23 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// This must be called reguarly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
-        self.logger_rx.flush();
+        self.logger_rx.flush(
+            |msg| {
+                #[cfg(feature = "tracing")]
+                tracing::error!("{}", msg);
+
+                #[cfg(all(feature = "log", not(feature = "tracing")))]
+                log::error!("{}", msg);
+            },
+            #[cfg(debug_assertions)]
+            |msg| {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("{}", msg);
+
+                #[cfg(all(feature = "log", not(feature = "tracing")))]
+                log::debug!("{}", msg);
+            },
+        );
 
         firewheel_core::collector::GlobalRtGc::collect();
 

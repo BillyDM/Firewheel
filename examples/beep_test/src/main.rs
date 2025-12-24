@@ -10,7 +10,12 @@ const BEEP_DURATION: Duration = Duration::from_secs(4);
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
 fn main() {
-    simple_log::quick!("info");
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG)
+            .finish(),
+    )
+    .unwrap();
 
     println!("Firewheel beep test...");
 
@@ -32,7 +37,7 @@ fn main() {
     let start = Instant::now();
     while start.elapsed() < BEEP_DURATION {
         if let Err(e) = cx.update() {
-            log::error!("{:?}", &e);
+            tracing::error!("{:?}", &e);
 
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // The stream has stopped unexpectedly (i.e the user has

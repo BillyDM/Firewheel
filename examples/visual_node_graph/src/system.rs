@@ -127,7 +127,7 @@ impl AudioSystem {
 
     pub fn remove_node(&mut self, node_id: NodeID) {
         if let Err(_) = self.cx.remove_node(node_id) {
-            log::error!("Node already removed!");
+            tracing::error!("Node already removed!");
         }
     }
 
@@ -281,7 +281,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         if let Err(e) = self.cx.update() {
-            log::error!("{:?}", &e);
+            tracing::error!("{:?}", &e);
 
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // The stream has stopped unexpectedly (i.e the user has

@@ -257,30 +257,34 @@ pub struct RealtimeLoggerMainThread {
 
 impl RealtimeLoggerMainThread {
     /// Flush the queued log messages.
-    pub fn flush(&mut self) {
+    pub fn flush(
+        &mut self,
+        mut log_error: impl FnMut(&str),
+        #[cfg(debug_assertions)] mut log_debug: impl FnMut(&str),
+    ) {
         if self
             .shared_state
             .message_too_long_occured
             .swap(false, Ordering::Relaxed)
         {
-            log::error!("One or more realtime log messages were dropped because they were too long. Please increase message capacity.");
+            (log_error)("One or more realtime log messages were dropped because they were too long. Please increase message capacity.");
         }
         if self
             .shared_state
             .not_enough_slots_occured
             .swap(false, Ordering::Relaxed)
         {
-            log::error!("One or more realtime log messages were dropped because the realtime logger ran out of slots. Please increase slot capacity.");
+            (log_error)("One or more realtime log messages were dropped because the realtime logger ran out of slots. Please increase slot capacity.");
         }
 
         #[cfg(debug_assertions)]
         for slot in self.debug_cons.pop_iter() {
-            log::debug!("{}", slot.as_str());
+            (log_debug)(&slot);
             let _ = self.debug_prod.try_push(slot).unwrap();
         }
 
         for slot in self.error_cons.pop_iter() {
-            log::error!("{}", slot.as_str());
+            (log_error)(&slot);
             let _ = self.error_prod.try_push(slot).unwrap();
         }
     }

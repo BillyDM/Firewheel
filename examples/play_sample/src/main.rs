@@ -17,7 +17,12 @@ struct Cli {
 }
 
 fn main() {
-    simple_log::quick!("info");
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG)
+            .finish(),
+    )
+    .unwrap();
 
     let args = Cli::parse();
 
@@ -67,7 +72,7 @@ fn main() {
         }
 
         if let Err(e) = cx.update() {
-            log::error!("{:?}", &e);
+            tracing::error!("{:?}", &e);
 
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // The stream has stopped unexpectedly (i.e the user has

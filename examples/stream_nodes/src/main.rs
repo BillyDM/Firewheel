@@ -20,7 +20,12 @@ const OUT_SAMPLE_RATE: NonZeroU32 = NonZeroU32::new(48000).unwrap();
 const NUM_CHANNELS: NonZeroChannelCount = NonZeroChannelCount::STEREO;
 
 fn main() {
-    simple_log::quick!("info");
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::DEBUG)
+            .finish(),
+    )
+    .unwrap();
 
     let mut cx = FirewheelContext::new(Default::default());
     cx.start_stream(Default::default()).unwrap();
@@ -276,7 +281,7 @@ fn main() {
 
     loop {
         if let Err(e) = cx.update() {
-            log::error!("{:?}", &e);
+            tracing::error!("{:?}", &e);
 
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // Notify the stream node handles that the output stream has stopped.

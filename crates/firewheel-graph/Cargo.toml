@@ -1,8 +1,8 @@
 [package]
 name = "firewheel-graph"
+version = "0.10.0"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
-version.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,7 +16,7 @@ exclude.workspace = true
 all-features = true
 
 [features]
-default = ["std"]
+default = ["std", "tracing"]
 std = [
     "arrayvec/std",
     "bevy_platform/std",
@@ -25,7 +25,7 @@ std = [
     "thunderdome/std",
     "thiserror/std",
     "bevy_reflect?/std",
-    "num-traits/std"
+    "num-traits/std",
 ]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["firewheel-core/scheduled_events"]
@@ -35,6 +35,10 @@ musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 serde = ["dep:serde"]
 # Enables Reflect derives for types
 bevy_reflect = ["dep:bevy_reflect"]
+# Use the `tracing` crate for logging. Currently requires `std`.
+tracing = ["dep:tracing", "std"]
+# Use the `log` crate for logging
+log = ["dep:log"]
 # Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
 # processing. This can lead to a significant performance increases in some cases.
 #
@@ -56,8 +60,9 @@ bevy_reflect = ["dep:bevy_reflect"]
 unsafe_flush_denormals_to_zero = []
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.9.4", default-features = false }
-log.workspace = true
+firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }
+tracing = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
 ringbuf.workspace = true
 triple_buffer.workspace = true
 smallvec.workspace = true

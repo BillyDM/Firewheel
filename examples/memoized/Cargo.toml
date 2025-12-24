@@ -6,5 +6,5 @@ publish = false
 
 [dependencies]
 firewheel = { path = "../../", features = ["beep_test_node"] }
-log.workspace = true
-simple-log = "2.1.0"
+tracing.workspace = true
+tracing-subscriber.workspace = true

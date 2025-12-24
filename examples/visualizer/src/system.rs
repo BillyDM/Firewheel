@@ -99,7 +99,7 @@ impl AudioSystem {
 
     pub fn update(&mut self) {
         if let Err(e) = self.cx.update() {
-            log::error!("{:?}", &e);
+            tracing::error!("{:?}", &e);
 
             if let UpdateError::StreamStoppedUnexpectedly(_) = e {
                 // The stream has stopped unexpectedly (i.e the user has

@@ -16,6 +16,11 @@ use firewheel_graph::{
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 use ringbuf::traits::{Consumer, Producer, Split};
 
+#[cfg(all(feature = "log", not(feature = "tracing")))]
+use log::{error, info, warn};
+#[cfg(feature = "tracing")]
+use tracing::{error, info, warn};
+
 /// 1024 samples is a latency of about 23 milliseconds, which should
 /// be good enough for most games.
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
@@ -174,7 +179,7 @@ impl AudioBackend for CpalBackend {
             match default_device.name() {
                 Ok(n) => Some(n),
                 Err(e) => {
-                    log::warn!("Failed to get name of default audio input device: {}", e);
+                    warn!("Failed to get name of default audio input device: {}", e);
                     None
                 }
             }
@@ -199,7 +204,7 @@ impl AudioBackend for CpalBackend {
                         Ok(c) => c,
                         Err(e) => {
                             if is_default {
-                                log::warn!("Failed to get default config for the default audio input device: {}", e);
+                                warn!("Failed to get default config for the default audio input device: {}", e);
                             }
                             continue;
                         }
@@ -213,7 +218,7 @@ impl AudioBackend for CpalBackend {
                 }
             }
             Err(e) => {
-                log::error!("Failed to get input audio devices: {}", e);
+                error!("Failed to get input audio devices: {}", e);
             }
         }
 
@@ -230,7 +235,7 @@ impl AudioBackend for CpalBackend {
             match default_device.name() {
                 Ok(n) => Some(n),
                 Err(e) => {
-                    log::warn!("Failed to get name of default audio output device: {}", e);
+                    warn!("Failed to get name of default audio output device: {}", e);
                     None
                 }
             }
@@ -255,7 +260,7 @@ impl AudioBackend for CpalBackend {
                         Ok(c) => c,
                         Err(e) => {
                             if is_default {
-                                log::warn!("Failed to get default config for the default audio output device: {}", e);
+                                warn!("Failed to get default config for the default audio output device: {}", e);
                             }
                             continue;
                         }
@@ -269,7 +274,7 @@ impl AudioBackend for CpalBackend {
                 }
             }
             Err(e) => {
-                log::error!("Failed to get output audio devices: {}", e);
+                error!("Failed to get output audio devices: {}", e);
             }
         }
 
@@ -277,13 +282,13 @@ impl AudioBackend for CpalBackend {
     }
 
     fn start_stream(config: Self::Config) -> Result<(Self, StreamInfo), Self::StartStreamError> {
-        log::info!("Attempting to start CPAL audio stream...");
+        info!("Attempting to start CPAL audio stream...");
 
         let host = if let Some(host_id) = config.output.host {
             match cpal::host_from_id(host_id) {
                 Ok(host) => host,
                 Err(e) => {
-                    log::warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
+                    warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
                     cpal::default_host()
                 }
             }
@@ -304,14 +309,14 @@ impl AudioBackend for CpalBackend {
                     }) {
                         out_device = Some(d);
                     } else if config.output.fallback {
-                        log::warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_name);
+                        warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_name);
                     } else {
                         return Err(StreamStartError::OutputDeviceNotFound(device_name.clone()));
                     }
                 }
                 Err(e) => {
                     if config.output.fallback {
-                        log::error!("Failed to get output audio devices: {}. Falling back to default device...", e);
+                        error!("Failed to get output audio devices: {}. Falling back to default device...", e);
                     } else {
                         return Err(e.into());
                     }
@@ -328,7 +333,7 @@ impl AudioBackend for CpalBackend {
         let out_device = out_device.unwrap();
 
         let out_device_name = out_device.name().unwrap_or_else(|e| {
-            log::warn!("Failed to get name of output audio device: {}", e);
+            warn!("Failed to get name of output audio device: {}", e);
             String::from("unknown device")
         });
 
@@ -475,10 +480,9 @@ impl AudioBackend for CpalBackend {
             input_stream_cons,
         );
 
-        log::info!(
+        info!(
             "Starting output audio stream with device \"{}\" with configuration {:?}",
-            &out_device_name,
-            &out_stream_config
+            &out_device_name, &out_stream_config
         );
 
         let out_stream_handle = out_device.build_output_stream(
@@ -548,7 +552,7 @@ fn start_input_stream(
         match cpal::host_from_id(host_id) {
             Ok(host) => host,
             Err(e) => {
-                log::warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
+                warn!("Requested audio host {:?} is not available: {}. Falling back to default host...", &host_id, e);
                 cpal::default_host()
             }
         }
@@ -569,24 +573,24 @@ fn start_input_stream(
                 }) {
                     in_device = Some(d);
                 } else if config.fallback {
-                    log::warn!("Could not find requested audio input device: {}. Falling back to default device...", &device_name);
+                    warn!("Could not find requested audio input device: {}. Falling back to default device...", &device_name);
                 } else if config.fail_on_no_input {
                     return Err(StreamStartError::InputDeviceNotFound(device_name.clone()));
                 } else {
-                    log::warn!("Could not find requested audio input device: {}. No input stream will be started.", &device_name);
+                    warn!("Could not find requested audio input device: {}. No input stream will be started.", &device_name);
                     return Ok(StartInputStreamResult::NotStarted);
                 }
             }
             Err(e) => {
                 if config.fallback {
-                    log::warn!(
+                    warn!(
                         "Failed to get output audio devices: {}. Falling back to default device...",
                         e
                     );
                 } else if config.fail_on_no_input {
                     return Err(e.into());
                 } else {
-                    log::warn!(
+                    warn!(
                         "Failed to get output audio devices: {}. No input stream will be started.",
                         e
                     );
@@ -602,14 +606,14 @@ fn start_input_stream(
         } else if config.fail_on_no_input {
             return Err(StreamStartError::DefaultInputDeviceNotFound);
         } else {
-            log::warn!("No default audio input device found. Input stream will not be started.");
+            warn!("No default audio input device found. Input stream will not be started.");
             return Ok(StartInputStreamResult::NotStarted);
         }
     }
     let in_device = in_device.unwrap();
 
     let in_device_name = in_device.name().unwrap_or_else(|e| {
-        log::warn!("Failed to get name of input audio device: {}", e);
+        warn!("Failed to get name of input audio device: {}", e);
         String::from("unknown device")
     });
 
@@ -647,7 +651,7 @@ fn start_input_stream(
                 output_sample_rate.0,
             ));
         } else {
-            log::warn!("Could not use output sample rate {} for the input sample rate. Input stream will not be started", output_sample_rate.0);
+            warn!("Could not use output sample rate {} for the input sample rate. Input stream will not be started", output_sample_rate.0);
             return Ok(StartInputStreamResult::NotStarted);
         }
     }
@@ -674,10 +678,9 @@ fn start_input_stream(
         config.channel_config,
     );
 
-    log::info!(
+    info!(
         "Starting input audio stream with device \"{}\" with configuration {:?}",
-        &in_device_name,
-        &stream_config
+        &in_device_name, &stream_config
     );
 
     let stream_handle = match in_device.build_input_stream(
@@ -695,7 +698,7 @@ fn start_input_stream(
             if config.fail_on_no_input {
                 return Err(StreamStartError::BuildStreamError(e));
             } else {
-                log::error!(
+                error!(
                     "Failed to build input audio stream, input stream will not be started. {}",
                     e
                 );
@@ -708,7 +711,7 @@ fn start_input_stream(
         if config.fail_on_no_input {
             return Err(StreamStartError::PlayStreamError(e));
         } else {
-            log::error!(
+            error!(
                 "Failed to start input audio stream, input stream will not be started. {}",
                 e
             );
@@ -839,7 +842,7 @@ impl DataCallback {
         //         {
         //             // If this occurs in other APIs as well, then either CPAL is doing
         //             // something wrong, or I'm doing something wrong.
-        //             log::error!("CPAL and/or the system audio API returned invalid timestamp. Please notify the Firewheel developers of this bug.");
+        //             error!("CPAL and/or the system audio API returned invalid timestamp. Please notify the Firewheel developers of this bug.");
         //         }
         //     }
         //

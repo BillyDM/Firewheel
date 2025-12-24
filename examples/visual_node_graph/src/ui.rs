@@ -258,7 +258,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             from.id.output as u32,
             to.id.input as u32,
         ) {
-            log::error!("{}", e);
+            tracing::error!("{}", e);
             return;
         }
 

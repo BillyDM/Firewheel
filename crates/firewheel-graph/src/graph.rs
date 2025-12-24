@@ -589,6 +589,10 @@ impl AudioGraph {
 
         self.needs_compile = false;
 
+        #[cfg(feature = "tracing")]
+        tracing::debug!("compiled new audio graph: {:?}", &schedule_data);
+
+        #[cfg(all(feature = "log", not(feature = "tracing")))]
         log::debug!("compiled new audio graph: {:?}", &schedule_data);
 
         Ok(schedule_data)
