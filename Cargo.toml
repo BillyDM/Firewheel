@@ -190,6 +190,8 @@ bevy_ecs = { version = "0.17", default-features = false }
 bevy_reflect = { version = "0.17", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
+egui = "0.33.3"
+eframe = "0.33.3"
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.10.0", default-features = false }
