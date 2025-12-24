@@ -1105,7 +1105,7 @@ impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
     }
 }
 
-/// The type of scheduled events to clear in a [`ClearScheduledEvents`] message.
+/// The type of scheduled events to clear
 #[cfg(feature = "scheduled_events")]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClearScheduledEventsType {
