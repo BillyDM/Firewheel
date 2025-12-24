@@ -172,6 +172,24 @@ impl<'a> OutputAudioData<'a> {
             .map(|s| s.consumer.read().buffers.as_slice())
     }
 
+    /// Get the latest channels of audio data, along with a "generation" value.
+    ///
+    /// The generation value is equal to how many times the buffer has been updated
+    /// since the node was first created. This can be used to quickly check if the
+    /// buffer differs from the previous read.
+    ///
+    /// The samples are in de-interleaved format (one `Vec` for each channel). The
+    /// length of each `Vec` will be equal to the `window_size` parameter at the
+    /// time the buffer was last updated.
+    ///
+    /// If the node is not currently active, then this will return `None`.
+    pub fn channels_with_generation<'b>(&'b mut self) -> Option<(&'b [Vec<f32>], u64)> {
+        self.guarded_state.as_mut().map(|s| {
+            let data = s.consumer.read();
+            (data.buffers.as_slice(), data.generation)
+        })
+    }
+
     /// Peek the audio data that is currently in the buffer without checking if
     /// there is new data.
     ///
@@ -211,9 +229,12 @@ impl AudioNode for TripleBufferNode {
         let sample_rate = cx.stream_info.sample_rate;
         let max_window_size_frames = config.max_window_size.as_frames(sample_rate) as usize;
 
-        let (producer, consumer) = triple_buffer::triple_buffer::<TripleBufferData>(
-            &TripleBufferData::new(config.channels.get().get() as usize, max_window_size_frames),
-        );
+        let (producer, consumer) =
+            triple_buffer::triple_buffer::<TripleBufferData>(&TripleBufferData::new(
+                config.channels.get().get() as usize,
+                max_window_size_frames,
+                0,
+            ));
 
         let state = cx.custom_state_mut::<TripleBufferState>().unwrap();
 
@@ -244,6 +265,10 @@ impl AudioNode for TripleBufferNode {
             tmp_ring_buffer,
             ring_buf_ptr: 0,
             active_state,
+            generation: 0,
+            prev_publish_was_silent: true,
+            num_silent_frames_in_tmp: window_size_frames,
+            tmp_buffer_needs_cleared: false,
         }
     }
 }
@@ -261,6 +286,11 @@ struct Processor {
 
     // The processor only uses this when a new stream has started.
     active_state: Arc<Mutex<Option<ActiveState>>>,
+    generation: u64,
+
+    prev_publish_was_silent: bool,
+    num_silent_frames_in_tmp: usize,
+    tmp_buffer_needs_cleared: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -290,12 +320,15 @@ impl AudioNodeProcessor for Processor {
         if !self.params.enabled {
             if was_enabled {
                 {
-                    let out_buffer = producer.input_buffer_mut();
+                    let buffer = producer.input_buffer_mut();
 
-                    for out_ch in out_buffer.buffers.iter_mut() {
-                        out_ch.clear();
-                        out_ch.resize(self.window_size_frames, 0.0);
+                    for buf_ch in buffer.buffers.iter_mut() {
+                        buf_ch.clear();
+                        buf_ch.resize(self.window_size_frames, 0.0);
                     }
+
+                    self.generation += 1;
+                    buffer.generation = self.generation;
                 }
 
                 producer.publish();
@@ -304,12 +337,17 @@ impl AudioNodeProcessor for Processor {
                     tmp_ch.clear();
                     tmp_ch.resize(self.window_size_frames, 0.0);
                 }
+
                 self.ring_buf_ptr = 0;
+                self.prev_publish_was_silent = true;
+                self.num_silent_frames_in_tmp = self.window_size_frames;
+                self.tmp_buffer_needs_cleared = false;
             }
 
             return ProcessStatus::ClearAllOutputs;
         }
 
+        let mut resized = false;
         if self.tmp_ring_buffer[0].len() != self.window_size_frames {
             let prev_window_size_frames = self.tmp_ring_buffer[0].len();
 
@@ -348,6 +386,27 @@ impl AudioNodeProcessor for Processor {
             }
 
             self.ring_buf_ptr = 0;
+            self.num_silent_frames_in_tmp = 0;
+            resized = true;
+        }
+
+        let input_is_silent = info
+            .in_silence_mask
+            .all_channels_silent(buffers.inputs.len());
+        if input_is_silent {
+            self.num_silent_frames_in_tmp =
+                (self.num_silent_frames_in_tmp + info.frames).min(self.window_size_frames);
+        } else {
+            self.num_silent_frames_in_tmp = 0;
+        }
+
+        if self.num_silent_frames_in_tmp == self.window_size_frames
+            && self.prev_publish_was_silent
+            && !resized
+        {
+            // The previous publish already contained silence, so no need to publish again.
+            self.tmp_buffer_needs_cleared = true;
+            return ProcessStatus::ClearAllOutputs;
         }
 
         if info.frames >= self.window_size_frames {
@@ -357,7 +416,18 @@ impl AudioNodeProcessor for Processor {
                     .copy_from_slice(&in_ch[info.frames - self.window_size_frames..info.frames]);
             }
             self.ring_buf_ptr = 0;
+            self.tmp_buffer_needs_cleared = false;
         } else {
+            if self.tmp_buffer_needs_cleared {
+                self.tmp_buffer_needs_cleared = false;
+
+                for tmp_ch in self.tmp_ring_buffer.iter_mut() {
+                    tmp_ch.clear();
+                    tmp_ch.resize(self.window_size_frames, 0.0);
+                }
+                self.ring_buf_ptr = 0;
+            }
+
             let first_copy_frames = info.frames.min(self.window_size_frames - self.ring_buf_ptr);
             let second_copy_frames = info.frames - first_copy_frames;
 
@@ -399,9 +469,14 @@ impl AudioNodeProcessor for Processor {
                     buf_ch.extend_from_slice(&tmp_ch[0..second_copy_frames]);
                 }
             }
+
+            self.generation += 1;
+            buffer.generation = self.generation;
         }
 
         producer.publish();
+
+        self.prev_publish_was_silent = self.num_silent_frames_in_tmp == self.window_size_frames;
 
         ProcessStatus::ClearAllOutputs
     }
@@ -430,11 +505,17 @@ impl AudioNodeProcessor for Processor {
             })
             .collect();
         self.ring_buf_ptr = 0;
+        self.num_silent_frames_in_tmp = self.window_size_frames;
+        self.tmp_buffer_needs_cleared = false;
+        self.prev_publish_was_silent = true;
+
+        self.generation += 1;
 
         let (producer, consumer) =
             triple_buffer::triple_buffer::<TripleBufferData>(&TripleBufferData::new(
                 self.config.channels.get().get() as usize,
                 self.max_window_size_frames,
+                self.generation,
             ));
 
         *self.active_state.lock().unwrap() = Some(ActiveState {
@@ -451,10 +532,11 @@ impl AudioNodeProcessor for Processor {
 struct TripleBufferData {
     buffers: Vec<Vec<f32>>,
     max_frames: usize,
+    generation: u64,
 }
 
 impl TripleBufferData {
-    fn new(num_channels: usize, max_frames: usize) -> Self {
+    fn new(num_channels: usize, max_frames: usize, generation: u64) -> Self {
         let mut buffers = Vec::new();
         buffers.reserve_exact(num_channels);
 
@@ -470,12 +552,13 @@ impl TripleBufferData {
         Self {
             buffers,
             max_frames,
+            generation,
         }
     }
 }
 
 impl Clone for TripleBufferData {
     fn clone(&self) -> Self {
-        Self::new(self.buffers.len(), self.max_frames)
+        Self::new(self.buffers.len(), self.max_frames, self.generation)
     }
 }
