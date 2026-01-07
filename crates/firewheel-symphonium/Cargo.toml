@@ -1,0 +1,31 @@
+[package]
+name = "firewheel-symphonium"
+version = "0.10.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+repository.workspace = true
+
+[features]
+resample = [
+    "dep:fixed-resample",
+    "symphonium/resampler",
+]
+# Enables the "arbitrary sinc" resampler in Symphonium for changing the
+# pitch/length of samples at load time.
+stretch = [
+    "resample",
+    "symphonium/stretch-sinc-resampler",
+]
+
+[dependencies]
+firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }
+symphonium = { version = "0.6.5", default-features = false }
+fixed-resample = { version = "0.9.2", default-features = false, features = [
+    "resampler",
+    "fft-resampler",
+], optional = true }
+bevy_platform.workspace = true

@@ -59,6 +59,3 @@ impl Default for StreamInfo {
         }
     }
 }
-
-#[cfg(feature = "symphonium")]
-pub use sample_resource::{load_audio_file, load_audio_file_from_source};

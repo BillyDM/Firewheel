@@ -76,19 +76,6 @@ scheduled_events = []
 # can still schedule musical events for your node even if you have this
 # feature disabled in your library.
 musical_transport = ["scheduled_events"]
-symphonium = ["std", "dep:symphonium"]
-symphonium_resample = [
-    "symphonium",
-    "dep:fixed-resample",
-    "symphonium?/resampler",
-]
-# Enables the "arbitrary sinc" resampler in Symphonium for changing the
-# pitch/length of samples at load time.
-symphonium_stretch = [
-    "symphonium",
-    "symphonium_resample",
-    "symphonium?/stretch-sinc-resampler",
-]
 # Enables `Component` derives for parameters.
 bevy = ["dep:bevy_ecs"]
 # Enables `Reflect` derives for core types.
@@ -107,11 +94,6 @@ firewheel-macros.workspace = true
 arrayvec.workspace = true
 bitflags.workspace = true
 thunderdome.workspace = true
-symphonium = { version = "0.6.5", default-features = false, optional = true }
-fixed-resample = { version = "0.9.2", default-features = false, features = [
-    "resampler",
-    "fft-resampler",
-], optional = true }
 smallvec.workspace = true
 bevy_platform.workspace = true
 thiserror.workspace = true
