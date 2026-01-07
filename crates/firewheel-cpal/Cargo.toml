@@ -27,7 +27,7 @@ log = ["dep:log"]
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }
 firewheel-graph = { path = "../firewheel-graph", version = "0.10.0", default-features = false }
-cpal = "0.16.0"
+cpal = "0.17.1"
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 ringbuf.workspace = true

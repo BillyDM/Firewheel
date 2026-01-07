@@ -7,7 +7,11 @@ use core::{
 use std::sync::mpsc;
 
 use bevy_platform::time::Instant;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceNameError, Host, HostId,
+    SupportedStreamConfig,
+};
 use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
     backend::{AudioBackend, BackendProcessInfo, DeviceInfo},
@@ -36,11 +40,11 @@ pub struct CpalOutputConfig {
     /// system's default audio host.
     pub host: Option<cpal::HostId>,
 
-    /// The name of the output device to use. Set to `None` to use the
+    /// The id of the output device to use. Set to `None` to use the
     /// system's default output device.
     ///
     /// By default this is set to `None`.
-    pub device_name: Option<String>,
+    pub device_id: Option<DeviceId>,
 
     /// The desired sample rate to use. Set to `None` to use the device's
     /// default sample rate.
@@ -70,7 +74,7 @@ impl Default for CpalOutputConfig {
     fn default() -> Self {
         Self {
             host: None,
-            device_name: None,
+            device_id: None,
             desired_sample_rate: None,
             desired_block_frames: Some(DEFAULT_MAX_BLOCK_FRAMES),
             fallback: true,
@@ -85,11 +89,11 @@ pub struct CpalInputConfig {
     /// system's default audio host.
     pub host: Option<cpal::HostId>,
 
-    /// The name of the input device to use. Set to `None` to use the
+    /// The id of the input device to use. Set to `None` to use the
     /// system's default input device.
     ///
     /// By default this is set to `None`.
-    pub device_name: Option<String>,
+    pub device_id: Option<DeviceId>,
 
     /// The latency/block size of the audio stream to use. Set to
     /// `None` to use the device's default value.
@@ -123,7 +127,7 @@ impl Default for CpalInputConfig {
     fn default() -> Self {
         Self {
             host: None,
-            device_name: None,
+            device_id: None,
             desired_block_frames: Some(DEFAULT_MAX_BLOCK_FRAMES),
             channel_config: ResamplingChannelConfig::default(),
             fallback: true,
@@ -155,6 +159,19 @@ impl Default for CpalConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraCpalDeviceInfo {
+    /// Extra metadata of an audio device.
+    ///
+    /// This type provides structured information about an audio device
+    /// beyond just its name. Availability depends on the host
+    /// implementation and platform capabilities.
+    pub description: Result<DeviceDescription, DeviceNameError>,
+
+    /// The default stream configuration for this device.
+    pub default_config: Result<SupportedStreamConfig, DefaultStreamConfigError>,
+}
+
 /// A CPAL backend for Firewheel
 pub struct CpalBackend {
     from_err_rx: mpsc::Receiver<cpal::StreamError>,
@@ -164,55 +181,49 @@ pub struct CpalBackend {
 }
 
 impl AudioBackend for CpalBackend {
+    type DeviceID = DeviceId;
+    type AudioAPI = HostId;
+    type ExtraInputDeviceInfo = ExtraCpalDeviceInfo;
+    type ExtraOutputDeviceInfo = ExtraCpalDeviceInfo;
     type Config = CpalConfig;
     type StartStreamError = StreamStartError;
     type StreamError = cpal::StreamError;
     type Instant = bevy_platform::time::Instant;
 
-    fn available_input_devices() -> Vec<DeviceInfo> {
+    fn available_input_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
         let mut devices = Vec::with_capacity(8);
 
-        // TODO: Iterate over all the available hosts?
-        let host = cpal::default_host();
-
-        let default_device_name = if let Some(default_device) = host.default_input_device() {
-            match default_device.name() {
-                Ok(n) => Some(n),
-                Err(e) => {
-                    warn!("Failed to get name of default audio input device: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
+        let Some(host) = host_opt(api) else {
+            return devices;
         };
+
+        let default_device = host.default_input_device();
+        let default_device_id = default_device.and_then(|d| match d.id() {
+            Ok(id) => Some(id),
+            Err(e) => {
+                warn!("Failed to get ID of default audio input device: {}", e);
+                None
+            }
+        });
 
         match host.input_devices() {
             Ok(input_devices) => {
                 for device in input_devices {
-                    let Ok(name) = device.name() else {
+                    let Ok(id) = device.id() else {
                         continue;
                     };
 
-                    let is_default = if let Some(default_device_name) = &default_device_name {
-                        &name == default_device_name
+                    let is_default = if let Some(default_device_id) = &default_device_id {
+                        &id == default_device_id
                     } else {
                         false
                     };
 
-                    let default_in_config = match device.default_input_config() {
-                        Ok(c) => c,
-                        Err(e) => {
-                            if is_default {
-                                warn!("Failed to get default config for the default audio input device: {}", e);
-                            }
-                            continue;
-                        }
-                    };
+                    let name = device.description().map(|d| d.name().to_string()).ok();
 
                     devices.push(DeviceInfo {
+                        id,
                         name,
-                        num_channels: default_in_config.channels(),
                         is_default,
                     })
                 }
@@ -225,50 +236,40 @@ impl AudioBackend for CpalBackend {
         devices
     }
 
-    fn available_output_devices() -> Vec<DeviceInfo> {
+    fn available_output_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
         let mut devices = Vec::with_capacity(8);
 
-        // TODO: Iterate over all the available hosts?
-        let host = cpal::default_host();
-
-        let default_device_name = if let Some(default_device) = host.default_output_device() {
-            match default_device.name() {
-                Ok(n) => Some(n),
-                Err(e) => {
-                    warn!("Failed to get name of default audio output device: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
+        let Some(host) = host_opt(api) else {
+            return devices;
         };
 
-        match host.output_devices() {
-            Ok(output_devices) => {
-                for device in output_devices {
-                    let Ok(name) = device.name() else {
+        let default_device = host.default_output_device();
+        let default_device_id = default_device.and_then(|d| match d.id() {
+            Ok(id) => Some(id),
+            Err(e) => {
+                warn!("Failed to get ID of default audio output device: {}", e);
+                None
+            }
+        });
+
+        match host.input_devices() {
+            Ok(input_devices) => {
+                for device in input_devices {
+                    let Ok(id) = device.id() else {
                         continue;
                     };
 
-                    let is_default = if let Some(default_device_name) = &default_device_name {
-                        &name == default_device_name
+                    let is_default = if let Some(default_device_id) = &default_device_id {
+                        &id == default_device_id
                     } else {
                         false
                     };
 
-                    let default_out_config = match device.default_output_config() {
-                        Ok(c) => c,
-                        Err(e) => {
-                            if is_default {
-                                warn!("Failed to get default config for the default audio output device: {}", e);
-                            }
-                            continue;
-                        }
-                    };
+                    let name = device.description().map(|d| d.name().to_string()).ok();
 
                     devices.push(DeviceInfo {
+                        id,
                         name,
-                        num_channels: default_out_config.channels(),
                         is_default,
                     })
                 }
@@ -279,6 +280,34 @@ impl AudioBackend for CpalBackend {
         }
 
         devices
+    }
+
+    fn extra_input_device_info(
+        device_id: &Self::DeviceID,
+        api: Option<Self::AudioAPI>,
+    ) -> Option<Self::ExtraInputDeviceInfo> {
+        let Some(host) = host_opt(api) else {
+            return None;
+        };
+
+        host.device_by_id(device_id).map(|d| ExtraCpalDeviceInfo {
+            description: d.description(),
+            default_config: d.default_input_config(),
+        })
+    }
+
+    fn extra_output_device_info(
+        device_id: &Self::DeviceID,
+        api: Option<Self::AudioAPI>,
+    ) -> Option<Self::ExtraOutputDeviceInfo> {
+        let Some(host) = host_opt(api) else {
+            return None;
+        };
+
+        host.device_by_id(device_id).map(|d| ExtraCpalDeviceInfo {
+            description: d.description(),
+            default_config: d.default_output_config(),
+        })
     }
 
     fn start_stream(config: Self::Config) -> Result<(Self, StreamInfo), Self::StartStreamError> {
@@ -297,30 +326,15 @@ impl AudioBackend for CpalBackend {
         };
 
         let mut out_device = None;
-        if let Some(device_name) = &config.output.device_name {
-            match host.output_devices() {
-                Ok(mut output_devices) => {
-                    if let Some(d) = output_devices.find(|d| {
-                        if let Ok(name) = d.name() {
-                            &name == device_name
-                        } else {
-                            false
-                        }
-                    }) {
-                        out_device = Some(d);
-                    } else if config.output.fallback {
-                        warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_name);
-                    } else {
-                        return Err(StreamStartError::OutputDeviceNotFound(device_name.clone()));
-                    }
+        if let Some(device_id) = &config.output.device_id {
+            if let Some(device) = host.device_by_id(device_id) {
+                if device.supports_output() {
+                    out_device = Some(device);
                 }
-                Err(e) => {
-                    if config.output.fallback {
-                        error!("Failed to get output audio devices: {}. Falling back to default device...", e);
-                    } else {
-                        return Err(e.into());
-                    }
-                }
+            }
+
+            if out_device.is_none() {
+                warn!("Could not find requested audio output device: {}. Falling back to default device...", &device_id);
             }
         }
 
@@ -332,14 +346,14 @@ impl AudioBackend for CpalBackend {
         }
         let out_device = out_device.unwrap();
 
-        let out_device_name = out_device.name().unwrap_or_else(|e| {
-            warn!("Failed to get name of output audio device: {}", e);
-            String::from("unknown device")
+        let output_device_id = out_device.id().map(|d| d.to_string()).unwrap_or_else(|e| {
+            warn!("Failed to get id of output audio device: {}", e);
+            String::from("unknown")
         });
 
         let default_config = out_device.default_output_config()?;
 
-        let default_sample_rate = default_config.sample_rate().0;
+        let default_sample_rate = default_config.sample_rate();
         // Try to use the common sample rates by default.
         let try_common_sample_rates = default_sample_rate != 44100 && default_sample_rate != 48000;
 
@@ -368,10 +382,7 @@ impl AudioBackend for CpalBackend {
             for cpal_config in out_device.supported_output_configs()? {
                 if let Some(sr) = config.output.desired_sample_rate {
                     if !supports_desired_sample_rate {
-                        if cpal_config
-                            .try_with_sample_rate(cpal::SampleRate(sr))
-                            .is_some()
-                        {
+                        if cpal_config.try_with_sample_rate(sr).is_some() {
                             supports_desired_sample_rate = true;
                             break;
                         }
@@ -380,18 +391,12 @@ impl AudioBackend for CpalBackend {
 
                 if try_common_sample_rates {
                     if !supports_44100 {
-                        if cpal_config
-                            .try_with_sample_rate(cpal::SampleRate(44100))
-                            .is_some()
-                        {
+                        if cpal_config.try_with_sample_rate(44100).is_some() {
                             supports_44100 = true;
                         }
                     }
                     if !supports_48000 {
-                        if cpal_config
-                            .try_with_sample_rate(cpal::SampleRate(48000))
-                            .is_some()
-                        {
+                        if cpal_config.try_with_sample_rate(48000).is_some() {
                             supports_48000 = true;
                         }
                     }
@@ -424,7 +429,7 @@ impl AudioBackend for CpalBackend {
 
         let out_stream_config = cpal::StreamConfig {
             channels: num_out_channels as u16,
-            sample_rate: cpal::SampleRate(sample_rate),
+            sample_rate,
             buffer_size: desired_buffer_size,
         };
 
@@ -448,13 +453,13 @@ impl AudioBackend for CpalBackend {
             input_stream_handle,
             input_stream_cons,
             num_stream_in_channels,
-            input_device_name,
+            input_device_id,
             input_to_output_latency_seconds,
         ) = if let StartInputStreamResult::Started {
             stream_handle,
             cons,
             num_stream_in_channels,
-            input_device_name,
+            input_device_id,
         } = input_stream
         {
             let input_to_output_latency_seconds = cons.latency_seconds();
@@ -463,7 +468,7 @@ impl AudioBackend for CpalBackend {
                 Some(stream_handle),
                 Some(cons),
                 num_stream_in_channels,
-                Some(input_device_name),
+                Some(input_device_id),
                 input_to_output_latency_seconds,
             )
         } else {
@@ -476,13 +481,13 @@ impl AudioBackend for CpalBackend {
         let mut data_callback = DataCallback::new(
             num_out_channels,
             from_cx_rx,
-            out_stream_config.sample_rate.0,
+            out_stream_config.sample_rate,
             input_stream_cons,
         );
 
         info!(
             "Starting output audio stream with device \"{}\" with configuration {:?}",
-            &out_device_name, &out_stream_config
+            &output_device_id, &out_stream_config
         );
 
         let out_stream_handle = out_device.build_output_stream(
@@ -499,13 +504,13 @@ impl AudioBackend for CpalBackend {
         out_stream_handle.play()?;
 
         let stream_info = StreamInfo {
-            sample_rate: NonZeroU32::new(out_stream_config.sample_rate.0).unwrap(),
+            sample_rate: NonZeroU32::new(out_stream_config.sample_rate).unwrap(),
             max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
             num_stream_in_channels,
             num_stream_out_channels: num_out_channels as u32,
             input_to_output_latency_seconds,
-            output_device_name: Some(out_device_name),
-            input_device_name,
+            output_device_id,
+            input_device_id,
             // The engine will overwrite the other values.
             ..Default::default()
         };
@@ -561,41 +566,19 @@ fn start_input_stream(
     };
 
     let mut in_device = None;
-    if let Some(device_name) = &config.device_name {
-        match host.input_devices() {
-            Ok(mut input_devices) => {
-                if let Some(d) = input_devices.find(|d| {
-                    if let Ok(name) = d.name() {
-                        &name == device_name
-                    } else {
-                        false
-                    }
-                }) {
-                    in_device = Some(d);
-                } else if config.fallback {
-                    warn!("Could not find requested audio input device: {}. Falling back to default device...", &device_name);
-                } else if config.fail_on_no_input {
-                    return Err(StreamStartError::InputDeviceNotFound(device_name.clone()));
-                } else {
-                    warn!("Could not find requested audio input device: {}. No input stream will be started.", &device_name);
-                    return Ok(StartInputStreamResult::NotStarted);
-                }
+    if let Some(device_id) = &config.device_id {
+        if let Some(device) = host.device_by_id(device_id) {
+            if device.supports_input() {
+                in_device = Some(device);
             }
-            Err(e) => {
-                if config.fallback {
-                    warn!(
-                        "Failed to get output audio devices: {}. Falling back to default device...",
-                        e
-                    );
-                } else if config.fail_on_no_input {
-                    return Err(e.into());
-                } else {
-                    warn!(
-                        "Failed to get output audio devices: {}. No input stream will be started.",
-                        e
-                    );
-                    return Ok(StartInputStreamResult::NotStarted);
-                }
+        }
+
+        if in_device.is_none() {
+            if config.fallback {
+                warn!("Could not find requested audio input device: {}. Falling back to default device...", &device_id);
+            } else {
+                warn!("Could not find requested audio input device: {}. No input stream will be started.", &device_id);
+                return Ok(StartInputStreamResult::NotStarted);
             }
         }
     }
@@ -612,9 +595,9 @@ fn start_input_stream(
     }
     let in_device = in_device.unwrap();
 
-    let in_device_name = in_device.name().unwrap_or_else(|e| {
-        warn!("Failed to get name of input audio device: {}", e);
-        String::from("unknown device")
+    let in_device_id = in_device.id().map(|id| id.to_string()).unwrap_or_else(|e| {
+        warn!("Failed to get ID of input audio device: {}", e);
+        String::from("unknown")
     });
 
     let default_config = in_device.default_input_config()?;
@@ -638,20 +621,19 @@ fn start_input_stream(
     let mut min_sample_rate = u32::MAX;
     let mut max_sample_rate = 0;
     for config in supported_configs.into_iter() {
-        min_sample_rate = min_sample_rate.min(config.min_sample_rate().0);
-        max_sample_rate = max_sample_rate.max(config.max_sample_rate().0);
+        min_sample_rate = min_sample_rate.min(config.min_sample_rate());
+        max_sample_rate = max_sample_rate.max(config.max_sample_rate());
     }
-    let sample_rate =
-        cpal::SampleRate(output_sample_rate.0.clamp(min_sample_rate, max_sample_rate));
+    let sample_rate = output_sample_rate.clamp(min_sample_rate, max_sample_rate);
 
     #[cfg(not(feature = "resample_inputs"))]
     if sample_rate != output_sample_rate {
         if config.fail_on_no_input {
             return Err(StreamStartError::CouldNotMatchSampleRate(
-                output_sample_rate.0,
+                output_sample_rate,
             ));
         } else {
-            warn!("Could not use output sample rate {} for the input sample rate. Input stream will not be started", output_sample_rate.0);
+            warn!("Could not use output sample rate {} for the input sample rate. Input stream will not be started", output_sample_rate);
             return Ok(StartInputStreamResult::NotStarted);
         }
     }
@@ -673,14 +655,14 @@ fn start_input_stream(
 
     let (mut prod, cons) = fixed_resample::resampling_channel::<f32, MAX_INPUT_CHANNELS>(
         NonZeroUsize::new(num_in_channels).unwrap(),
-        sample_rate.0,
-        output_sample_rate.0,
+        sample_rate,
+        output_sample_rate,
         config.channel_config,
     );
 
     info!(
         "Starting input audio stream with device \"{}\" with configuration {:?}",
-        &in_device_name, &stream_config
+        &in_device_id, &stream_config
     );
 
     let stream_handle = match in_device.build_input_stream(
@@ -723,7 +705,7 @@ fn start_input_stream(
         stream_handle,
         cons,
         num_stream_in_channels: num_in_channels as u32,
-        input_device_name: in_device_name,
+        input_device_id: in_device_id,
     })
 }
 
@@ -733,7 +715,7 @@ enum StartInputStreamResult {
         stream_handle: cpal::Stream,
         cons: fixed_resample::ResamplingCons<f32>,
         num_stream_in_channels: u32,
-        input_device_name: String,
+        input_device_id: String,
     },
 }
 
@@ -962,4 +944,18 @@ pub enum StreamStartError {
     #[cfg(not(feature = "resample_inputs"))]
     #[error("Not able to use a samplerate of {0} for the input audio device")]
     CouldNotMatchSampleRate(u32),
+}
+
+fn host_opt(api: Option<HostId>) -> Option<Host> {
+    if let Some(api) = api {
+        match cpal::host_from_id(api) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!("Failed to get audio host for api: {}, {}", api, e);
+                None
+            }
+        }
+    } else {
+        Some(cpal::default_host())
+    }
 }
