@@ -680,6 +680,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
                 #[cfg(all(feature = "log", not(feature = "tracing")))]
                 log::error!("{}", msg);
+
+                let _ = msg;
             },
             #[cfg(debug_assertions)]
             |msg| {
@@ -688,6 +690,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
                 #[cfg(all(feature = "log", not(feature = "tracing")))]
                 log::debug!("{}", msg);
+
+                let _ = msg;
             },
         );
 
