@@ -25,10 +25,11 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
+use crate::backend::DeviceInfo;
 use crate::error::RemoveNodeError;
 use crate::processor::BufferOutOfSpaceMode;
 use crate::{
-    backend::{AudioBackend, DeviceInfo},
+    backend::AudioBackend,
     error::{AddEdgeError, StartStreamError, UpdateError},
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
     processor::{
@@ -301,13 +302,39 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get a list of the available audio input devices.
-    pub fn available_input_devices(&self) -> Vec<DeviceInfo> {
-        B::available_input_devices()
+    pub fn available_input_devices(
+        &self,
+        api: Option<B::AudioAPI>,
+    ) -> Vec<DeviceInfo<B::DeviceID>> {
+        B::available_input_devices(api)
     }
 
     /// Get a list of the available audio output devices.
-    pub fn available_output_devices(&self) -> Vec<DeviceInfo> {
-        B::available_output_devices()
+    pub fn available_output_devices(
+        &self,
+        api: Option<B::AudioAPI>,
+    ) -> Vec<DeviceInfo<B::DeviceID>> {
+        B::available_output_devices(api)
+    }
+
+    /// Return extra information about the given input device.
+    ///
+    /// Returns `None` if a device with the given ID was not found.
+    pub fn extra_input_device_info(
+        device_id: &B::DeviceID,
+        api: Option<B::AudioAPI>,
+    ) -> Option<B::ExtraInputDeviceInfo> {
+        B::extra_input_device_info(device_id, api)
+    }
+
+    /// Return extra information about the given output device.
+    ///
+    /// Returns `None` if a device with the given ID was not found.
+    pub fn extra_output_device_info(
+        device_id: &B::DeviceID,
+        api: Option<B::AudioAPI>,
+    ) -> Option<B::ExtraOutputDeviceInfo> {
+        B::extra_output_device_info(device_id, api)
     }
 
     /// Returns `true` if an audio stream can be started right now.
@@ -653,6 +680,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
                 #[cfg(all(feature = "log", not(feature = "tracing")))]
                 log::error!("{}", msg);
+
+                let _ = msg;
             },
             #[cfg(debug_assertions)]
             |msg| {
@@ -661,6 +690,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
                 #[cfg(all(feature = "log", not(feature = "tracing")))]
                 log::debug!("{}", msg);
+
+                let _ = msg;
             },
         );
 

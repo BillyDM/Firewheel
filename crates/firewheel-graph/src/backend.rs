@@ -17,23 +17,70 @@ use crate::processor::FirewheelProcessor;
 /// thread (the thread where the [`crate::context::FirewheelCtx`]
 /// lives).
 pub trait AudioBackend: Sized {
+    /// A unique identifier for an audio device that is persistable
+    /// across reboots.
+    type DeviceID;
+    /// An enum of the available audio APIs on the system.
+    type AudioAPI;
+    /// Extra information for an input audio device.
+    type ExtraInputDeviceInfo;
+    /// Extra information for an output audio device.
+    type ExtraOutputDeviceInfo;
     /// The configuration of the audio stream.
     type Config;
     /// An error when starting a new audio stream.
     type StartStreamError: Error;
     /// An error that has caused the audio stream to stop.
     type StreamError: Error;
-
     /// A type describing an instant in time.
     type Instant: Send + Clone;
 
     /// Return a list of the available input devices.
-    fn available_input_devices() -> Vec<DeviceInfo> {
+    ///
+    /// * `api` - The system audio API to scan. Set to `None` to use the
+    /// default API for the system.
+    fn available_input_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
+        let _ = api;
         Vec::new()
     }
     /// Return a list of the available output devices.
-    fn available_output_devices() -> Vec<DeviceInfo> {
+    ///
+    /// * `api` - The system audio API to scan. Set to `None` to use the
+    /// default API for the system.
+    fn available_output_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
+        let _ = api;
         Vec::new()
+    }
+
+    /// Return extra information about the given input device.
+    ///
+    /// * `device_id` - The unique identifier of the input audio device.
+    /// * `api` - The system audio API this device belongs to. Set to `None`
+    /// if using the default API for the system.
+    ///
+    /// Returns `None` if a device with the given ID was not found.
+    fn extra_input_device_info(
+        device_id: &Self::DeviceID,
+        api: Option<Self::AudioAPI>,
+    ) -> Option<Self::ExtraInputDeviceInfo> {
+        let _ = device_id;
+        let _ = api;
+        None
+    }
+    /// Return extra information about the given output device.
+    ///
+    /// * `device_id` - The unique identifier of the input audio device.
+    /// * `api` - The system audio API this device belongs to. Set to `None`
+    /// if using the default API for the system.
+    ///
+    /// Returns `None` if a device with the given ID was not found.
+    fn extra_output_device_info(
+        device_id: &Self::DeviceID,
+        api: Option<Self::AudioAPI>,
+    ) -> Option<Self::ExtraOutputDeviceInfo> {
+        let _ = device_id;
+        let _ = api;
+        None
     }
 
     /// Start the audio stream with the given configuration, and return
@@ -60,9 +107,9 @@ pub trait AudioBackend: Sized {
 
 /// Information about an audio device.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeviceInfo {
-    pub name: String,
-    pub num_channels: u16,
+pub struct DeviceInfo<DeviceID> {
+    pub id: DeviceID,
+    pub name: Option<String>,
     pub is_default: bool,
 }
 

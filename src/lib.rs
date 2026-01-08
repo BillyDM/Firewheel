@@ -12,3 +12,6 @@ pub type FirewheelContext = FirewheelCtx<CpalBackend>;
 
 #[cfg(feature = "pool")]
 pub use firewheel_pool as pool;
+
+#[cfg(feature = "symphonium")]
+pub use firewheel_symphonium::*;

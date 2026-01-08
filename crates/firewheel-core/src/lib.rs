@@ -37,10 +37,10 @@ pub struct StreamInfo {
     /// The latency of the input to output stream in seconds.
     pub input_to_output_latency_seconds: f64,
     pub declick_frames: NonZeroU32,
-    /// The name of the input audio device.
-    pub input_device_name: Option<String>,
-    /// The name of the output audio device.
-    pub output_device_name: Option<String>,
+    /// The identifier of the output audio device (converted to a string).
+    pub output_device_id: String,
+    /// The identifier of the input audio device (converted to a string).
+    pub input_device_id: Option<String>,
 }
 
 impl Default for StreamInfo {
@@ -54,11 +54,8 @@ impl Default for StreamInfo {
             num_stream_out_channels: 2,
             input_to_output_latency_seconds: 0.0,
             declick_frames: NonZeroU32::MIN,
-            input_device_name: None,
-            output_device_name: None,
+            output_device_id: String::new(),
+            input_device_id: None,
         }
     }
 }
-
-#[cfg(feature = "symphonium")]
-pub use sample_resource::{load_audio_file, load_audio_file_from_source};
