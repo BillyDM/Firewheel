@@ -1,6 +1,7 @@
 use firewheel::{
     channel_config::{ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
+    cpal::CpalBackend,
     error::{AddEdgeError, UpdateError},
     event::NodeEventType,
     node::NodeID,
@@ -20,7 +21,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     sample_resource::SampleResource,
-    ContextQueue, CpalBackend, FirewheelContext,
+    ContextQueue, FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
 

@@ -1,10 +1,12 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use firewheel::{
-    channel_config::ChannelCount, cpal::CpalConfig, error::UpdateError, FirewheelConfig,
-    FirewheelContext,
+    dsp::volume::Volume, error::UpdateError, nodes::beep_test::BeepTestNode, FirewheelContext,
 };
 
+const BEEP_FREQUENCY_HZ: f32 = 440.0;
+const BEEP_VOLUME: Volume = Volume::Linear(0.45);
+const BEEP_DURATION: Duration = Duration::from_secs(4);
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
 fn main() {
@@ -15,30 +17,25 @@ fn main() {
     )
     .unwrap();
 
-    let mut cx = FirewheelContext::new(FirewheelConfig {
-        num_graph_inputs: ChannelCount::new(1).unwrap(),
-        ..Default::default()
-    });
-    cx.start_stream(CpalConfig {
-        output: Default::default(),
-        input: Some(Default::default()),
-    })
-    .unwrap();
+    println!("Firewheel RtAudio beep test...");
 
-    dbg!(cx.stream_info());
+    let mut cx = FirewheelContext::new(Default::default());
+    cx.start_stream(Default::default()).unwrap();
 
-    let graph_in_node_id = cx.graph_in_node_id();
-    let graph_out_node_id = cx.graph_out_node_id();
+    let beep_test_node = BeepTestNode {
+        freq_hz: BEEP_FREQUENCY_HZ,
+        volume: BEEP_VOLUME,
+        enabled: true,
+    };
 
-    cx.connect(
-        graph_in_node_id,
-        graph_out_node_id,
-        &[(0, 0), (0, 1)],
-        false,
-    )
-    .unwrap();
+    let beep_test_id = cx.add_node(beep_test_node, None);
+    let graph_out_id = cx.graph_out_node_id();
 
-    loop {
+    cx.connect(beep_test_id, graph_out_id, &[(0, 0), (0, 1)], false)
+        .unwrap();
+
+    let start = Instant::now();
+    while start.elapsed() < BEEP_DURATION {
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
 
@@ -57,4 +54,6 @@ fn main() {
 
         std::thread::sleep(UPDATE_INTERVAL);
     }
+
+    println!("finished");
 }

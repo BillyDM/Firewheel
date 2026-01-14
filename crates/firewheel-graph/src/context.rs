@@ -25,7 +25,6 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::backend::DeviceInfo;
 use crate::error::RemoveNodeError;
 use crate::processor::BufferOutOfSpaceMode;
 use crate::{
@@ -301,40 +300,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             .map(|state| &mut state.backend_handle)
     }
 
-    /// Get a list of the available audio input devices.
-    pub fn available_input_devices(
-        &self,
-        api: Option<B::AudioAPI>,
-    ) -> Vec<DeviceInfo<B::DeviceID>> {
-        B::available_input_devices(api)
-    }
-
-    /// Get a list of the available audio output devices.
-    pub fn available_output_devices(
-        &self,
-        api: Option<B::AudioAPI>,
-    ) -> Vec<DeviceInfo<B::DeviceID>> {
-        B::available_output_devices(api)
-    }
-
-    /// Return extra information about the given input device.
-    ///
-    /// Returns `None` if a device with the given ID was not found.
-    pub fn extra_input_device_info(
-        device_id: &B::DeviceID,
-        api: Option<B::AudioAPI>,
-    ) -> Option<B::ExtraInputDeviceInfo> {
-        B::extra_input_device_info(device_id, api)
-    }
-
-    /// Return extra information about the given output device.
-    ///
-    /// Returns `None` if a device with the given ID was not found.
-    pub fn extra_output_device_info(
-        device_id: &B::DeviceID,
-        api: Option<B::AudioAPI>,
-    ) -> Option<B::ExtraOutputDeviceInfo> {
-        B::extra_output_device_info(device_id, api)
+    /// Get a struct used to retrieve the list of available audio devices
+    /// on the system and their available ocnfigurations.
+    pub fn device_enumerator(&self) -> B::Enumerator {
+        B::enumerator()
     }
 
     /// Returns `true` if an audio stream can be started right now.
