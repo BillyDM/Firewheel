@@ -255,7 +255,7 @@ impl HostEnumerator {
             }
         });
 
-        match host.output_devices() {
+        match self.host.output_devices() {
             Ok(output_devices) => {
                 for device in output_devices {
                     let Ok(id) = device.id() else {
