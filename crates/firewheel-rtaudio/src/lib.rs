@@ -2,11 +2,11 @@ use bevy_platform::sync::{Mutex, OnceLock};
 use core::{num::NonZeroU32, time::Duration};
 use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
-    backend::{AudioBackend, BackendProcessInfo},
+    backend::{AudioBackend, BackendProcessInfo, DeviceInfoSimple, SimpleStreamConfig},
     processor::FirewheelProcessor,
 };
 use ringbuf::traits::{Consumer, Producer, Split};
-use rtaudio::{Api, DeviceInfo, RtAudioError, StreamConfig};
+use rtaudio::{Api, DeviceID, DeviceInfo, DeviceParams, RtAudioError, SampleFormat, StreamConfig};
 use std::sync::mpsc;
 
 pub use rtaudio;
@@ -129,6 +129,93 @@ impl AudioBackend for RtAudioBackend {
 
     fn enumerator() -> Self::Enumerator {
         RtAudioEnumerator {}
+    }
+
+    fn input_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
+        let enumerator = RtAudioEnumerator {};
+        let api_enumerator = enumerator.default_api();
+
+        let mut default_device_index = None;
+
+        let mut devices: Vec<DeviceInfoSimple> = api_enumerator
+            .iter_input_devices()
+            .enumerate()
+            .map(|(i, info)| {
+                if info.is_default_input {
+                    default_device_index = Some(i);
+                }
+
+                DeviceInfoSimple {
+                    name: info.name().to_string(),
+                    id: info.id.as_serialized_string(),
+                }
+            })
+            .collect();
+
+        // Make sure the default device is the first in the list.
+        if let Some(i) = default_device_index {
+            devices.swap(0, i);
+        }
+
+        devices
+    }
+
+    fn output_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
+        let enumerator = RtAudioEnumerator {};
+        let api_enumerator = enumerator.default_api();
+
+        let mut default_device_index = None;
+
+        let mut devices: Vec<DeviceInfoSimple> = api_enumerator
+            .iter_output_devices()
+            .enumerate()
+            .map(|(i, info)| {
+                if info.is_default_input {
+                    default_device_index = Some(i);
+                }
+
+                DeviceInfoSimple {
+                    name: info.name().to_string(),
+                    id: info.id.as_serialized_string(),
+                }
+            })
+            .collect();
+
+        // Make sure the default device is the first in the list.
+        if let Some(i) = default_device_index {
+            devices.swap(0, i);
+        }
+
+        devices
+    }
+
+    fn convert_simple_config(&mut self, config: &SimpleStreamConfig) -> Self::Config {
+        RtAudioConfig {
+            config: StreamConfig {
+                output_device: Some(DeviceParams {
+                    device_id: config
+                        .output
+                        .device
+                        .as_ref()
+                        .map(|s| DeviceID::from_serialized_string(s)),
+                    num_channels: config.output.channels.map(|c| c as u32),
+                    ..Default::default()
+                }),
+                input_device: config.input.as_ref().map(|input_config| DeviceParams {
+                    device_id: input_config
+                        .device
+                        .as_ref()
+                        .map(|s| DeviceID::from_serialized_string(s)),
+                    num_channels: input_config.channels.map(|c| c as u32),
+                    ..Default::default()
+                }),
+                sample_format: SampleFormat::Float32,
+                sample_rate: config.desired_sample_rate,
+                buffer_frames: config.desired_block_frames.unwrap_or(1024),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
     }
 
     fn start_stream(
