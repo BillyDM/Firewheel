@@ -1,3 +1,4 @@
+use bevy_platform::prelude::{String, Vec};
 use core::error::Error;
 use core::time::Duration;
 

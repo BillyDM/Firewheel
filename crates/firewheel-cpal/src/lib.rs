@@ -910,7 +910,7 @@ impl DataCallback {
         // Add a little bit of wiggle room to account for tiny clock
         // innacuracies and rounding errors.
         self.predicted_delta_time =
-            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2);
+            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.5);
 
         let duration_since_stream_start =
             process_timestamp.duration_since(self.stream_start_instant);
