@@ -24,7 +24,14 @@ exclude = ["assets/"]
 repository = "https://github.com/BillyDM/firewheel"
 
 [features]
-default = ["std", "cpal", "symphonium", "symphonium_resample", "sampler_node", "tracing"]
+default = [
+    "std",
+    "cpal",
+    "symphonium",
+    "symphonium_resample",
+    "sampler_node",
+    "tracing",
+]
 std = [
     "firewheel-core/std",
     "firewheel-graph/std",
@@ -34,9 +41,14 @@ std = [
 # Enable this if "std" is disabled.
 libm = ["firewheel-core/libm", "firewheel-nodes/libm"]
 # Use the `tracing` crate for logging. Currently requires `std`.
-tracing = ["firewheel-graph/tracing", "firewheel-cpal?/tracing", "std"]
+tracing = [
+    "firewheel-graph/tracing",
+    "firewheel-cpal?/tracing",
+    "firewheel-rtaudio?/tracing",
+    "std",
+]
 # Use the `log` crate for logging
-log = ["firewheel-graph/log", "firewheel-cpal?/log"]
+log = ["firewheel-graph/log", "firewheel-cpal?/log", "firewheel-rtaudio?/log"]
 # Enables scheduling events for nodes
 scheduled_events = [
     "firewheel-core/scheduled_events",
@@ -54,6 +66,12 @@ musical_transport = [
 cpal = ["std", "dep:firewheel-cpal"]
 # Enables resampling input streams in the cpal backend
 cpal_resample_inputs = ["firewheel-cpal?/resample_inputs"]
+# Enables the alternative RtAudio backend
+# This backend has better support for "full duplex" audio devices than
+# the default CPAL backend, which allows for less latency between input
+# and output streams. The drawback is that this backend only supports
+# Windows, MacOS, and Linux desktop platforms.
+rtaudio = ["std", "firewheel-rtaudio"]
 # Enables using Symphonium for loading audio files.
 # Requires the standard library.
 symphonium = ["dep:firewheel-symphonium"]
@@ -155,11 +173,13 @@ members = [
     "crates/firewheel-nodes",
     "crates/firewheel-macros",
     "crates/firewheel-pool",
+    "crates/firewheel-rtaudio",
     "crates/firewheel-symphonium",
     "examples/beep_test",
     "examples/cpal_input",
     "examples/custom_nodes",
     "examples/play_sample",
+    "examples/rtaudio_beep_test",
     "examples/sampler_pool",
     "examples/sampler_test",
     "examples/spatial_basic",
@@ -197,8 +217,8 @@ eframe = { version = "0.33.3", default-features = false, features = [
     "default_fonts",
     "wayland",
     "x11",
-    "glow"
-]}
+    "glow",
+] }
 
 [dependencies]
 firewheel-core = { path = "crates/firewheel-core", version = "0.10.0", default-features = false }
@@ -207,6 +227,7 @@ firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.10.0", default-f
 firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.10.0", default-features = false }
 firewheel-pool = { path = "crates/firewheel-pool", version = "0.10.0", default-features = false, optional = true }
 firewheel-symphonium = { path = "crates/firewheel-symphonium", version = "0.10.0", default-features = false, optional = true }
+firewheel-rtaudio = { path = "crates/firewheel-rtaudio", version = "0.10.0", default-features = false, optional = true }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thiserror.workspace = true

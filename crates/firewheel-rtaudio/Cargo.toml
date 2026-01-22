@@ -1,0 +1,35 @@
+[package]
+name = "firewheel-rtaudio"
+version = "0.10.0"
+description = "RtAudio backend for Firewheel"
+homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-rtaudio"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+repository.workspace = true
+
+# Show documentation with all features enabled on docs.rs
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["tracing"]
+# Use the `tracing` crate for logging
+tracing = ["dep:tracing", "rtaudio/tracing"]
+# Use the `log` crate for logging
+log = ["dep:log", "rtaudio/log"]
+# Enables serde derives for types
+serde = ["dep:serde", "rtaudio/serde"]
+
+[dependencies]
+firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }
+firewheel-graph = { path = "../firewheel-graph", version = "0.10.0", default-features = false }
+ringbuf.workspace = true
+tracing = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+bevy_platform = { workspace = true, features = ["std"] }
+rtaudio = { version = "0.8.0", default-features = false }
+serde = { workspace = true, optional = true }

@@ -1,0 +1,22 @@
+[package]
+name = "rtaudio_beep_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# To use rtaudio, disable the default features and enable the "rtaudio" feature.
+firewheel = { path = "../../", default-features = false, features = [
+    "rtaudio",
+    "beep_test_node",
+    "std",
+    "symphonium",
+    "symphonium_resample",
+    "sampler_node",
+    "tracing",
+] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# You must also include rtaudio as a dependency, or else you will get a
+# "NoDevicesFound" error.
+rtaudio = "0.7.1"

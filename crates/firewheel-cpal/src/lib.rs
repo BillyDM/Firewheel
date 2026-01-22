@@ -1,20 +1,22 @@
 use core::{
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
+    str::FromStr,
     time::Duration,
     u32,
 };
 use std::sync::mpsc;
 
+pub use cpal;
+
 use bevy_platform::time::Instant;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    DefaultStreamConfigError, DeviceDescription, DeviceId, DeviceNameError, Host, HostId,
-    SupportedStreamConfig,
+    DeviceId, HostId, HostUnavailable,
 };
 use firewheel_core::{node::StreamStatus, StreamInfo};
 use firewheel_graph::{
-    backend::{AudioBackend, BackendProcessInfo, DeviceInfo},
+    backend::{AudioBackend, BackendProcessInfo, DeviceInfoSimple, SimpleStreamConfig},
     processor::FirewheelProcessor,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
@@ -159,45 +161,50 @@ impl Default for CpalConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExtraCpalDeviceInfo {
-    /// Extra metadata of an audio device.
+/// A struct used to retrieve the list of available audio devices
+/// on the system and their available ocnfigurations.
+pub struct CpalEnumerator;
+
+impl CpalEnumerator {
+    /// The system audio hosts (APIs) that are available on this system.
     ///
-    /// This type provides structured information about an audio device
-    /// beyond just its name. Availability depends on the host
-    /// implementation and platform capabilities.
-    pub description: Result<DeviceDescription, DeviceNameError>,
+    /// The first host in the list is the default one for the system.
+    pub fn available_hosts(&self) -> Vec<cpal::HostId> {
+        cpal::available_hosts()
+    }
 
-    /// The default stream configuration for this device.
-    pub default_config: Result<SupportedStreamConfig, DefaultStreamConfigError>,
+    /// Get a struct used to retrieve the list of available audio devices
+    /// for the default system audio host (API).
+    pub fn default_host(&self) -> HostEnumerator {
+        HostEnumerator {
+            host: cpal::default_host(),
+        }
+    }
+
+    /// Get a struct used to retrieve the list of available audio devices
+    /// for the given system audio host (API).
+    pub fn get_host(&self, api: HostId) -> Result<HostEnumerator, HostUnavailable> {
+        cpal::host_from_id(api).map(|host| HostEnumerator { host })
+    }
 }
 
-/// A CPAL backend for Firewheel
-pub struct CpalBackend {
-    from_err_rx: mpsc::Receiver<cpal::StreamError>,
-    to_stream_tx: ringbuf::HeapProd<CtxToStreamMsg>,
-    _out_stream_handle: cpal::Stream,
-    _in_stream_handle: Option<cpal::Stream>,
+/// A struct used to retrieve the list of available audio devices
+/// for a given system audio host (API).
+pub struct HostEnumerator {
+    pub host: cpal::Host,
 }
 
-impl AudioBackend for CpalBackend {
-    type DeviceID = DeviceId;
-    type AudioAPI = HostId;
-    type ExtraInputDeviceInfo = ExtraCpalDeviceInfo;
-    type ExtraOutputDeviceInfo = ExtraCpalDeviceInfo;
-    type Config = CpalConfig;
-    type StartStreamError = StreamStartError;
-    type StreamError = cpal::StreamError;
-    type Instant = bevy_platform::time::Instant;
+impl HostEnumerator {
+    /// The system backend host id (API) this enumerator is using.
+    pub fn host_id(&self) -> cpal::HostId {
+        self.host.id()
+    }
 
-    fn available_input_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
+    /// Get the list of available input audio devices.
+    pub fn input_devices(&self) -> Vec<DeviceInfo> {
         let mut devices = Vec::with_capacity(8);
 
-        let Some(host) = host_opt(api) else {
-            return devices;
-        };
-
-        let default_device = host.default_input_device();
+        let default_device = self.host.default_input_device();
         let default_device_id = default_device.and_then(|d| match d.id() {
             Ok(id) => Some(id),
             Err(e) => {
@@ -206,7 +213,7 @@ impl AudioBackend for CpalBackend {
             }
         });
 
-        match host.input_devices() {
+        match self.host.input_devices() {
             Ok(input_devices) => {
                 for device in input_devices {
                     let Ok(id) = device.id() else {
@@ -236,14 +243,11 @@ impl AudioBackend for CpalBackend {
         devices
     }
 
-    fn available_output_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
+    /// Get the list of available output audio devices.
+    pub fn output_devices(&self) -> Vec<DeviceInfo> {
         let mut devices = Vec::with_capacity(8);
 
-        let Some(host) = host_opt(api) else {
-            return devices;
-        };
-
-        let default_device = host.default_output_device();
+        let default_device = self.host.default_output_device();
         let default_device_id = default_device.and_then(|d| match d.id() {
             Ok(id) => Some(id),
             Err(e) => {
@@ -252,7 +256,7 @@ impl AudioBackend for CpalBackend {
             }
         });
 
-        match host.output_devices() {
+        match self.host.output_devices() {
             Ok(output_devices) => {
                 for device in output_devices {
                     let Ok(id) = device.id() else {
@@ -282,32 +286,138 @@ impl AudioBackend for CpalBackend {
         devices
     }
 
-    fn extra_input_device_info(
-        device_id: &Self::DeviceID,
-        api: Option<Self::AudioAPI>,
-    ) -> Option<Self::ExtraInputDeviceInfo> {
-        let Some(host) = host_opt(api) else {
-            return None;
-        };
+    /// Get a struct used to retrieve extra information for the given audio
+    /// device.
+    ///
+    /// Returns `None` if the device could not be found.
+    pub fn get_device(&self, device_id: &cpal::DeviceId) -> Option<cpal::Device> {
+        self.host.device_by_id(device_id)
+    }
+}
 
-        host.device_by_id(device_id).map(|d| ExtraCpalDeviceInfo {
-            description: d.description(),
-            default_config: d.default_input_config(),
-        })
+/// Information about an audio device.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceInfo {
+    /// A stable identifier for an audio device across all supported platforms.
+    ///
+    /// Device IDs should remain stable across application restarts and can be
+    /// serialized using `Display`/`FromStr`.
+    ///
+    /// A device ID consists of a [`HostId`] identifying the audio backend and
+    /// a device-specific identifier string.
+    pub id: cpal::DeviceId,
+    /// The display name of the device.
+    pub name: Option<String>,
+    /// Whether or not this device is the default input/output device.
+    pub is_default: bool,
+}
+
+/// A CPAL backend for Firewheel
+pub struct CpalBackend {
+    from_err_rx: mpsc::Receiver<cpal::StreamError>,
+    to_stream_tx: ringbuf::HeapProd<CtxToStreamMsg>,
+    _out_stream_handle: cpal::Stream,
+    _in_stream_handle: Option<cpal::Stream>,
+}
+
+impl AudioBackend for CpalBackend {
+    type Enumerator = CpalEnumerator;
+    type Config = CpalConfig;
+    type StartStreamError = StreamStartError;
+    type StreamError = cpal::StreamError;
+    type Instant = bevy_platform::time::Instant;
+
+    fn enumerator() -> Self::Enumerator {
+        CpalEnumerator {}
     }
 
-    fn extra_output_device_info(
-        device_id: &Self::DeviceID,
-        api: Option<Self::AudioAPI>,
-    ) -> Option<Self::ExtraOutputDeviceInfo> {
-        let Some(host) = host_opt(api) else {
-            return None;
+    fn input_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
+        let enumerator = CpalEnumerator {};
+        let host_enumerator = enumerator.default_host();
+
+        let mut default_device_index = None;
+
+        let mut devices: Vec<DeviceInfoSimple> = host_enumerator
+            .input_devices()
+            .iter()
+            .enumerate()
+            .map(|(i, info)| {
+                if info.is_default {
+                    default_device_index = Some(i);
+                }
+
+                DeviceInfoSimple {
+                    name: info.name.clone().unwrap_or_else(|| String::from("unkown")),
+                    id: format!("{}", info.id),
+                }
+            })
+            .collect();
+
+        // Make sure the default device is the first in the list.
+        if let Some(i) = default_device_index {
+            devices.swap(0, i);
+        }
+
+        devices
+    }
+
+    fn output_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
+        let enumerator = CpalEnumerator {};
+        let host_enumerator = enumerator.default_host();
+
+        let mut default_device_index = None;
+
+        let mut devices: Vec<DeviceInfoSimple> = host_enumerator
+            .output_devices()
+            .iter()
+            .enumerate()
+            .map(|(i, info)| {
+                if info.is_default {
+                    default_device_index = Some(i);
+                }
+
+                DeviceInfoSimple {
+                    name: info.name.clone().unwrap_or_else(|| String::from("unkown")),
+                    id: format!("{}", info.id),
+                }
+            })
+            .collect();
+
+        // Make sure the default device is the first in the list.
+        if let Some(i) = default_device_index {
+            devices.swap(0, i);
+        }
+
+        devices
+    }
+
+    fn convert_simple_config(&mut self, config: &SimpleStreamConfig) -> Self::Config {
+        let string_to_id = |s: Option<&String>| -> Option<DeviceId> {
+            s.and_then(|s| match DeviceId::from_str(s) {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    warn!(
+                        "Failed to convert string to DeviceID, falling back to default device: {}",
+                        e
+                    );
+                    None
+                }
+            })
         };
 
-        host.device_by_id(device_id).map(|d| ExtraCpalDeviceInfo {
-            description: d.description(),
-            default_config: d.default_output_config(),
-        })
+        CpalConfig {
+            output: CpalOutputConfig {
+                device_id: string_to_id(config.output.device.as_ref()),
+                desired_sample_rate: config.desired_sample_rate,
+                desired_block_frames: config.desired_block_frames,
+                ..Default::default()
+            },
+            input: config.input.as_ref().map(|input_config| CpalInputConfig {
+                device_id: string_to_id(input_config.device.as_ref()),
+                desired_block_frames: config.desired_block_frames,
+                ..Default::default()
+            }),
+        }
     }
 
     fn start_stream(config: Self::Config) -> Result<(Self, StreamInfo), Self::StartStreamError> {
@@ -800,7 +910,7 @@ impl DataCallback {
         // Add a little bit of wiggle room to account for tiny clock
         // innacuracies and rounding errors.
         self.predicted_delta_time =
-            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.2);
+            Duration::from_secs_f64(frames as f64 * self.sample_rate_recip * 1.5);
 
         let duration_since_stream_start =
             process_timestamp.duration_since(self.stream_start_instant);
@@ -944,18 +1054,4 @@ pub enum StreamStartError {
     #[cfg(not(feature = "resample_inputs"))]
     #[error("Not able to use a samplerate of {0} for the input audio device")]
     CouldNotMatchSampleRate(u32),
-}
-
-fn host_opt(api: Option<HostId>) -> Option<Host> {
-    if let Some(api) = api {
-        match cpal::host_from_id(api) {
-            Ok(h) => Some(h),
-            Err(e) => {
-                warn!("Failed to get audio host for api: {}, {}", api, e);
-                None
-            }
-        }
-    } else {
-        Some(cpal::default_host())
-    }
 }

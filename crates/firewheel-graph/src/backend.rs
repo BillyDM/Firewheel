@@ -1,8 +1,6 @@
+use bevy_platform::prelude::{String, Vec};
 use core::error::Error;
 use core::time::Duration;
-
-#[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{String, Vec};
 
 use firewheel_core::{node::StreamStatus, StreamInfo};
 
@@ -17,17 +15,11 @@ use crate::processor::FirewheelProcessor;
 /// thread (the thread where the [`crate::context::FirewheelCtx`]
 /// lives).
 pub trait AudioBackend: Sized {
-    /// A unique identifier for an audio device that is persistable
-    /// across reboots.
-    type DeviceID;
-    /// An enum of the available audio APIs on the system.
-    type AudioAPI;
-    /// Extra information for an input audio device.
-    type ExtraInputDeviceInfo;
-    /// Extra information for an output audio device.
-    type ExtraOutputDeviceInfo;
+    /// The type used to retrieve the list of available audio devices on
+    /// the system and their available ocnfigurations.
+    type Enumerator;
     /// The configuration of the audio stream.
-    type Config;
+    type Config: Default;
     /// An error when starting a new audio stream.
     type StartStreamError: Error;
     /// An error that has caused the audio stream to stop.
@@ -35,52 +27,29 @@ pub trait AudioBackend: Sized {
     /// A type describing an instant in time.
     type Instant: Send + Clone;
 
-    /// Return a list of the available input devices.
+    /// Get a struct used to retrieve the list of available audio devices
+    /// on the system and their available ocnfigurations.
+    fn enumerator() -> Self::Enumerator;
+
+    /// Get a list of available input audio devices (for the default API).
     ///
-    /// * `api` - The system audio API to scan. Set to `None` to use the
-    /// default API for the system.
-    fn available_input_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
-        let _ = api;
-        Vec::new()
-    }
-    /// Return a list of the available output devices.
-    ///
-    /// * `api` - The system audio API to scan. Set to `None` to use the
-    /// default API for the system.
-    fn available_output_devices(api: Option<Self::AudioAPI>) -> Vec<DeviceInfo<Self::DeviceID>> {
-        let _ = api;
+    /// The first item in the list is the default device.
+    fn input_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
         Vec::new()
     }
 
-    /// Return extra information about the given input device.
+    /// Get a list of available output audio devices (for the default API).
     ///
-    /// * `device_id` - The unique identifier of the input audio device.
-    /// * `api` - The system audio API this device belongs to. Set to `None`
-    /// if using the default API for the system.
-    ///
-    /// Returns `None` if a device with the given ID was not found.
-    fn extra_input_device_info(
-        device_id: &Self::DeviceID,
-        api: Option<Self::AudioAPI>,
-    ) -> Option<Self::ExtraInputDeviceInfo> {
-        let _ = device_id;
-        let _ = api;
-        None
+    /// The first item in the list is the default device.
+    fn output_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
+        Vec::new()
     }
-    /// Return extra information about the given output device.
-    ///
-    /// * `device_id` - The unique identifier of the input audio device.
-    /// * `api` - The system audio API this device belongs to. Set to `None`
-    /// if using the default API for the system.
-    ///
-    /// Returns `None` if a device with the given ID was not found.
-    fn extra_output_device_info(
-        device_id: &Self::DeviceID,
-        api: Option<Self::AudioAPI>,
-    ) -> Option<Self::ExtraOutputDeviceInfo> {
-        let _ = device_id;
-        let _ = api;
-        None
+
+    /// Convert the easy-to-use, backend-agnostic audio stream configuration
+    /// into the corresponding backend-specific configuration.
+    fn convert_simple_config(&mut self, config: &SimpleStreamConfig) -> Self::Config {
+        let _ = config;
+        Self::Config::default()
     }
 
     /// Start the audio stream with the given configuration, and return
@@ -105,14 +74,6 @@ pub trait AudioBackend: Sized {
     fn delay_from_last_process(&self, process_timestamp: Self::Instant) -> Option<Duration>;
 }
 
-/// Information about an audio device.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DeviceInfo<DeviceID> {
-    pub id: DeviceID,
-    pub name: Option<String>,
-    pub is_default: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendProcessInfo<B: AudioBackend> {
     pub num_in_channels: usize,
@@ -123,4 +84,87 @@ pub struct BackendProcessInfo<B: AudioBackend> {
     pub input_stream_status: StreamStatus,
     pub output_stream_status: StreamStatus,
     pub dropped_frames: u32,
+}
+
+/// Basic information about an audio device. It contains the name of the
+/// device and a unique identifier that persists across reboots.
+#[derive(Default, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DeviceInfoSimple {
+    /// The display name of this audio device.
+    pub name: String,
+
+    /// A unique identifier for the device, serialized into a string.
+    ///
+    /// This identifier persists across application restarts and system
+    /// reboots.
+    pub id: String,
+}
+
+/// The configuration of an input/output device for a [`SimpleStreamConfig`]
+#[derive(Default, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SimpleDeviceConfig {
+    /// The ID of the device to use. (The ID from [`DeviceInfoSimple::id`].)
+    ///
+    /// Set to `None` to use the default device.
+    ///
+    /// By default this is set to `None`.
+    pub device: Option<String>,
+
+    /// The number of channels to use. The backend may end up using a different
+    /// channel count if the given channel count is not supported.
+    ///
+    /// Set to `None` to use the default number of channels for the device.
+    ///
+    /// By default this is set to `None`.
+    pub channels: Option<usize>,
+}
+
+/// An easy-to-use, backend-agnostic configuration for an audio stream
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SimpleStreamConfig {
+    /// The configuration of the output audio device
+    pub output: SimpleDeviceConfig,
+
+    /// The configuration of the input audio device
+    ///
+    /// Set to `None` to not connect an input audio device.
+    ///
+    /// By default this is set to `None`.
+    pub input: Option<SimpleDeviceConfig>,
+
+    /// The block size (latency) to use. Set to `None` to use the device's default
+    /// block size. The backend may end up using a different block size if the given
+    /// block size is not supported.
+    ///
+    /// By default this is set to `Some(1024)`, which should be good enough for most
+    /// games.
+    ///
+    /// If your application is not a game and doesn't need low latency playback,
+    /// then prefer to set this to `None` to reduce system resources.
+    pub desired_block_frames: Option<u32>,
+
+    /// The sample rate to use. The backend may end up using a different sample
+    /// rate if the given sample rate is not supported.
+    ///
+    /// Set to `None` to use the device's default sample rate.
+    ///
+    /// By default this is set to `None`.
+    pub desired_sample_rate: Option<u32>,
+}
+
+impl Default for SimpleStreamConfig {
+    fn default() -> Self {
+        Self {
+            output: SimpleDeviceConfig::default(),
+            input: None,
+            desired_block_frames: Some(1024),
+            desired_sample_rate: None,
+        }
+    }
 }
