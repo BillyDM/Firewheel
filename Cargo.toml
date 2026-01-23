@@ -205,11 +205,11 @@ bitflags = "2"
 thunderdome = { version = "0.6", default-features = false }
 fast-interleave = "0.1"
 firewheel-macros = { path = "crates/firewheel-macros", version = "0.10.0" }
-bevy_platform = { version = "0.17", default-features = false, features = [
+bevy_platform = { version = "0.18", default-features = false, features = [
     "alloc",
 ] }
-bevy_ecs = { version = "0.17", default-features = false }
-bevy_reflect = { version = "0.17", default-features = false }
+bevy_ecs = { version = "0.18", default-features = false }
+bevy_reflect = { version = "0.18", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 egui = "0.33.3"
