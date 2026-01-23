@@ -32,7 +32,7 @@ pub type FastBandpassStereoNode = FastBandpassNode<2>;
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FastBandpassNode<const CHANNELS: usize> {
+pub struct FastBandpassNode<const CHANNELS: usize = 2> {
     /// The cutoff frequency in hertz in the range `[20.0, 20480.0]`.
     pub cutoff_hz: f32,
     /// Whether or not this node is enabled.

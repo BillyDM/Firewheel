@@ -47,10 +47,13 @@ impl Default for PeakMeterSmootherConfig {
     }
 }
 
+pub type PeakMeterSmootherMono = PeakMeterSmoother<1>;
+pub type PeakMeterSmootherStereo = PeakMeterSmoother<2>;
+
 /// A helper struct to smooth out the output of [`PeakMeterNode`]. This
 /// can be used to drive the animation of a peak meter in a GUI.
 #[derive(Debug, Clone, Copy)]
-pub struct PeakMeterSmoother<const NUM_CHANNELS: usize> {
+pub struct PeakMeterSmoother<const NUM_CHANNELS: usize = 2> {
     /// The current smoothed peak value of each channel, in decibels.
     smoothed_peaks: [f32; NUM_CHANNELS],
     clipped_frames_left: [usize; NUM_CHANNELS],
@@ -158,19 +161,25 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
     }
 }
 
+pub type PeakMeterNodeMono = PeakMeterNode<1>;
+pub type PeakMeterNodeStereo = PeakMeterNode<2>;
+
 /// A node that calculates the peak amplitude of a signal, and then sends that value
 /// to [`PeakMeterState`].
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct PeakMeterNode<const NUM_CHANNELS: usize> {
+pub struct PeakMeterNode<const NUM_CHANNELS: usize = 2> {
     pub enabled: bool,
 }
 
+pub type PeakMeterStateMono = PeakMeterState<1>;
+pub type PeakMeterStateStereo = PeakMeterState<2>;
+
 /// The state of a [`PeakMeterNode`]. This contains the calculated peak values.
 #[derive(Clone)]
-pub struct PeakMeterState<const NUM_CHANNELS: usize> {
+pub struct PeakMeterState<const NUM_CHANNELS: usize = 2> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }
 

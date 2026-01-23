@@ -20,6 +20,9 @@ use firewheel_core::{
     sample_resource::SampleResourceF32,
 };
 
+pub type ConvolutionNodeMono = ConvolutionNode<1>;
+pub type ConvolutionNodeStereo = ConvolutionNode<2>;
+
 /// Imparts characteristics of an [`ImpulseResponse`] to the input signal.
 ///
 /// Convolution is often used to achieve reverb effects, but is more
@@ -28,7 +31,7 @@ use firewheel_core::{
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ConvolutionNode<const CHANNELS: usize> {
+pub struct ConvolutionNode<const CHANNELS: usize = 2> {
     /// Pause the convolution processing.
     ///
     /// This prevents a tail from ringing out when you want all sound to
@@ -63,12 +66,15 @@ pub struct ConvolutionNode<const CHANNELS: usize> {
     pub smooth_seconds: f32,
 }
 
+pub type ConvolutionNodeConfigMono = ConvolutionNodeConfig<1>;
+pub type ConvolutionNodeConfigStereo = ConvolutionNodeConfig<2>;
+
 /// Node configuration for [`ConvolutionNode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ConvolutionNodeConfig<const CHANNELS: usize> {
+pub struct ConvolutionNodeConfig<const CHANNELS: usize = 2> {
     /// The maximum number of supported IR channels (must be
     /// `ChannelCount::MONO` or `ChannelCount::STEREO`). This determines the
     /// number of buffers allocated. Loading an impulse response with more

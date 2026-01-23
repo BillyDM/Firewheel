@@ -98,6 +98,9 @@ pub enum SvfType {
     Allpass,
 }
 
+pub type SvfNodeMono = SvfNode<1>;
+pub type SvfNodeStereo = SvfNode<2>;
+
 /// An SVF (state variable filter) node
 ///
 /// This is based on the filter model developed by Andrew Simper:
@@ -106,7 +109,7 @@ pub enum SvfType {
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
-pub struct SvfNode<const CHANNELS: usize> {
+pub struct SvfNode<const CHANNELS: usize = 2> {
     /// The type of filter
     pub filter_type: SvfType,
 
