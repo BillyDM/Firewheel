@@ -47,8 +47,8 @@ impl Default for PeakMeterSmootherConfig {
     }
 }
 
-pub type PeakMeterSmootherMono = PeakMeterSmoother<1>;
-pub type PeakMeterSmootherStereo = PeakMeterSmoother<2>;
+pub type PeakMeterMonoSmoother = PeakMeterSmoother<1>;
+pub type PeakMeterStereoSmoother = PeakMeterSmoother<2>;
 
 /// A helper struct to smooth out the output of [`PeakMeterNode`]. This
 /// can be used to drive the animation of a peak meter in a GUI.
@@ -161,8 +161,8 @@ impl<const NUM_CHANNELS: usize> PeakMeterSmoother<NUM_CHANNELS> {
     }
 }
 
-pub type PeakMeterNodeMono = PeakMeterNode<1>;
-pub type PeakMeterNodeStereo = PeakMeterNode<2>;
+pub type PeakMeterMonoNode = PeakMeterNode<1>;
+pub type PeakMeterStereoNode = PeakMeterNode<2>;
 
 /// A node that calculates the peak amplitude of a signal, and then sends that value
 /// to [`PeakMeterState`].
@@ -174,8 +174,8 @@ pub struct PeakMeterNode<const NUM_CHANNELS: usize = 2> {
     pub enabled: bool,
 }
 
-pub type PeakMeterStateMono = PeakMeterState<1>;
-pub type PeakMeterStateStereo = PeakMeterState<2>;
+pub type PeakMeterMonoState = PeakMeterState<1>;
+pub type PeakMeterStereoState = PeakMeterState<2>;
 
 /// The state of a [`PeakMeterNode`]. This contains the calculated peak values.
 #[derive(Clone)]

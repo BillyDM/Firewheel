@@ -20,8 +20,8 @@ use firewheel_core::{
     sample_resource::SampleResourceF32,
 };
 
-pub type ConvolutionNodeMono = ConvolutionNode<1>;
-pub type ConvolutionNodeStereo = ConvolutionNode<2>;
+pub type ConvolutionMonoNode = ConvolutionNode<1>;
+pub type ConvolutionStereoNode = ConvolutionNode<2>;
 
 /// Imparts characteristics of an [`ImpulseResponse`] to the input signal.
 ///
@@ -66,8 +66,8 @@ pub struct ConvolutionNode<const CHANNELS: usize = 2> {
     pub smooth_seconds: f32,
 }
 
-pub type ConvolutionNodeConfigMono = ConvolutionNodeConfig<1>;
-pub type ConvolutionNodeConfigStereo = ConvolutionNodeConfig<2>;
+pub type ConvolutionMonoNodeConfig = ConvolutionNodeConfig<1>;
+pub type ConvolutionStereoNodeConfig = ConvolutionNodeConfig<2>;
 
 /// Node configuration for [`ConvolutionNode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

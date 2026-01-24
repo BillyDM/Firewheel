@@ -95,8 +95,8 @@ pub enum SvfType {
     Allpass,
 }
 
-pub type SvfNodeMono = SvfNode<1>;
-pub type SvfNodeStereo = SvfNode<2>;
+pub type SvfMonoNode = SvfNode<1>;
+pub type SvfStereoNode = SvfNode<2>;
 
 /// An SVF (state variable filter) node
 ///
