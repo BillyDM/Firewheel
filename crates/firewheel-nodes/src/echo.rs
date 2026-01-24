@@ -1,7 +1,7 @@
 use core::{array::from_fn, num::NonZeroU32};
 
 use firewheel_core::{
-    channel_config::{ChannelConfig, NonZeroChannelCount},
+    channel_config::ChannelConfig,
     diff::{Diff, Notify, Patch},
     dsp::{
         buffer::ChannelBuffer,
@@ -27,6 +27,9 @@ use firewheel_core::{
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
+pub type EchoNodeMono = EchoNode<1>;
+pub type EchoNodeStereo = EchoNode<2>;
+
 const DEFAULT_DELAY_SMOOTH_SECONDS: f32 = 0.25;
 
 /// The configuration for an [`EchoNode`]
@@ -37,22 +40,15 @@ const DEFAULT_DELAY_SMOOTH_SECONDS: f32 = 0.25;
 pub struct EchoNodeConfig {
     /// The maximum amount of samples available per channel
     pub buffer_capacity: usize,
-    /// The number of supported channels
-    pub channels: NonZeroChannelCount,
 }
 
 impl EchoNodeConfig {
     /// Create a configuration that can hold up to a specified number of seconds
     /// of audio
-    pub fn new(
-        max_duration_seconds: f32,
-        sample_rate: impl Into<NonZeroU32>,
-        channels: impl Into<NonZeroChannelCount>,
-    ) -> Self {
+    pub fn new(max_duration_seconds: f32, sample_rate: impl Into<NonZeroU32>) -> Self {
         Self {
             buffer_capacity: (max_duration_seconds * sample_rate.into().get() as f32).ceil()
                 as usize,
-            channels: channels.into(),
         }
     }
 }
@@ -60,18 +56,14 @@ impl EchoNodeConfig {
 impl Default for EchoNodeConfig {
     fn default() -> Self {
         // Assume a common rate, as it cannot be known at compile time
-        Self::new(
-            5.0,
-            NonZeroU32::new(44_100).unwrap(),
-            NonZeroChannelCount::STEREO,
-        )
+        Self::new(5.0, NonZeroU32::new(44_100).unwrap())
     }
 }
 
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-pub struct EchoNode<const CHANNELS: usize> {
+pub struct EchoNode<const CHANNELS: usize = 2> {
     /// The lowpass frequency in hertz in the range
     /// `[20.0, 20480.0]`.
     pub feedback_lpf: f32,

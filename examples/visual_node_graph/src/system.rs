@@ -8,7 +8,7 @@ use firewheel::{
     nodes::{
         beep_test::BeepTestNode,
         convolution::{ConvolutionNode, ConvolutionNodeConfig},
-        echo::EchoNode,
+        echo::{EchoNodeMono, EchoNodeStereo},
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
         },
@@ -182,8 +182,8 @@ impl AudioSystem {
                 }),
             ),
             NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
-            NodeType::EchoMono => self.cx.add_node(EchoNode::<1>::default(), None),
-            NodeType::EchoStereo => self.cx.add_node(EchoNode::<2>::default(), None),
+            NodeType::EchoMono => self.cx.add_node(EchoNodeMono::default(), None),
+            NodeType::EchoStereo => self.cx.add_node(EchoNodeStereo::default(), None),
         };
 
         match node_type {
