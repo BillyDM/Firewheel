@@ -31,9 +31,6 @@ pub const DEFAULT_MAX_Q: f32 = 40.0;
 pub const DEFAULT_MIN_GAIN_DB: f32 = -24.0;
 pub const DEFAULT_MAX_GAIN_DB: f32 = 24.0;
 
-pub type SvfMonoNode = SvfNode<1>;
-pub type SvfStereoNode = SvfNode<2>;
-
 /// The configuration for an [`SvfNode`]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
