@@ -119,4 +119,4 @@ portable-atomic = { version = "1", default-features = false, features = [
 ] }
 wmidi = { version = "4", default-features = false, optional = true }
 serde = { workspace = true, optional = true }
-rtgc = { version = "0.2.1", default-features = false, features = ["bevy_platform"] }
+rtgc = { version = "0.3.0", default-features = false, features = ["bevy_platform"] }
