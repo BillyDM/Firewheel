@@ -79,7 +79,7 @@ impl AudioSystem {
         let samples = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
+                firewheel::load_audio_file(&mut loader, path, Some(sample_rate), Default::default())
                     .unwrap()
                     .into_dyn_resource()
             })
@@ -90,10 +90,14 @@ impl AudioSystem {
         let loaded = IR_SAMPLE_PATHS
             .iter()
             .map(|path| {
-                let sample_resource =
-                    firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
-                        .unwrap()
-                        .into_dyn_resource();
+                let sample_resource = firewheel::load_audio_file(
+                    &mut loader,
+                    path,
+                    Some(sample_rate),
+                    Default::default(),
+                )
+                .unwrap()
+                .into_dyn_resource();
                 let mut buffers = vec![
                     vec![0.0; sample_resource.len_frames() as usize];
                     sample_resource.num_channels().get()

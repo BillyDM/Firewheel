@@ -118,19 +118,24 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
 ///
 /// * `loader` - The symphonium loader.
 /// * `path`` - The path to the audio file stored on disk.
-/// * `sample_rate` - The sample rate of the audio stream.
-/// * `resample_quality` - The quality of the resampler to use.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. (No resampling will occur if the audio file's sample rate
+/// is already the target sample rate). If this is `None`, then the file will not be
+/// resampled and stay its original sample rate.
+/// * `resample_quality` - The quality of the resampler to use if the sample rate of the
+/// audio file doesn't match the `target_sample_rate`. This has no effect if
+/// `target_sample_rate` is `None`.
 pub fn load_audio_file<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
-    #[cfg(feature = "resample")] sample_rate: core::num::NonZeroU32,
+    #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
     #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
         .load(
             path,
             #[cfg(feature = "resample")]
-            Some(sample_rate.get()),
+            target_sample_rate.map(|s| s.get()),
             #[cfg(feature = "resample")]
             resample_quality,
             None,
@@ -143,15 +148,20 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
 /// * `loader` - The symphonium loader.
 /// * `source` - The audio source which implements the [`MediaSource`] trait.
 /// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
-/// * `sample_rate` - The sample rate of the audio stream.
-/// * `resample_quality` - The quality of the resampler to use.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. (No resampling will occur if the audio file's sample rate
+/// is already the target sample rate). If this is `None`, then the file will not be
+/// resampled and stay its original sample rate.
+/// * `resample_quality` - The quality of the resampler to use if the sample rate of the
+/// audio file doesn't match the `target_sample_rate`. This has no effect if
+/// `target_sample_rate` is `None`.
 ///
 /// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
 pub fn load_audio_file_from_source(
     loader: &mut symphonium::SymphoniumLoader,
     source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
     hint: Option<symphonium::symphonia::core::probe::Hint>,
-    #[cfg(feature = "resample")] sample_rate: core::num::NonZeroU32,
+    #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
     #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
@@ -159,7 +169,7 @@ pub fn load_audio_file_from_source(
             source,
             hint,
             #[cfg(feature = "resample")]
-            Some(sample_rate.get()),
+            target_sample_rate.map(|s| s.get()),
             #[cfg(feature = "resample")]
             resample_quality,
             None,
@@ -172,7 +182,9 @@ pub fn load_audio_file_from_source(
 ///
 /// * `loader` - The symphonium loader.
 /// * `path`` - The path to the audio file stored on disk.
-/// * `sample_rate` - The sample rate of the audio stream.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. If this is `None`, then the file will stay its original sample
+/// rate.
 /// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
 /// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
 /// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
@@ -181,11 +193,11 @@ pub fn load_audio_file_from_source(
 pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
-    sample_rate: core::num::NonZeroU32,
+    target_sample_rate: Option<core::num::NonZeroU32>,
     stretch: f64,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load_f32_stretched(path, stretch, Some(sample_rate.get()), None)
+        .load_f32_stretched(path, stretch, target_sample_rate.map(|s| s.get()), None)
         .map(|d| DecodedAudio(d.into()))
 }
 
@@ -196,7 +208,9 @@ pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
 /// * `source` - The audio source which implements the [`symphonium::symphonia::core::io::MediaSource`]
 /// trait.
 /// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
-/// * `sample_rate` - The sample rate of the audio stream.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. If this is `None`, then the file will stay its original sample
+/// rate.
 /// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
 /// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
 /// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
@@ -206,11 +220,17 @@ pub fn load_audio_file_from_source_stretched(
     loader: &mut symphonium::SymphoniumLoader,
     source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
     hint: Option<symphonium::symphonia::core::probe::Hint>,
-    sample_rate: core::num::NonZeroU32,
+    target_sample_rate: Option<core::num::NonZeroU32>,
     stretch: f64,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load_f32_from_source_stretched(source, hint, stretch, Some(sample_rate.get()), None)
+        .load_f32_from_source_stretched(
+            source,
+            hint,
+            stretch,
+            target_sample_rate.map(|s| s.get()),
+            None,
+        )
         .map(|d| DecodedAudio(d.into()))
 }
 

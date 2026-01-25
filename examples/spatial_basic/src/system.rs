@@ -31,7 +31,7 @@ impl AudioSystem {
         let sample = firewheel::load_audio_file(
             &mut loader,
             "assets/test_files/dpren_very-lush-and-swag-loop.ogg",
-            sample_rate,
+            Some(sample_rate),
             Default::default(),
         )
         .unwrap()

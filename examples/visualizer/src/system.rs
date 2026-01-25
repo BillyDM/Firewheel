@@ -33,10 +33,14 @@ impl AudioSystem {
         let mut loader = SymphoniumLoader::new();
         let graph_out = cx.graph_out_node_id();
 
-        let sample =
-            firewheel::load_audio_file(&mut loader, SAMPLE_PATH, sample_rate, Default::default())
-                .unwrap()
-                .into_dyn_resource();
+        let sample = firewheel::load_audio_file(
+            &mut loader,
+            SAMPLE_PATH,
+            Some(sample_rate),
+            Default::default(),
+        )
+        .unwrap()
+        .into_dyn_resource();
 
         let mut sampler_params = SamplerNode::default();
         sampler_params.set_sample(sample);

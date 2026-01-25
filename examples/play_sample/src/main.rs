@@ -46,10 +46,14 @@ fn main() {
     // --- Load a sample into memory, and tell the node to use it and play it. -----------
 
     let mut loader = SymphoniumLoader::new();
-    let sample =
-        firewheel::load_audio_file(&mut loader, args.path, sample_rate, Default::default())
-            .unwrap()
-            .into_dyn_resource();
+    let sample = firewheel::load_audio_file(
+        &mut loader,
+        args.path,
+        Some(sample_rate),
+        Default::default(),
+    )
+    .unwrap()
+    .into_dyn_resource();
 
     sampler_node.set_sample(sample);
     cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());

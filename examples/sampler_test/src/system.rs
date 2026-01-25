@@ -54,10 +54,14 @@ impl AudioSystem {
         let samplers = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                let sample =
-                    firewheel::load_audio_file(&mut loader, path, sample_rate, Default::default())
-                        .unwrap()
-                        .into_dyn_resource();
+                let sample = firewheel::load_audio_file(
+                    &mut loader,
+                    path,
+                    Some(sample_rate),
+                    Default::default(),
+                )
+                .unwrap()
+                .into_dyn_resource();
 
                 let mut params = SamplerNode::default();
                 params.set_sample(sample);
