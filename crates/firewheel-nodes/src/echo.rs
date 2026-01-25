@@ -44,7 +44,7 @@ pub struct EchoNodeConfig {
 
 impl EchoNodeConfig {
     /// Create a configuration that can hold up to a specified number of seconds
-    /// of audio
+    /// of audio given a sample rate.
     pub fn new(max_duration_seconds: f32, sample_rate: impl Into<NonZeroU32>) -> Self {
         Self {
             buffer_capacity: (max_duration_seconds * sample_rate.into().get() as f32).ceil()
@@ -60,15 +60,26 @@ impl Default for EchoNodeConfig {
     }
 }
 
+/// A simple echo effect, also known as a delay.
+///
+/// An echo replays the input signal after a set period of time.
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 pub struct EchoNode<const CHANNELS: usize = 2> {
-    /// The lowpass frequency in hertz in the range
-    /// `[20.0, 20480.0]`.
+    /// The echo's lowpass frequency in hertz in the range `[20.0, 20480.0]`.  
+    /// Higher values will attenuate lower frequencies which can help reduce
+    /// echoes with overpowering bass or a muddy sound. Lower values will
+    /// sound more and more transparent as the cutoff frequency approaches
+    /// the min value.
     pub feedback_lpf: f32,
-    /// The highpass frequency in hertz in the range `[20.0, 20480.0]`.
+
+    /// The echo's highpass frequency in hertz in the range `[20.0, 20480.0]`.
+    /// Lower values will attenuate higher frequencies resulting in softer,
+    /// duller echos. Higher values will sound more and more transparent as
+    /// the cutoff frequency approaches the max value.
     pub feedback_hpf: f32,
+
     /// The value representing the mix between the dry and wet audio signals
     ///
     /// This is a normalized value in the range `[0.0, 1.0]`, where `0.0` is
@@ -81,12 +92,19 @@ pub struct EchoNode<const CHANNELS: usize = 2> {
     /// The delay time, in seconds.
     pub delay_seconds: [f32; CHANNELS],
 
-    /// Feedback amplitude
+    /// Feedback amplitude. A higher feedback results in more of the resulting
+    /// output signal getting passed back through the effect. The minimum
+    /// value (no feedback) results in a single echo. Any amount of feedback
+    /// will produce multiple echoes, which is also known as a *Delay*
+    /// effect. Values closer to maximum attenuate output less and less,
+    /// eventually repeating forever at unity gain.
     pub feedback: [Volume; CHANNELS],
 
-    /// Crossfeed to the other channel. Unused in mono.
+    /// Feeds the resulting echo into the buffer of the left channel, which can
+    /// produce more complex sounding echoes.
     ///
-    /// Warning: crossfeed may lead to runaway feedback
+    /// **Warning**: high crossfeed values can result in runaway feedback and
+    /// produce extremely loud noises.
     pub crossfeed: [Volume; CHANNELS],
 
     /// The algorithm used to map the normalized mix value in the range `[0.0,
@@ -107,8 +125,57 @@ pub struct EchoNode<const CHANNELS: usize = 2> {
     /// Defaults to `0.25` (250ms).
     pub delay_smooth_seconds: f32,
 
+    /// Clears the echo's internal state and pauses the effect. Echoes that
+    /// were still playing before the effect was stopped will *not* play
+    /// once unpaused.
     pub stop: Notify<()>,
+
+    /// Pause the effect. Echoes that were still playing before the effect
+    /// was paused will resume playing once unpaused.
     pub paused: bool,
+}
+
+impl EchoNodeMono {
+    /// Create a new mono echo node.
+    ///
+    /// * `delay_seconds` - the delay time, in seconds, of the effect.
+    /// * `feedback` - the feedback amplitude of the effect. (See also
+    ///   `[EchoNode::feedback]`)
+    /// * `mix` - The value representing the mix between the dry and wet audio
+    ///   signals.
+    pub fn mono(delay_seconds: f32, feedback: Volume, mix: impl Into<Mix>) -> Self {
+        Self {
+            mix: mix.into(),
+            delay_seconds: [delay_seconds],
+            feedback: [feedback],
+            ..Default::default()
+        }
+    }
+}
+
+impl EchoNodeStereo {
+    /// Create a new stereo echo node.
+    ///
+    /// * `delay_seconds_left` and `delay_seconds_right` - the delay time, in
+    ///   seconds, of the left and right channels.
+    /// * `feedback_left` and `feedback_right` - the feedback amplitude of the
+    ///   left and right channels. (See also `[EchoNode::feedback]`)
+    /// * `mix` - The value representing the mix between the dry and wet audio
+    ///   signals.
+    pub fn stereo(
+        delay_seconds_left: f32,
+        delay_seconds_right: f32,
+        feedback_left: Volume,
+        feedback_right: Volume,
+        mix: impl Into<Mix>,
+    ) -> Self {
+        Self {
+            mix: mix.into(),
+            delay_seconds: [delay_seconds_left, delay_seconds_right],
+            feedback: [feedback_left, feedback_right],
+            ..Default::default()
+        }
+    }
 }
 
 impl<const CHANNELS: usize> Default for EchoNode<CHANNELS> {
@@ -322,9 +389,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        // Zero outputs so that crossfeeds can be added to the output TODO: Is
-        // there a more efficient way to do this that avoids clearing the
-        // buffer?
+        // Zero outputs so that crossfeeds can be added to the output.
         for output in buffers.outputs.iter_mut() {
             output.fill(0.0);
         }
@@ -385,7 +450,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 // The value of seconds delay that we wish to move towards (or have settled at).
                 let next_secs_delay = self.delay_seconds_smoothed[channel_index].target_value();
 
-                // Target delay, in fractional samples. This will act as the final state of our lerp (1.0).
+                // Target delay, in fractional samples. This will act as the final state of our
+                // lerp (1.0).
                 let mut next_delay_sample = self.delay_buffers[channel_index]
                     .read_seconds(next_secs_delay, info.sample_rate)
                     .unwrap() as f32;
@@ -394,15 +460,16 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 // However, if the delay_seconds_smoothed is still settling,
                 // that means we are still transitioning from a previous time
                 // selection. We'll need the initial 0.0 state, with the completion of
-                // the delay seconds from previous to next position (0.0 to 1.0) as the interpolator.
-
+                // the delay seconds from previous to next position (0.0 to 1.0) as the
+                // interpolator.
                 if let Some(prev_secs_delay) = self.prev_delay_seconds[channel_index] {
                     // Get the sample that will act as position 0.0 of the interpolation
                     let prev_delay_sample = self.delay_buffers[channel_index]
                         .read_seconds(prev_secs_delay, info.sample_rate)
                         .unwrap() as f32;
 
-                    // We can now calculate how much to interpolate, based on the completion of the delay smoother buffer
+                    // We can now calculate how much to interpolate, based on the completion of the
+                    // delay smoother buffer
                     let current_secs_delay =
                         self.delay_seconds_smoothed_buffer.all()[channel_index][sample_index];
 
@@ -411,9 +478,6 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                         match denom <= f32::EPSILON {
                             true => 1.0,
                             false => {
-                                // assert!(current_secs_delay <= next_secs_delay);
-                                // dbg!(current_secs_delay, prev_secs_delay);
-                                // assert!(current_secs_delay >= prev_secs_delay); // this is failing and causing issues
                                 ((current_secs_delay - prev_secs_delay) / denom).clamp(0.0, 1.0)
                             }
                         }
@@ -426,7 +490,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 if self.delay_seconds_smoothed[channel_index].has_settled()
                     && self.prev_delay_seconds[channel_index].is_some()
                 {
-                    // A `prev_delay_seconds` existing for this channel signals a delay change. If settled, remove it.
+                    // A `prev_delay_seconds` existing for this channel signals a delay change. If
+                    // settled, remove it.
                     self.prev_delay_seconds[channel_index] = None;
                 }
 
