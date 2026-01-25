@@ -27,8 +27,8 @@ use firewheel_core::{
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-pub type EchoNodeMono = EchoNode<1>;
-pub type EchoNodeStereo = EchoNode<2>;
+pub type EchoMonoNode = EchoNode<1>;
+pub type EchoStereoNode = EchoNode<2>;
 
 const DEFAULT_DELAY_SMOOTH_SECONDS: f32 = 0.25;
 
@@ -135,7 +135,7 @@ pub struct EchoNode<const CHANNELS: usize = 2> {
     pub paused: bool,
 }
 
-impl EchoNodeMono {
+impl EchoMonoNode {
     /// Create a new mono echo node.
     ///
     /// * `delay_seconds` - the delay time, in seconds, of the effect.
@@ -153,7 +153,7 @@ impl EchoNodeMono {
     }
 }
 
-impl EchoNodeStereo {
+impl EchoStereoNode {
     /// Create a new stereo echo node.
     ///
     /// * `delay_seconds_left` and `delay_seconds_right` - the delay time, in
