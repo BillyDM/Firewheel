@@ -135,6 +135,8 @@ wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
 glam-29 = ["firewheel-core/glam-29"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.30.
 glam-30 = ["firewheel-core/glam-30"]
+# Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.31.
+glam-31 = ["firewheel-core/glam-31"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
 # Enables serde derives for types
