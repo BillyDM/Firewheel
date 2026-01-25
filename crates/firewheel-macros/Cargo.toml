@@ -18,5 +18,5 @@ proc-macro = true
 syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-bevy_macro_utils = "0.17"
-toml_edit = { version = "0.23", default-features = false, features = ["parse"] }
+bevy_macro_utils = "0.18"
+toml_edit = { version = "0.23.9", default-features = false, features = ["parse"] }
