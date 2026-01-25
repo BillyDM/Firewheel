@@ -1,4 +1,7 @@
-use std::{num::NonZeroUsize, ops::Range};
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    ops::Range,
+};
 
 use firewheel_core::{
     collector::ArcGc,
@@ -12,13 +15,23 @@ pub struct DecodedAudio(pub symphonium::DecodedAudio);
 
 impl DecodedAudio {
     pub fn duration_seconds(&self) -> f64 {
-        self.0.frames() as f64 / self.0.sample_rate() as f64
+        self.0.frames() as f64 / self.0.sample_rate().get() as f64
     }
 
     pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
         ArcGc::new_unsized(|| {
             bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
         })
+    }
+
+    /// The sample rate of this resource.
+    pub fn sample_rate(&self) -> NonZeroU32 {
+        self.0.sample_rate()
+    }
+
+    /// The sample rate of the audio resource before it was resampled (if it was resampled).
+    pub fn original_sample_rate(&self) -> NonZeroU32 {
+        self.0.original_sample_rate()
     }
 }
 
@@ -35,6 +48,10 @@ impl SampleResourceInfo for DecodedAudio {
 
     fn len_frames(&self) -> u64 {
         self.0.frames() as u64
+    }
+
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        Some(self.0.sample_rate())
     }
 }
 
@@ -77,8 +94,18 @@ impl From<symphonium::DecodedAudio> for DecodedAudio {
 pub struct DecodedAudioF32(pub symphonium::DecodedAudioF32);
 
 impl DecodedAudioF32 {
-    pub fn duration_seconds(&self, sample_rate: u32) -> f64 {
-        self.0.frames() as f64 / sample_rate as f64
+    pub fn duration_seconds(&self, sample_rate: NonZeroU32) -> f64 {
+        self.0.frames() as f64 / sample_rate.get() as f64
+    }
+
+    /// The sample rate of this resource.
+    pub fn sample_rate(&self) -> NonZeroU32 {
+        self.0.sample_rate
+    }
+
+    /// The sample rate of the audio resource before it was resampled (if it was resampled).
+    pub fn original_sample_rate(&self) -> NonZeroU32 {
+        self.0.original_sample_rate
     }
 }
 
@@ -89,6 +116,10 @@ impl SampleResourceInfo for DecodedAudioF32 {
 
     fn len_frames(&self) -> u64 {
         self.0.frames() as u64
+    }
+
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        Some(self.0.sample_rate)
     }
 }
 
@@ -135,7 +166,7 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
         .load(
             path,
             #[cfg(feature = "resample")]
-            target_sample_rate.map(|s| s.get()),
+            target_sample_rate,
             #[cfg(feature = "resample")]
             resample_quality,
             None,
@@ -169,7 +200,7 @@ pub fn load_audio_file_from_source(
             source,
             hint,
             #[cfg(feature = "resample")]
-            target_sample_rate.map(|s| s.get()),
+            target_sample_rate,
             #[cfg(feature = "resample")]
             resample_quality,
             None,
@@ -197,7 +228,7 @@ pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
     stretch: f64,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load_f32_stretched(path, stretch, target_sample_rate.map(|s| s.get()), None)
+        .load_stretched(path, stretch, target_sample_rate, None)
         .map(|d| DecodedAudio(d.into()))
 }
 
@@ -224,13 +255,7 @@ pub fn load_audio_file_from_source_stretched(
     stretch: f64,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
     loader
-        .load_f32_from_source_stretched(
-            source,
-            hint,
-            stretch,
-            target_sample_rate.map(|s| s.get()),
-            None,
-        )
+        .load_from_source_stretched(source, hint, stretch, target_sample_rate, None)
         .map(|d| DecodedAudio(d.into()))
 }
 

@@ -1,4 +1,7 @@
-use core::{num::NonZeroUsize, ops::Range};
+use core::{
+    num::{NonZeroU32, NonZeroUsize},
+    ops::Range,
+};
 
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
@@ -12,6 +15,13 @@ pub trait SampleResourceInfo: Send + Sync + 'static {
     ///
     /// Not to be confused with video frames.
     fn len_frames(&self) -> u64;
+
+    /// The sample rate of this resource.
+    ///
+    /// Returns `None` if the sample rate is unknown.
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        None
+    }
 }
 
 /// A resource of audio samples.
@@ -45,6 +55,7 @@ pub trait SampleResourceF32: SampleResourceInfo {
 pub struct InterleavedResourceI16 {
     pub data: Vec<i16>,
     pub channels: NonZeroUsize,
+    pub sample_rate: Option<NonZeroU32>,
 }
 
 impl SampleResourceInfo for InterleavedResourceI16 {
@@ -54,6 +65,10 @@ impl SampleResourceInfo for InterleavedResourceI16 {
 
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
+    }
+
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        self.sample_rate
     }
 }
 
@@ -90,6 +105,7 @@ impl core::fmt::Debug for InterleavedResourceI16 {
 pub struct InterleavedResourceU16 {
     pub data: Vec<u16>,
     pub channels: NonZeroUsize,
+    pub sample_rate: Option<NonZeroU32>,
 }
 
 impl SampleResourceInfo for InterleavedResourceU16 {
@@ -99,6 +115,10 @@ impl SampleResourceInfo for InterleavedResourceU16 {
 
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
+    }
+
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        self.sample_rate
     }
 }
 
@@ -135,6 +155,7 @@ impl core::fmt::Debug for InterleavedResourceU16 {
 pub struct InterleavedResourceF32 {
     pub data: Vec<f32>,
     pub channels: NonZeroUsize,
+    pub sample_rate: Option<NonZeroU32>,
 }
 
 impl SampleResourceInfo for InterleavedResourceF32 {
@@ -144,6 +165,10 @@ impl SampleResourceInfo for InterleavedResourceF32 {
 
     fn len_frames(&self) -> u64 {
         (self.data.len() / self.channels.get()) as u64
+    }
+
+    fn sample_rate(&self) -> Option<NonZeroU32> {
+        self.sample_rate
     }
 }
 

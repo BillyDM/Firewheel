@@ -11,7 +11,7 @@ tracing-subscriber.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui-snarl = "0.9.0"
-symphonium = { version = "0.6.4", features = ["mp3", "flac"] }
+symphonium = { version = "0.7.0", features = ["mp3", "flac"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"

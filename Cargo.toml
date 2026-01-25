@@ -45,10 +45,16 @@ tracing = [
     "firewheel-graph/tracing",
     "firewheel-cpal?/tracing",
     "firewheel-rtaudio?/tracing",
+    "firewheel-symphonium?/tracing",
     "std",
 ]
 # Use the `log` crate for logging
-log = ["firewheel-graph/log", "firewheel-cpal?/log", "firewheel-rtaudio?/log"]
+log = [
+    "firewheel-graph/log",
+    "firewheel-cpal?/log",
+    "firewheel-rtaudio?/log",
+    "firewheel-symphonium?/log",
+]
 # Enables scheduling events for nodes
 scheduled_events = [
     "firewheel-core/scheduled_events",

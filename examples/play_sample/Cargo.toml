@@ -8,5 +8,5 @@ publish = false
 firewheel = { path = "../../" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
-symphonium = { version = "0.6.5", features = ["mp3", "flac"] }
+symphonium = { version = "0.7.0", features = ["mp3", "flac"] }
 clap = { version = "4", features = ["derive"] }
