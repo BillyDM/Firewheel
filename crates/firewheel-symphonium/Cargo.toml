@@ -1,6 +1,8 @@
 [package]
 name = "firewheel-symphonium"
 version = "0.10.0"
+description = "Symphonium integration for Firewheel"
+homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-symphonium"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
