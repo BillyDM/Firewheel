@@ -153,7 +153,6 @@ void fw_context_set_speed_multiplier(struct FwContext *ctx, double multiplier);
 
 /**
  * Remove a node from the Firewheel context.
- * Returns 0 on success, -1 on error.
  */
 int fw_node_remove(struct FwContext *ctx, uint32_t node_id);
 
@@ -168,8 +167,6 @@ uint32_t fw_node_add(struct FwContext *ctx, FwFactoryNode node_type);
  *
  * `src_ports` and `dst_ports` are arrays of port indices.
  * The length of both arrays must be `num_ports`.
- *
- * Returns 0 on success, -1 on error.
  */
 int fw_node_connect(struct FwContext *ctx,
                     uint32_t src_node,
@@ -180,7 +177,6 @@ int fw_node_connect(struct FwContext *ctx,
 
 /**
  * Set an f32 parameter on a node.
- * Returns 0 on success, -1 on error.
  */
 int fw_node_set_f32_parameter(struct FwContext *ctx,
                               uint32_t node_id,
@@ -190,7 +186,6 @@ int fw_node_set_f32_parameter(struct FwContext *ctx,
 
 /**
  * Set a u32 parameter on a node.
- * Returns 0 on success, -1 on error.
  */
 int fw_node_set_u32_parameter(struct FwContext *ctx,
                               uint32_t node_id,

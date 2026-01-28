@@ -350,7 +350,6 @@ pub enum FwFactoryNode {
 }
 
 /// Remove a node from the Firewheel context.
-/// Returns 0 on success, -1 on error.
 #[no_mangle]
 pub extern "C" fn fw_node_remove(ctx: *mut FwContext, node_id: u32) -> c_int {
     if let Some(ctx) = unsafe { (ctx as *mut FirewheelCtx<Backend>).as_mut() } {
@@ -387,8 +386,6 @@ pub extern "C" fn fw_node_add(ctx: *mut FwContext, node_type: FwFactoryNode) -> 
 ///
 /// `src_ports` and `dst_ports` are arrays of port indices.
 /// The length of both arrays must be `num_ports`.
-///
-/// Returns 0 on success, -1 on error.
 #[no_mangle]
 pub extern "C" fn fw_node_connect(
     ctx: *mut FwContext,
@@ -423,7 +420,6 @@ pub extern "C" fn fw_node_connect(
 }
 
 /// Set an f32 parameter on a node.
-/// Returns 0 on success, -1 on error.
 #[no_mangle]
 pub extern "C" fn fw_node_set_f32_parameter(
     ctx: *mut FwContext,
@@ -460,7 +456,6 @@ pub extern "C" fn fw_node_set_f32_parameter(
 }
 
 /// Set a u32 parameter on a node.
-/// Returns 0 on success, -1 on error.
 #[no_mangle]
 pub extern "C" fn fw_node_set_u32_parameter(
     ctx: *mut FwContext,
