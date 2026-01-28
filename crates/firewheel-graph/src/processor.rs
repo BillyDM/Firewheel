@@ -165,7 +165,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
     }
 }
 
-pub(crate) struct NodeEntry {
+pub struct NodeEntry {
     pub processor: Box<dyn AudioNodeProcessor>,
     pub prev_output_was_silent: bool,
 
