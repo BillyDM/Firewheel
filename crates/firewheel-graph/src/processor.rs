@@ -172,7 +172,7 @@ pub(crate) struct NodeEntry {
     event_data: NodeEventSchedulerData,
 }
 
-pub(crate) enum ContextToProcessorMsg {
+pub enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
     HardClipOutputs(bool),
