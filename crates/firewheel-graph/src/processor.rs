@@ -192,7 +192,7 @@ pub(crate) enum ProcessorToContextMsg {
 }
 
 #[cfg(feature = "scheduled_events")]
-pub(crate) struct ClearScheduledEventsEvent {
+pub struct ClearScheduledEventsEvent {
     /// If `None`, then clear events for all nodes.
     pub node_id: Option<NodeID>,
     pub event_type: ClearScheduledEventsType,
