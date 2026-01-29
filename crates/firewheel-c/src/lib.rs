@@ -666,10 +666,10 @@ pub unsafe extern "C" fn fw_stream_config_set(
 }
 
 /// Create a list of available audio devices.
+#[cfg(feature = "cpal")]
 #[no_mangle]
 pub extern "C" fn fw_audio_device_list_create(input: bool) -> *mut FwAudioDeviceList {
     let enumerator = Backend::enumerator();
-    #[cfg(feature = "cpal")]
     let devices: Vec<String> = if input {
         enumerator
             .default_host()
@@ -685,7 +685,18 @@ pub extern "C" fn fw_audio_device_list_create(input: bool) -> *mut FwAudioDevice
             .map(|d| d.name.unwrap_or_default())
             .collect()
     };
-    #[cfg(feature = "rtaudio")]
+    let devices: Vec<CString> = devices
+        .into_iter()
+        .map(|d| CString::new(d).unwrap_or_default())
+        .collect();
+    let list = Box::new(devices);
+    Box::into_raw(list) as *mut FwAudioDeviceList
+}
+
+#[cfg(feature = "rtaudio")]
+#[no_mangle]
+pub extern "C" fn fw_audio_device_list_create(input: bool) -> *mut FwAudioDeviceList {
+    let enumerator = Backend::enumerator();
     let devices: Vec<String> = if input {
         enumerator
             .default_api()

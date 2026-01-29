@@ -245,6 +245,8 @@ void fw_stream_config_set(struct FwStreamConfig *config,
  */
 struct FwAudioDeviceList *fw_audio_device_list_create(bool input);
 
+struct FwAudioDeviceList *fw_audio_device_list_create(bool input);
+
 /**
  * Free a list of audio devices.
  */
