@@ -38,6 +38,18 @@ pub struct NodeID(pub thunderdome::Index);
 
 impl NodeID {
     pub const DANGLING: Self = Self(thunderdome::Index::DANGLING);
+
+    pub fn to_bits(self) -> u32 {
+        self.0
+            .to_bits()
+            .try_into()
+            .unwrap_or_else(|_| panic!("Failed to convert node index to C: {:?}", self.0))
+    }
+    pub fn from_bits(bits: u32) -> Self {
+        thunderdome::Index::from_bits(bits as u64)
+            .map(Self)
+            .unwrap_or_else(|| panic!("Failed to convert node index from C: {bits}"))
+    }
 }
 
 impl Default for NodeID {

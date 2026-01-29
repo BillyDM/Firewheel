@@ -1018,7 +1018,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             });
     }
 
-    fn send_message_to_processor(
+    pub fn send_message_to_processor(
         &mut self,
         msg: ContextToProcessorMsg,
     ) -> Result<(), (ContextToProcessorMsg, UpdateError<B::StreamError>)> {
