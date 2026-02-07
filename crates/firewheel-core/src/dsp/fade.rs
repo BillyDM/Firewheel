@@ -3,10 +3,14 @@ use num_traits::Float;
 
 use core::f32::consts::FRAC_PI_2;
 
-use crate::diff::{Diff, Patch};
+use crate::{
+    diff::{Diff, Patch},
+    dsp::volume::{amp_to_db, Volume},
+};
 
 /// The algorithm used to map a normalized crossfade/panning value in the
-/// range `[-1.0, 1.0]` to the corresponding gain values for two inputs.
+/// range `[0.0, 1.0]` or `[-1.0, 1.0]` to the corresponding gain values
+/// for two inputs.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Diff, Patch)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -95,6 +99,28 @@ impl FadeCurve {
                 Self::Linear => ((1.0 - fade), fade),
             }
         }
+    }
+
+    /// Compute the decibel values for both inputs for crossfading.
+    ///
+    /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
+    /// first input, and `1.0` is fully the second input.
+    pub fn crossfade_decibels(&self, fade: f32) -> (f32, f32) {
+        let (a1, a2) = self.compute_gains_0_to_1(fade);
+
+        (amp_to_db(a1), amp_to_db(a2))
+    }
+
+    /// Compute the [`Volume`]s for both inputs for crossfading.
+    ///
+    /// (Both volumes will be of type [`Volume::Decibels`]).
+    ///
+    /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
+    /// first input, and `1.0` is fully the second input.
+    pub fn crossfade_volumes(&self, fade: f32) -> (Volume, Volume) {
+        let (d1, d2) = self.crossfade_decibels(fade);
+
+        (Volume::Decibels(d1), Volume::Decibels(d2))
     }
 
     pub fn from_u32(val: u32) -> Self {
