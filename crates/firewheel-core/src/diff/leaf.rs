@@ -483,3 +483,8 @@ trivial_notify!(glam_29::Vec3);
 trivial_notify!(glam_30::Vec2);
 #[cfg(feature = "glam-30")]
 trivial_notify!(glam_30::Vec3);
+
+#[cfg(feature = "glam-31")]
+trivial_notify!(glam_31::Vec2);
+#[cfg(feature = "glam-31")]
+trivial_notify!(glam_31::Vec3);
