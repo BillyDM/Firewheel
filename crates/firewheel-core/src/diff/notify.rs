@@ -119,7 +119,9 @@ impl<T> core::ops::DerefMut for Notify<T> {
 
 impl<T: Copy> Copy for Notify<T> {}
 
-impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
+impl<T: RealtimeClone + Send + Sync + 'static> Diff
+    for Notify<T>
+{
     fn diff<E: super::EventQueue>(
         &self,
         baseline: &Self,
@@ -127,15 +129,23 @@ impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
         event_queue: &mut E,
     ) {
         if self.counter != baseline.counter {
-            event_queue.push_param(ParamData::any(self.clone()), path);
+            event_queue.push_param(
+                ParamData::any(self.clone()),
+                path,
+            );
         }
     }
 }
 
-impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
+impl<T: RealtimeClone + Send + Sync + 'static> Patch
+    for Notify<T>
+{
     type Patch = Self;
 
-    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
+    fn patch(
+        data: &ParamData,
+        _: &[u32],
+    ) -> Result<Self::Patch, super::PatchError> {
         data.downcast_ref()
             .ok_or(super::PatchError::InvalidData)
             .cloned()
@@ -169,12 +179,20 @@ mod test {
         let mut value = baseline;
 
         let mut events = Vec::new();
-        value.diff(&baseline, PathBuilder::default(), &mut events);
+        value.diff(
+            &baseline,
+            PathBuilder::default(),
+            &mut events,
+        );
         assert_eq!(events.len(), 0);
 
         *value = 0.5f32;
 
-        value.diff(&baseline, PathBuilder::default(), &mut events);
+        value.diff(
+            &baseline,
+            PathBuilder::default(),
+            &mut events,
+        );
         assert_eq!(events.len(), 1);
     }
 }
@@ -231,7 +249,7 @@ mod reflect {
                 bevy_reflect::utility::GenericTypeInfoCell::new();
             CELL.get_or_insert::<Self, _>(|| {
                 bevy_reflect::TypeInfo::Struct(
-                    bevy_reflect::StructInfo::new::<Self>(&[
+                    bevy_reflect::structs::StructInfo::new::<Self>(&[
                         bevy_reflect::NamedField::new::<T>("value").with_custom_attributes(
                             bevy_reflect::attributes::CustomAttributes::default(),
                         ),
@@ -251,7 +269,9 @@ mod reflect {
     extern crate alloc;
     impl<T> bevy_reflect::TypePath for Notify<T>
     where
-        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
+        Notify<T>: ::core::any::Any
+            + ::core::marker::Send
+            + ::core::marker::Sync,
         T: bevy_reflect::TypePath,
     {
         fn type_path() -> &'static str {
@@ -290,7 +310,12 @@ mod reflect {
             Some("Notify")
         }
         fn crate_name() -> Option<&'static str> {
-            Some(::core::module_path!().split(':').next().unwrap())
+            Some(
+                ::core::module_path!()
+                    .split(':')
+                    .next()
+                    .unwrap(),
+            )
         }
         fn module_path() -> Option<&'static str> {
             Some(::core::module_path!())
@@ -340,7 +365,7 @@ mod reflect {
         }
     }
 
-    impl<T> bevy_reflect::Struct for Notify<T>
+    impl<T> bevy_reflect::prelude::Struct for Notify<T>
     where
         Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
         T: Clone
@@ -388,12 +413,12 @@ mod reflect {
             1usize
         }
 
-        fn iter_fields<'a>(&'a self) -> bevy_reflect::FieldIter<'a> {
-            bevy_reflect::FieldIter::new(self)
+        fn iter_fields<'a>(&'a self) -> bevy_reflect::structs::FieldIter<'a> {
+            bevy_reflect::structs::FieldIter::new(self)
         }
 
-        fn to_dynamic_struct(&self) -> bevy_reflect::DynamicStruct {
-            let mut dynamic: bevy_reflect::DynamicStruct = Default::default();
+        fn to_dynamic_struct(&self) -> bevy_reflect::structs::DynamicStruct {
+            let mut dynamic: bevy_reflect::structs::DynamicStruct = Default::default();
             dynamic.set_represented_type(bevy_reflect::PartialReflect::get_represented_type_info(
                 self,
             ));
@@ -428,10 +453,10 @@ mod reflect {
                 bevy_reflect::PartialReflect::reflect_ref(value)
             {
                 for (i, value) in ::core::iter::Iterator::enumerate(
-                    bevy_reflect::Struct::iter_fields(struct_value),
+                    bevy_reflect::prelude::Struct::iter_fields(struct_value),
                 ) {
-                    let name = bevy_reflect::Struct::name_at(struct_value, i).unwrap();
-                    if let Some(v) = bevy_reflect::Struct::field_mut(self, name) {
+                    let name = bevy_reflect::prelude::Struct::name_at(struct_value, i).unwrap();
+                    if let Some(v) = bevy_reflect::prelude::Struct::field_mut(self, name) {
                         bevy_reflect::PartialReflect::try_apply(v, value)?;
                     }
                 }
@@ -497,7 +522,7 @@ mod reflect {
         }
 
         fn reflect_partial_eq(&self, value: &dyn bevy_reflect::PartialReflect) -> Option<bool> {
-            (bevy_reflect::struct_partial_eq)(self, value)
+            (bevy_reflect::structs::struct_partial_eq)(self, value)
         }
 
         #[inline]
@@ -524,7 +549,7 @@ mod reflect {
             {
                 let mut this = <Self as ::core::default::Default>::default();
                 if let Some(field) = (|| {
-                    <T as bevy_reflect::FromReflect>::from_reflect(bevy_reflect::Struct::field(
+                    <T as bevy_reflect::FromReflect>::from_reflect(bevy_reflect::prelude::Struct::field(
                         ref_struct, "value",
                     )?)
                 })() {
