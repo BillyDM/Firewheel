@@ -456,10 +456,7 @@ mod reflect {
             if let bevy_reflect::ReflectRef::Struct(struct_value) =
                 bevy_reflect::PartialReflect::reflect_ref(value)
             {
-                for (i, value) in ::core::iter::Iterator::enumerate(
-                    bevy_reflect::prelude::Struct::iter_fields(struct_value),
-                ) {
-                    let (name, value) = bevy_reflect::prelude::Struct::name_at(struct_value, i).unwrap();
+                for (name, value) in struct_value {
                     if let Some(v) = bevy_reflect::prelude::Struct::field_mut(self, name) {
                         bevy_reflect::PartialReflect::try_apply(v, value)?;
                     }
