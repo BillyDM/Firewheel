@@ -254,6 +254,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
             // the threshold for "completely silent"
 
             // threshold chosen by ear
+            // TODO: double check this
             let threshold = 0.0001;
             if matches!(
                 buffers.check_for_silence_on_outputs(threshold),

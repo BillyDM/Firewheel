@@ -30,6 +30,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
             &mut channels[0].as_mut()[start_frame_in_channels..start_frame_in_channels + samples];
 
         ch.copy_from_slice(interleaved);
+        // TODO: should this silence check use epsilon
 
         if calculate_silence_mask {
             if ch.iter().find(|&&s| s != 0.0).is_none() {
@@ -56,6 +57,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
         }
 
         if calculate_silence_mask {
+            // TODO: should this silence check use epsilon
             for (ch_i, ch) in channels.iter_mut().enumerate() {
                 if ch.as_mut()[0..samples]
                     .iter()
@@ -81,6 +83,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
             {
                 *out_s = in_chunk[ch_i];
             }
+            // TODO: should this silence check use epsilon
 
             if calculate_silence_mask && ch_i < 64 {
                 if ch.iter().find(|&&s| s != 0.0).is_none() {

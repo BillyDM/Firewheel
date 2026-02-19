@@ -505,6 +505,7 @@ pub struct ProcBuffers<'a, 'b> {
     /// Each channel slice will have a length of [`ProcInfo::frames`].
     ///
     /// These buffers may contain junk data.
+    // TODO: This is UB; having references to uninitialized data is not allowed. Use MaybeUninit or raw pointers.
     pub outputs: &'a mut [&'b mut [f32]],
 }
 

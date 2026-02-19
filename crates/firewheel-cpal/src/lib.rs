@@ -835,6 +835,7 @@ struct DataCallback {
     processor: Option<FirewheelProcessor<CpalBackend>>,
     sample_rate: u32,
     sample_rate_recip: f64,
+    // Why are these commented?
     //_first_internal_clock_instant: Option<cpal::StreamInstant>,
     //_prev_stream_instant: Option<cpal::StreamInstant>,
     predicted_delta_time: Duration,
@@ -917,6 +918,7 @@ impl DataCallback {
 
         // TODO: PLEASE FIX ME:
         //
+        // TODO: investigate CPAL
         // It appears that for some reason, both Windows and Linux will sometimes return a timestamp which
         // has a value less than the previous timestamp. I am unsure if this is a bug with the APIs, a bug
         // with CPAL, or I'm just misunderstaning how the timestamps are supposed to be used. Either way,
