@@ -119,9 +119,7 @@ impl<T> core::ops::DerefMut for Notify<T> {
 
 impl<T: Copy> Copy for Notify<T> {}
 
-impl<T: RealtimeClone + Send + Sync + 'static> Diff
-    for Notify<T>
-{
+impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
         &self,
         baseline: &Self,
@@ -129,23 +127,15 @@ impl<T: RealtimeClone + Send + Sync + 'static> Diff
         event_queue: &mut E,
     ) {
         if self.counter != baseline.counter {
-            event_queue.push_param(
-                ParamData::any(self.clone()),
-                path,
-            );
+            event_queue.push_param(ParamData::any(self.clone()), path);
         }
     }
 }
 
-impl<T: RealtimeClone + Send + Sync + 'static> Patch
-    for Notify<T>
-{
+impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
     type Patch = Self;
 
-    fn patch(
-        data: &ParamData,
-        _: &[u32],
-    ) -> Result<Self::Patch, super::PatchError> {
+    fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, super::PatchError> {
         data.downcast_ref()
             .ok_or(super::PatchError::InvalidData)
             .cloned()
@@ -179,20 +169,12 @@ mod test {
         let mut value = baseline;
 
         let mut events = Vec::new();
-        value.diff(
-            &baseline,
-            PathBuilder::default(),
-            &mut events,
-        );
+        value.diff(&baseline, PathBuilder::default(), &mut events);
         assert_eq!(events.len(), 0);
 
         *value = 0.5f32;
 
-        value.diff(
-            &baseline,
-            PathBuilder::default(),
-            &mut events,
-        );
+        value.diff(&baseline, PathBuilder::default(), &mut events);
         assert_eq!(events.len(), 1);
     }
 }
@@ -269,9 +251,7 @@ mod reflect {
     extern crate alloc;
     impl<T> bevy_reflect::TypePath for Notify<T>
     where
-        Notify<T>: ::core::any::Any
-            + ::core::marker::Send
-            + ::core::marker::Sync,
+        Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
         T: bevy_reflect::TypePath,
     {
         fn type_path() -> &'static str {
@@ -310,12 +290,7 @@ mod reflect {
             Some("Notify")
         }
         fn crate_name() -> Option<&'static str> {
-            Some(
-                ::core::module_path!()
-                    .split(':')
-                    .next()
-                    .unwrap(),
-            )
+            Some(::core::module_path!().split(':').next().unwrap())
         }
         fn module_path() -> Option<&'static str> {
             Some(::core::module_path!())
@@ -550,9 +525,9 @@ mod reflect {
             {
                 let mut this = <Self as ::core::default::Default>::default();
                 if let Some(field) = (|| {
-                    <T as bevy_reflect::FromReflect>::from_reflect(bevy_reflect::prelude::Struct::field(
-                        ref_struct, "value",
-                    )?)
+                    <T as bevy_reflect::FromReflect>::from_reflect(
+                        bevy_reflect::prelude::Struct::field(ref_struct, "value")?,
+                    )
                 })() {
                     this.value = field;
                 }
