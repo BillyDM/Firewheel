@@ -181,7 +181,7 @@ impl AudioSystem {
                 // unplugged their headphones.)
                 //
                 // Typically you should start a new stream as soon as
-                // possible to resume processing (event if it's a dummy
+                // possible to resume processing (even if it's a dummy
                 // output device).
                 //
                 // In this example we just quit the application.

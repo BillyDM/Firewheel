@@ -219,8 +219,9 @@ impl ConstantMask {
     pub unsafe fn to_silence_mask_unchecked<V: AsRef<[f32]>>(self, channels: &[V]) -> SilenceMask {
         let mut silence_mask = SilenceMask::NONE_SILENT;
         for (i, ch) in channels.iter().enumerate() {
+            // SAFETY: the caller guarantees all slices are not empty, so they must have at least 1 element.
             let silent =
-                unsafe { self.is_channel_constant(i) && *(ch.as_ref().get_unchecked(0)) == 0.0 };
+                self.is_channel_constant(i) && unsafe { *(ch.as_ref().get_unchecked(0)) == 0.0 };
             silence_mask.set_channel(i, silent);
         }
 

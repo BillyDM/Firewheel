@@ -72,7 +72,7 @@ impl ScopedFtz {
 
             #[cfg(target_arch = "aarch64")]
             {
-                // There are no convient intrinsics to change the FTZ settings on AArch64, so this
+                // There are no convenient intrinsics to change the FTZ settings on AArch64, so this
                 // requires inline assembly:
                 // https://developer.arm.com/documentation/ddi0595/2021-06/AArch64-Registers/FPCR--Floating-point-Control-Register
                 let mut fpcr: u64;

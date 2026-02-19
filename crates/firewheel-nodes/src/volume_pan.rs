@@ -50,7 +50,7 @@ impl VolumePanNode {
     ///
     /// * `volume` - The overall volume.
     /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left,
-    /// and `1.0` is fully right.
+    ///   and `1.0` is fully right.
     pub const fn from_volume_pan(volume: Volume, pan: f32) -> Self {
         Self {
             volume,
@@ -66,7 +66,7 @@ impl VolumePanNode {
     /// The volume will be set to unity gain.
     ///
     /// * `pan` - The pan amount, where `0.0` is center, `-1.0` is fully left,
-    /// and `1.0` is fully right.
+    ///   and `1.0` is fully right.
     pub const fn from_pan(pan: f32) -> Self {
         Self {
             volume: Volume::UNITY_GAIN,

@@ -173,41 +173,41 @@ pub struct AudioNodeInfoInner {
 /// # Audio Node Lifecycle
 ///
 /// 1. The user constructs the node as POD or from a custom constructor method for
-/// that node.
+///    that node.
 /// 2. The user adds the node to the graph using `FirewheelCtx::add_node`. If the
-/// node has any custom configuration, then the user passes that configuration to this
-/// method as well. In this method, the Firewheel context calls [`AudioNode::info`] to
-/// get information about the node. The node can also store any custom state in the
-/// [`AudioNodeInfo`] struct.
+///    node has any custom configuration, then the user passes that configuration to this
+///    method as well. In this method, the Firewheel context calls [`AudioNode::info`] to
+///    get information about the node. The node can also store any custom state in the
+///    [`AudioNodeInfo`] struct.
 /// 3. At this point the user may now call `FirewheelCtx::node_state` and
-/// `FirewheelCtx::node_state_mut` to retrieve the node's custom state.
+///    `FirewheelCtx::node_state_mut` to retrieve the node's custom state.
 /// 4. If [`AudioNodeInfo::call_update_method`] was set to `true`, then
-/// [`AudioNode::update`] will be called every time the Firewheel context updates.
-/// The node's custom state is also accessible in this method.
+///    [`AudioNode::update`] will be called every time the Firewheel context updates.
+///    The node's custom state is also accessible in this method.
 /// 5. When the Firewheel context is ready for the node to start processing data,
-/// it calls [`AudioNode::construct_processor`] to retrieve the realtime
-/// [`AudioNodeProcessor`] counterpart of the node. This processor counterpart is
-/// then sent to the audio thread.
+///    it calls [`AudioNode::construct_processor`] to retrieve the realtime
+///    [`AudioNodeProcessor`] counterpart of the node. This processor counterpart is
+///    then sent to the audio thread.
 /// 6. The Firewheel processor calls [`AudioNodeProcessor::process`] whenever there
-/// is a new block of audio data to process.
-/// > WARNING: Audio nodes *MUST* either completely fill all output buffers
-/// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
-/// Failing to do this will result in audio glitches.
+///    is a new block of audio data to process.
+///    WARNING: Audio nodes *MUST* either completely fill all output buffers
+///    with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
+///    Failing to do this will result in audio glitches.
 /// 7. (Graceful shutdown)
 ///
-///     7a. The Firewheel processor calls [`AudioNodeProcessor::stream_stopped`].
-/// The processor is then sent back to the main thread.
+///    7a. The Firewheel processor calls [`AudioNodeProcessor::stream_stopped`].
+///    The processor is then sent back to the main thread.
 ///
-///     7b. If a new audio stream is started, then the context will call
-/// [`AudioNodeProcessor::new_stream`] on the main thread, and then send the
-/// processor back to the audio thread for processing.
+///    7b. If a new audio stream is started, then the context will call
+///    [`AudioNodeProcessor::new_stream`] on the main thread, and then send the
+///    processor back to the audio thread for processing.
 ///
-///     7c. If the Firewheel context is dropped before a new stream is started, then
-/// both the node and the processor counterpart are dropped.
+///    7c. If the Firewheel context is dropped before a new stream is started, then
+///    both the node and the processor counterpart are dropped.
 /// 8. (Audio thread crashes or stops unexpectedly) - The node's processor counterpart
-/// may or may not be dropped. The user may try to create a new audio stream, in which
-/// case [`AudioNode::construct_processor`] might be called again. If a second processor
-/// instance is not able to be created, then the node may panic.
+///    may or may not be dropped. The user may try to create a new audio stream, in which
+///    case [`AudioNode::construct_processor`] might be called again. If a second processor
+///    instance is not able to be created, then the node may panic.
 pub trait AudioNode {
     /// A type representing this constructor's configuration.
     ///
@@ -225,7 +225,7 @@ pub trait AudioNode {
     ///
     /// * `configuration` - The custom configuration of this node.
     /// * `cx` - A context for interacting with the Firewheel context. This context
-    /// also includes information about the audio stream.
+    ///   also includes information about the audio stream.
     fn construct_processor(
         &self,
         configuration: &Self::Configuration,
@@ -373,7 +373,7 @@ pub trait DynAudioNode {
     /// Construct a realtime processor for this node.
     ///
     /// * `cx` - A context for interacting with the Firewheel context. This context
-    /// also includes information about the audio stream.
+    ///   also includes information about the audio stream.
     fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
