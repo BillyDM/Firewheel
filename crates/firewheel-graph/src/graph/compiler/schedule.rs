@@ -400,7 +400,7 @@ impl CompiledSchedule {
         !self.pre_proc_nodes.is_empty()
     }
 
-    pub fn process<'a, 'b>(
+    pub fn process(
         &mut self,
         frames: usize,
         debug_force_clear_buffers: bool,
@@ -606,7 +606,7 @@ impl CompiledSchedule {
 
 fn sum_inputs(
     inserted_sum: &InsertedSum,
-    buffers: &Vec<f32>,
+    buffers: &[f32],
     buffer_flags: &mut [BufferFlags],
     max_block_frames: usize,
     frames: usize,
@@ -662,12 +662,12 @@ fn sum_inputs(
 
 #[inline]
 #[allow(clippy::mut_from_ref)]
-fn buffer_slice_mut<'a>(
-    buffers: &'a [f32],
+fn buffer_slice_mut(
+    buffers: &[f32],
     buffer_index: usize,
     max_block_frames: usize,
     frames: usize,
-) -> &'a mut [f32] {
+) -> &mut [f32] {
     // SAFETY
     //
     // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]
@@ -697,7 +697,7 @@ fn buffer_slice_mut<'a>(
 }
 
 #[inline]
-fn flag_mut<'a>(buffer_flags: &'a mut [BufferFlags], buffer_index: usize) -> &'a mut BufferFlags {
+fn flag_mut(buffer_flags: &mut [BufferFlags], buffer_index: usize) -> &mut BufferFlags {
     // SAFETY
     //
     // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]

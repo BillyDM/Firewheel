@@ -1,4 +1,4 @@
-use core::{num::NonZeroU32, usize};
+use core::num::NonZeroU32;
 
 use ringbuf::traits::Producer;
 use thunderdome::Arena;
@@ -119,6 +119,7 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
 
 impl<B: AudioBackend> FirewheelProcessorInner<B> {
     /// Note, this method gets called on the main thread, not the audio thread.
+    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
     pub(crate) fn new(
         from_graph_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
         to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,

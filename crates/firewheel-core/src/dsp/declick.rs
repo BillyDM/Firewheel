@@ -163,7 +163,7 @@ impl Declicker {
                     ),
                 };
 
-                let frames_processed = crossfade_buffers(frames_left, values_a, &values_b);
+                let frames_processed = crossfade_buffers(frames_left, values_a, values_b);
 
                 if frames_processed < frames {
                     for (ch_a, ch_b) in buffers_a.iter().zip(buffers_b.iter_mut()) {
@@ -298,17 +298,11 @@ impl Declicker {
     }
 
     pub fn trending_towards_zero(&self) -> bool {
-        match self {
-            Declicker::SettledAt0 | Declicker::FadingTo0 { .. } => true,
-            _ => false,
-        }
+        matches!(self, Declicker::SettledAt0 | Declicker::FadingTo0 { .. })
     }
 
     pub fn trending_towards_one(&self) -> bool {
-        match self {
-            Declicker::SettledAt1 | Declicker::FadingTo1 { .. } => true,
-            _ => false,
-        }
+        matches!(self, Declicker::SettledAt1 | Declicker::FadingTo1 { .. })
     }
 
     pub fn frames_left(&self) -> usize {

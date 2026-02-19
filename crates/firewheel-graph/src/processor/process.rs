@@ -185,6 +185,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             .num_pre_process_frames(block_frames, clock_samples_range)
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
     fn process_block(
         &mut self,
         block_frames: usize,
@@ -301,7 +302,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
                                 node_entry
                                     .processor
-                                    .process(&info, sub_proc_buffers, events, extra)
+                                    .process(info, sub_proc_buffers, events, extra)
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -327,7 +328,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
                                 node_entry
                                     .processor
-                                    .process(&info, sub_proc_buffers, events, extra)
+                                    .process(info, sub_proc_buffers, events, extra)
                             }
                         };
 

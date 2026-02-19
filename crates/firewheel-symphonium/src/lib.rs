@@ -171,7 +171,7 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
             resample_quality,
             None,
         )
-        .map(|d| DecodedAudio(d))
+        .map(DecodedAudio)
 }
 
 /// A helper method to load an audio file from a custom source using Symphonium.
@@ -205,7 +205,7 @@ pub fn load_audio_file_from_source(
             resample_quality,
             None,
         )
-        .map(|d| DecodedAudio(d))
+        .map(DecodedAudio)
 }
 
 /// A helper method to load an audio file from a path using Symphonium. This

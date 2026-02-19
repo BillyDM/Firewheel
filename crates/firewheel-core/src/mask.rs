@@ -1,4 +1,4 @@
-use core::{ops::Range, u64};
+use core::ops::Range;
 
 /// An optional optimization hint on which channels contain all
 /// zeros (silence). The first bit (`0x1`) is the first channel,
@@ -69,7 +69,7 @@ impl SilenceMask {
         if range.start >= 64 {
             false
         } else if range.end >= 64 {
-            let mask = u64::MAX & !((0b1 << range.start) - 1);
+            let mask = !((0b1 << range.start) - 1);
             self.0 & mask == mask
         } else {
             let mask = ((0b1 << range.end) - 1) & !((0b1 << range.start) - 1);
@@ -173,7 +173,7 @@ impl ConstantMask {
         if range.start >= 64 {
             false
         } else if range.end >= 64 {
-            let mask = u64::MAX & !((0b1 << range.start) - 1);
+            let mask = !((0b1 << range.start) - 1);
             self.0 & mask == mask
         } else {
             let mask = ((0b1 << range.end) - 1) & !((0b1 << range.start) - 1);

@@ -201,19 +201,15 @@ impl MixDSP {
 
             self.gain_0.settle();
             self.gain_1.settle();
+        } else if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
+            // Simply copy first signal to output.
+            second.copy_from_slice(first);
+        } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999 {
+            // Signal is already fully second
         } else {
-            if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
-                // Simply copy first signal to output.
-                second.copy_from_slice(first);
-            } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999
-            {
-                // Signal is already fully second
-                return;
-            } else {
-                for (first_s, second_s) in first.iter().zip(second.iter_mut()) {
-                    *second_s = first_s * self.gain_0.target_value()
-                        + *second_s * self.gain_1.target_value();
-                }
+            for (first_s, second_s) in first.iter().zip(second.iter_mut()) {
+                *second_s =
+                    first_s * self.gain_0.target_value() + *second_s * self.gain_1.target_value();
             }
         }
     }
@@ -242,22 +238,18 @@ impl MixDSP {
 
             self.gain_0.settle();
             self.gain_1.settle();
+        } else if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
+            // Simply copy first signal to output.
+            second_l.copy_from_slice(first_l);
+            second_r.copy_from_slice(first_r);
+        } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999 {
+            // Signal is already fully second
         } else {
-            if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
-                // Simply copy first signal to output.
-                second_l.copy_from_slice(first_l);
-                second_r.copy_from_slice(first_r);
-            } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999
-            {
-                // Signal is already fully second
-                return;
-            } else {
-                for i in 0..frames {
-                    second_l[i] = first_l[i] * self.gain_0.target_value()
-                        + second_l[i] * self.gain_1.target_value();
-                    second_r[i] = first_r[i] * self.gain_0.target_value()
-                        + second_r[i] * self.gain_1.target_value();
-                }
+            for i in 0..frames {
+                second_l[i] = first_l[i] * self.gain_0.target_value()
+                    + second_l[i] * self.gain_1.target_value();
+                second_r[i] = first_r[i] * self.gain_0.target_value()
+                    + second_r[i] * self.gain_1.target_value();
             }
         }
     }
@@ -302,25 +294,21 @@ impl MixDSP {
 
             self.gain_0.settle();
             self.gain_1.settle();
+        } else if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
+            // Simply copy input 0 to output.
+            for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
+                second_ch.as_mut()[..frames].copy_from_slice(&first_ch.as_ref()[..frames]);
+            }
+        } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999 {
+            // Signal is already fully second
         } else {
-            if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
-                // Simply copy input 0 to output.
-                for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
-                    second_ch.as_mut()[..frames].copy_from_slice(&first_ch.as_ref()[..frames]);
-                }
-            } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999
-            {
-                // Signal is already fully second
-                return;
-            } else {
-                for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
-                    for (&first_s, second_s) in first_ch.as_ref()[..frames]
-                        .iter()
-                        .zip(second_ch.as_mut()[..frames].iter_mut())
-                    {
-                        *second_s = first_s * self.gain_0.target_value()
-                            + *second_s * self.gain_1.target_value();
-                    }
+            for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
+                for (&first_s, second_s) in first_ch.as_ref()[..frames]
+                    .iter()
+                    .zip(second_ch.as_mut()[..frames].iter_mut())
+                {
+                    *second_s = first_s * self.gain_0.target_value()
+                        + *second_s * self.gain_1.target_value();
                 }
             }
         }

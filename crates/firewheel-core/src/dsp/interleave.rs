@@ -31,10 +31,8 @@ pub fn deinterleave<V: AsMut<[f32]>>(
 
         ch.copy_from_slice(interleaved);
 
-        if calculate_silence_mask {
-            if ch.iter().find(|&&s| s != 0.0).is_none() {
-                silence_mask.set_channel(0, true);
-            }
+        if calculate_silence_mask && ch.iter().all(|&s| s == 0.0) {
+            silence_mask.set_channel(0, true);
         }
 
         (1, samples)
@@ -57,11 +55,7 @@ pub fn deinterleave<V: AsMut<[f32]>>(
 
         if calculate_silence_mask {
             for (ch_i, ch) in channels.iter_mut().enumerate() {
-                if ch.as_mut()[0..samples]
-                    .iter()
-                    .find(|&&s| s != 0.0)
-                    .is_none()
-                {
+                if ch.as_mut()[0..samples].iter().all(|&s| s == 0.0) {
                     silence_mask.set_channel(ch_i, true);
                 }
             }
@@ -82,10 +76,8 @@ pub fn deinterleave<V: AsMut<[f32]>>(
                 *out_s = in_chunk[ch_i];
             }
 
-            if calculate_silence_mask && ch_i < 64 {
-                if ch.iter().find(|&&s| s != 0.0).is_none() {
-                    silence_mask.set_channel(ch_i, true);
-                }
+            if calculate_silence_mask && ch_i < 64 && ch.iter().all(|&s| s == 0.0) {
+                silence_mask.set_channel(ch_i, true);
             }
 
             num_filled_channels += 1;
@@ -121,11 +113,9 @@ pub fn interleave<V: AsRef<[f32]>>(
     }
 
     if let Some(silence_mask) = silence_mask {
-        if channels.len() <= 64 {
-            if silence_mask.all_channels_silent(channels.len()) {
-                interleaved.fill(0.0);
-                return;
-            }
+        if channels.len() <= 64 && silence_mask.all_channels_silent(channels.len()) {
+            interleaved.fill(0.0);
+            return;
         }
     }
 
@@ -172,10 +162,8 @@ pub fn interleave<V: AsRef<[f32]>>(
 
     for (ch_i, ch) in (0..num_interleaved_channels).zip(channels.iter()) {
         if let Some(silence_mask) = silence_mask {
-            if ch_i < 64 {
-                if silence_mask.is_channel_silent(ch_i) {
-                    continue;
-                }
+            if ch_i < 64 && silence_mask.is_channel_silent(ch_i) {
+                continue;
             }
         }
 

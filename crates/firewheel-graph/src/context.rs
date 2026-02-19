@@ -169,6 +169,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
 
     active_state: Option<ActiveState<B>>,
 
+    #[expect(clippy::type_complexity, reason = "TODO")]
     processor_channel: Option<(
         ringbuf::HeapCons<ContextToProcessorMsg>,
         ringbuf::HeapProd<ProcessorToContextMsg>,
@@ -348,7 +349,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         }
 
         let (mut backend_handle, mut stream_info) =
-            B::start_stream(config).map_err(|e| StartStreamError::BackendError(e))?;
+            B::start_stream(config).map_err(StartStreamError::BackendError)?;
 
         stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
         stream_info.declick_frames = NonZeroU32::new(
@@ -404,7 +405,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
 
-        if let Err(_) = self.send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
+        if self
+            .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
+            .is_err()
         {
             panic!("Firewheel message channel is full!");
         }
@@ -461,7 +464,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let update_instant = audio_clock_update_instant_and_delay(&clock, &self.active_state)
+        let update_instant = audio_clock_update_instant_and_delay(clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant);
 
         AudioClock {
@@ -505,7 +508,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let clock = clock_borrowed.read();
 
         let Some((update_instant, delay)) =
-            audio_clock_update_instant_and_delay(&clock, &self.active_state)
+            audio_clock_update_instant_and_delay(clock, &self.active_state)
         else {
             // The audio thread is not currently running, so just return the
             // latest value of the clock.
@@ -571,7 +574,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        audio_clock_update_instant_and_delay(&clock, &self.active_state)
+        audio_clock_update_instant_and_delay(clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant)
     }
 
@@ -843,12 +846,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get a list of all the existing nodes in the graph.
-    pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry> {
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeEntry> {
         self.graph.nodes()
     }
 
     /// Get a list of all the existing edges in the graph.
-    pub fn edges<'a>(&'a self) -> impl Iterator<Item = &'a Edge> {
+    pub fn edges(&self) -> impl Iterator<Item = &Edge> {
         self.graph.edges()
     }
 

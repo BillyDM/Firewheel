@@ -155,12 +155,9 @@ impl RealtimeLogger {
             slot.push_str(message);
 
             let _ = self.debug_prod.try_push(slot);
-
-            return Ok(());
         }
 
-        #[cfg(not(debug_assertions))]
-        return Ok(());
+        Ok(())
     }
 
     /// Log a debug message into the given string.
@@ -188,12 +185,9 @@ impl RealtimeLogger {
             (f)(&mut slot);
 
             let _ = self.debug_prod.try_push(slot);
-
-            return Ok(());
         }
 
-        #[cfg(not(debug_assertions))]
-        return Ok(());
+        Ok(())
     }
 
     /// Log the given error message.
@@ -280,12 +274,12 @@ impl RealtimeLoggerMainThread {
         #[cfg(debug_assertions)]
         for slot in self.debug_cons.pop_iter() {
             (log_debug)(&slot);
-            let _ = self.debug_prod.try_push(slot).unwrap();
+            self.debug_prod.try_push(slot).unwrap();
         }
 
         for slot in self.error_cons.pop_iter() {
             (log_error)(&slot);
-            let _ = self.error_prod.try_push(slot).unwrap();
+            self.error_prod.try_push(slot).unwrap();
         }
     }
 }

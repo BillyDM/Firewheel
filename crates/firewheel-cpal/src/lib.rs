@@ -3,7 +3,6 @@ use core::{
     num::{NonZeroU32, NonZeroUsize},
     str::FromStr,
     time::Duration,
-    u32,
 };
 use std::sync::mpsc;
 
@@ -139,7 +138,7 @@ impl Default for CpalInputConfig {
 }
 
 /// The configuration of a CPAL stream.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CpalConfig {
     /// The configuration of the output stream.
     pub output: CpalOutputConfig,
@@ -150,15 +149,6 @@ pub struct CpalConfig {
     ///
     /// By default this is set to `None`.
     pub input: Option<CpalInputConfig>,
-}
-
-impl Default for CpalConfig {
-    fn default() -> Self {
-        Self {
-            output: CpalOutputConfig::default(),
-            input: None,
-        }
-    }
 }
 
 /// A struct used to retrieve the list of available audio devices
@@ -491,24 +481,20 @@ impl AudioBackend for CpalBackend {
         if config.output.desired_sample_rate.is_some() || try_common_sample_rates {
             for cpal_config in out_device.supported_output_configs()? {
                 if let Some(sr) = config.output.desired_sample_rate {
-                    if !supports_desired_sample_rate {
-                        if cpal_config.try_with_sample_rate(sr).is_some() {
-                            supports_desired_sample_rate = true;
-                            break;
-                        }
+                    if !supports_desired_sample_rate
+                        && cpal_config.try_with_sample_rate(sr).is_some()
+                    {
+                        supports_desired_sample_rate = true;
+                        break;
                     }
                 }
 
                 if try_common_sample_rates {
                     if !supports_44100 {
-                        if cpal_config.try_with_sample_rate(44100).is_some() {
-                            supports_44100 = true;
-                        }
+                        supports_44100 = cpal_config.try_with_sample_rate(44100).is_some();
                     }
                     if !supports_48000 {
-                        if cpal_config.try_with_sample_rate(48000).is_some() {
-                            supports_48000 = true;
-                        }
+                        supports_48000 = cpal_config.try_with_sample_rate(48000).is_some();
                     }
                 }
             }
@@ -637,9 +623,10 @@ impl AudioBackend for CpalBackend {
     }
 
     fn set_processor(&mut self, processor: FirewheelProcessor<Self>) {
-        if let Err(_) = self
+        if self
             .to_stream_tx
             .try_push(CtxToStreamMsg::NewProcessor(processor))
+            .is_err()
         {
             panic!("Failed to send new processor to cpal stream");
         }
@@ -1020,7 +1007,6 @@ impl DataCallback {
             );
         } else {
             output.fill(0.0);
-            return;
         }
     }
 }
