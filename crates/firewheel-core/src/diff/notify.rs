@@ -428,6 +428,10 @@ mod reflect {
             );
             dynamic
         }
+
+        fn index_of_name(&self, name: &str) -> Option<usize> {
+            todo!("index_of_name is a new function");
+        }
     }
 
     impl<T> bevy_reflect::PartialReflect for Notify<T>
@@ -455,7 +459,7 @@ mod reflect {
                 for (i, value) in ::core::iter::Iterator::enumerate(
                     bevy_reflect::prelude::Struct::iter_fields(struct_value),
                 ) {
-                    let name = bevy_reflect::prelude::Struct::name_at(struct_value, i).unwrap();
+                    let (name, value) = bevy_reflect::prelude::Struct::name_at(struct_value, i).unwrap();
                     if let Some(v) = bevy_reflect::prelude::Struct::field_mut(self, name) {
                         bevy_reflect::PartialReflect::try_apply(v, value)?;
                     }
