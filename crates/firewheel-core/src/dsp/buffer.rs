@@ -6,7 +6,8 @@ use arrayvec::ArrayVec;
 use bevy_platform::prelude::Vec;
 
 /// A memory-efficient buffer of samples with `CHANNELS` channels. Each channel
-/// has a length of `frames`.
+/// has a length of `frames`. `T` is the backing type of the storage, typically f32.
+/// This is like a [`VarChannelBuffer`] but guarantees all `MAX_CHANNELS` are present.
 #[derive(Debug)]
 pub struct ChannelBuffer<T: Clone + Copy + Default, const CHANNELS: usize> {
     buffer: Vec<T>,
@@ -270,7 +271,9 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> Clone for ChannelBuffer<T
 }
 
 /// A memory-efficient buffer of samples with up to `MAX_CHANNELS` channels. Each
-/// channel has a length of `frames`.
+/// channel has a length of `frames`. `T` is the backing type of the storage, typically f32.
+/// This is like a [`ChannelBuffer`] but does not guarantee all `MAX_CHANNELS` are present.
+/// There is only at least one channel, and the number of channels is immutable once constructed.
 #[derive(Debug)]
 pub struct VarChannelBuffer<T: Clone + Copy + Default, const MAX_CHANNELS: usize> {
     buffer: Vec<T>,
@@ -303,6 +306,9 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         self.channels
     }
 
+    /// Returns a vec of slices to the first `frames` frames of the backing buffers
+    /// for the first `num_channels` channels present.
+    /// Clamps `num_channels` and `frames` to the available data.
     pub fn channels(&self, num_channels: usize, frames: usize) -> ArrayVec<&[T], MAX_CHANNELS> {
         let frames = frames.min(self.frames);
         let channels = num_channels.min(self.channels.get());
@@ -327,6 +333,9 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> VarChannelBuffer<T, M
         res
     }
 
+    /// Returns a vec of mutable slices to the first `frames` frames of the backing buffers
+    /// for the first `num_channels` channels present.
+    /// Clamps `num_channels` and `frames` to the available data.
     pub fn channels_mut(
         &mut self,
         num_channels: usize,
@@ -371,6 +380,9 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> Clone
 
 /// A memory-efficient buffer of samples with variable number of instances each with up to
 /// `MAX_CHANNELS` channels. Each channel has a length of `frames`.
+/// `T` is the backing type of the storage, typically f32.
+/// This is like a collection of `num_instances` [`VarChannelBuffer`]s but contiguous in memory.
+/// Instances may not be added or removed once constructed.
 #[derive(Debug)]
 pub struct InstanceBuffer<T: Clone + Copy + Default, const MAX_CHANNELS: usize> {
     buffer: Vec<T>,
@@ -409,6 +421,10 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         self.num_instances
     }
 
+    /// Returns a vec of slices to the first `frames` frames of the backing buffers
+    /// for the first `num_channels` channels present of the instance at `instance_index`.
+    /// Clamps `num_channels` and `frames` to the available data.
+    /// Returns None if there is no instance at `instance_index`.
     pub fn instance(
         &self,
         instance_index: usize,
@@ -444,6 +460,10 @@ impl<T: Clone + Copy + Default, const MAX_CHANNELS: usize> InstanceBuffer<T, MAX
         Some(res)
     }
 
+    /// Returns a vec of mutable slices to the first `frames` frames of the backing buffers
+    /// for the first `num_channels` channels present of the instance at `instance_index`.
+    /// Clamps `num_channels` and `frames` to the available data.
+    /// Returns None if there is no instance at `instance_index`.
     pub fn instance_mut(
         &mut self,
         instance_index: usize,

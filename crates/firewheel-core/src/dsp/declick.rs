@@ -110,8 +110,8 @@ impl Declicker {
         *self = Self::SettledAt1;
     }
 
-    /// Crossfade between the two buffers, where `DeclickValues::SettledAt0` is fully
-    /// `buffers_a`, and `DeclickValues::SettledAt1` is fully `buffers_b`.
+    /// Crossfade between the two buffers, where [`Declicker::SettledAt0`] is fully
+    /// `buffers_a`, and [`Declicker::SettledAt1`] is fully `buffers_b`.
     pub fn process_crossfade<VA: AsRef<[f32]>, VB: AsMut<[f32]>>(
         &mut self,
         buffers_a: &[VA],

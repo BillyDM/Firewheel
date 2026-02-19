@@ -47,7 +47,7 @@ log = ["dep:log"]
 # likely just be audio glitches, not memory safety issues.
 #
 # Note, performance issues due to denormal numbers only effect x86 targets (ARM,
-# WASM, and RISC-V targets are all uneffected by denormal numbers).
+# WASM, and RISC-V targets are all unaffected by denormal numbers).
 #
 # For more information on why this is considered undefined behavior, see:
 # https://doc.rust-lang.org/core/arch/x86_64/fn._mm_setcsr.html

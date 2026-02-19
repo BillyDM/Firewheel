@@ -79,7 +79,7 @@ Firewheel is a large library with a lot of rust-isms (enums, traits, generics, a
 
 While Firewheel is meant to cover nearly every use case for games and generic applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engine and DAW audio engine are in conflict*.
 
-> \* This conflict arises in how state is expected to be synchronized between the user's state and the state of the processor. In a DAW, the state is tied to the state of the "transport", and the host is allowed to discard any user-generated parameter update events that conflict with this transport state (or vice versa). However, in a game engine and other generic applications, the user's state can dynamically change at any time. So to avoid the processor state from becoming desynchronized with the user's state, parameter update events are only allowed to come from a single source (the user), and are gauranteed to not be discarded by the engine.
+> \* This conflict arises in how state is expected to be synchronized between the user's state and the state of the processor. In a DAW, the state is tied to the state of the "transport", and the host is allowed to discard any user-generated parameter update events that conflict with this transport state (or vice versa). However, in a game engine and other generic applications, the user's state can dynamically change at any time. So to avoid the processor state from becoming desynchronized with the user's state, parameter update events are only allowed to come from a single source (the user), and are guaranteed to not be discarded by the engine.
 
 * MIDI on the audio-graph level (It will still be possible to create a custom sampler/synthesizer nodes that read MIDI files as input.)
     * EDIT: There is now a similar way to achieve this using the `ProcStore`.
@@ -140,7 +140,7 @@ Usage of the clock works like this:
 
 ### Sample clock
 
-The works the same as `Seconds Clock`, except it simply counts the total number of samples that have been processed since the stream was started. The is very accurate, but it does not correctly account for any output underflows that may occur.
+This works the same as `Seconds Clock`, except it simply counts the total number of samples that have been processed since the stream was started. The is very accurate, but it does not correctly account for any output underflows that may occur.
 
 ### Musical Clock
 

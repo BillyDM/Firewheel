@@ -30,13 +30,13 @@ pub trait SampleResource: SampleResourceInfo {
     /// starting frame in the resource.
     ///
     /// * `buffers` - The buffers to fill with data. If the length of `buffers`
-    /// is greater than the number of channels in this resource, then ignore
-    /// the extra buffers.
+    ///   is greater than the number of channels in this resource, then ignore
+    ///   the extra buffers.
     /// * `buffer_range` - The range inside each buffer slice in which to
-    /// fill with data. Do not fill any data outside of this range.
+    ///   fill with data. Do not fill any data outside of this range.
     /// * `start_frame` - The sample (of a single channel of audio) in the
-    /// resource at which to start copying from. Not to be confused with video
-    /// frames.
+    ///   resource at which to start copying from. Not to be confused with video
+    ///   frames.
     fn fill_buffers(
         &self,
         buffers: &mut [&mut [f32]],

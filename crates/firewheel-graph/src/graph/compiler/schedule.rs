@@ -670,14 +670,14 @@ fn buffer_slice_mut<'a>(
 ) -> &'a mut [f32] {
     // SAFETY
     //
-    // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]
+    // `buffer_index` is guaranteed to be valid because [`BufferAllocator`]
     // correctly counts the total number of buffers used, and therefore
-    // `b.buffer_index` is gauranteed to be less than the value of
+    // `b.buffer_index` is guaranteed to be less than the value of
     // `num_buffers` that was passed into [`CompiledSchedule::new`].
     //
     // The methods calling this function make sure that `frames <= max_block_frames`,
     // and `buffers` was initialized with a length of `num_buffers * max_block_frames`
-    // in the constructor. And because `buffer_index` is gauranteed to be less than
+    // in the constructor. And because `buffer_index` is guaranteed to be less than
     // `num_buffers`, this slice will always point to a valid range.
     //
     // Due to the way [`GraphIR::solve_buffer_requirements`] works, no
@@ -700,9 +700,9 @@ fn buffer_slice_mut<'a>(
 fn flag_mut<'a>(buffer_flags: &'a mut [BufferFlags], buffer_index: usize) -> &'a mut BufferFlags {
     // SAFETY
     //
-    // `buffer_index` is gauranteed to be valid because [`BufferAllocator`]
+    // `buffer_index` is guaranteed to be valid because [`BufferAllocator`]
     // correctly counts the total number of buffers used, and therefore
-    // `b.buffer_index` is gauranteed to be less than the value of
+    // `b.buffer_index` is guaranteed to be less than the value of
     // `num_buffers` that was passed into [`CompiledSchedule::new`].
     unsafe { buffer_flags.get_unchecked_mut(buffer_index) }
 }

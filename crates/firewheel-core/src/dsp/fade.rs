@@ -40,7 +40,7 @@ impl FadeCurve {
     /// Compute the raw gain values for both inputs.
     ///
     /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
-    /// first input, and `1.0` is fully the second input.
+    ///   first input, and `1.0` is fully the second input.
     pub fn compute_gains_0_to_1(&self, fade: f32) -> (f32, f32) {
         if fade <= 0.00001 {
             (1.0, 0.0)
@@ -71,7 +71,7 @@ impl FadeCurve {
     /// Compute the raw gain values for both inputs.
     ///
     /// * `fade` - The fade amount, where `0.0` is center, `-1.0` is fully the
-    /// first input, and `1.0` is fully the second input.
+    ///   first input, and `1.0` is fully the second input.
     pub fn compute_gains_neg1_to_1(&self, fade: f32) -> (f32, f32) {
         if fade <= -0.99999 {
             (1.0, 0.0)
@@ -104,7 +104,7 @@ impl FadeCurve {
     /// Compute the decibel values for both inputs for crossfading.
     ///
     /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
-    /// first input, and `1.0` is fully the second input.
+    ///   first input, and `1.0` is fully the second input.
     pub fn crossfade_decibels(&self, fade: f32) -> (f32, f32) {
         let (a1, a2) = self.compute_gains_0_to_1(fade);
 
@@ -116,7 +116,7 @@ impl FadeCurve {
     /// (Both volumes will be of type [`Volume::Decibels`]).
     ///
     /// * `fade` - The fade amount, where `0.5` is center, `0.0` is fully the
-    /// first input, and `1.0` is fully the second input.
+    ///   first input, and `1.0` is fully the second input.
     pub fn crossfade_volumes(&self, fade: f32) -> (Volume, Volume) {
         let (d1, d2) = self.crossfade_decibels(fade);
 

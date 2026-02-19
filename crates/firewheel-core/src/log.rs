@@ -165,7 +165,7 @@ impl RealtimeLogger {
 
     /// Log a debug message into the given string.
     ///
-    /// This string is gauranteed to be empty and have an allocated capacity
+    /// This string is guaranteed to be empty and have an allocated capacity
     /// of at least [`RealtimeLogger::max_message_length`].
     ///
     /// *NOTE*, avoid using this method in the final release of your node.
@@ -222,7 +222,7 @@ impl RealtimeLogger {
 
     /// Log an error message into the given string.
     ///
-    /// This string is gauranteed to be empty and have an allocated capacity
+    /// This string is guaranteed to be empty and have an allocated capacity
     /// of at least [`RealtimeLogger::max_message_length`].
     pub fn try_error_with(&mut self, f: impl FnOnce(&mut String)) -> Result<(), RealtimeLogError> {
         let Some(mut slot) = self.error_cons.try_pop() else {

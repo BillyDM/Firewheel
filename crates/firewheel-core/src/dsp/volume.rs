@@ -318,8 +318,8 @@ impl DbMeterNormalizer {
     /// * `min_db` - The minimum decibel value shown in the meter.
     /// * `max_db` - The maximum decibel value shown in the meter.
     /// * `center_db` - The decibel value that will appear halfway (0.5) in the
-    /// normalized range. For example, if you had `min_db` as `-100.0` and
-    /// `max_db` as `0.0`, then a good `center_db` value would be `-22`.
+    ///   normalized range. For example, if you had `min_db` as `-100.0` and
+    ///   `max_db` as `0.0`, then a good `center_db` value would be `-22`.
     pub fn new(min_db: f32, max_db: f32, center_db: f32) -> Self {
         assert!(max_db > min_db);
         assert!(center_db > min_db && center_db < max_db);

@@ -867,13 +867,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// * `src_node` - The ID of the source node.
     /// * `dst_node` - The ID of the destination node.
     /// * `ports_src_dst` - The port indices for each connection to make,
-    /// where the first value in a tuple is the output port on `src_node`,
-    /// and the second value in that tuple is the input port on `dst_node`.
+    ///   where the first value in a tuple is the output port on `src_node`,
+    ///   and the second value in that tuple is the input port on `dst_node`.
     /// * `check_for_cycles` - If `true`, then this will run a check to
-    /// see if adding these edges will create a cycle in the graph, and
-    /// return an error if it does. Note, checking for cycles can be quite
-    /// expensive, so avoid enabling this when calling this method many times
-    /// in a row.
+    ///   see if adding these edges will create a cycle in the graph, and
+    ///   return an error if it does. Note, checking for cycles can be quite
+    ///   expensive, so avoid enabling this when calling this method many times
+    ///   in a row.
     ///
     /// If successful, then this returns a list of edge IDs in order.
     ///
@@ -895,8 +895,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// * `src_node` - The ID of the source node.
     /// * `dst_node` - The ID of the destination node.
     /// * `ports_src_dst` - The port indices for each connection to make,
-    /// where the first value in a tuple is the output port on `src_node`,
-    /// and the second value in that tuple is the input port on `dst_node`.
+    ///   where the first value in a tuple is the output port on `src_node`,
+    ///   and the second value in that tuple is the input port on `dst_node`.
     ///
     /// If none of the edges existed in the graph, then `false` will be
     /// returned.

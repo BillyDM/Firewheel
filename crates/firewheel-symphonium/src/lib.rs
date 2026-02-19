@@ -150,12 +150,12 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
 /// * `loader` - The symphonium loader.
 /// * `path`` - The path to the audio file stored on disk.
 /// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
-/// the given target sample rate. (No resampling will occur if the audio file's sample rate
-/// is already the target sample rate). If this is `None`, then the file will not be
-/// resampled and stay its original sample rate.
+///   the given target sample rate. (No resampling will occur if the audio file's sample rate
+///   is already the target sample rate). If this is `None`, then the file will not be
+///   resampled and stay its original sample rate.
 /// * `resample_quality` - The quality of the resampler to use if the sample rate of the
-/// audio file doesn't match the `target_sample_rate`. This has no effect if
-/// `target_sample_rate` is `None`.
+///   audio file doesn't match the `target_sample_rate`. This has no effect if
+///   `target_sample_rate` is `None`.
 pub fn load_audio_file<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
@@ -180,12 +180,12 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
 /// * `source` - The audio source which implements the [`MediaSource`] trait.
 /// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
 /// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
-/// the given target sample rate. (No resampling will occur if the audio file's sample rate
-/// is already the target sample rate). If this is `None`, then the file will not be
-/// resampled and stay its original sample rate.
+///   the given target sample rate. (No resampling will occur if the audio file's sample rate
+///   is already the target sample rate). If this is `None`, then the file will not be
+///   resampled and stay its original sample rate.
 /// * `resample_quality` - The quality of the resampler to use if the sample rate of the
-/// audio file doesn't match the `target_sample_rate`. This has no effect if
-/// `target_sample_rate` is `None`.
+///   audio file doesn't match the `target_sample_rate`. This has no effect if
+///   `target_sample_rate` is `None`.
 ///
 /// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
 pub fn load_audio_file_from_source(
