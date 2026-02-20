@@ -143,6 +143,8 @@ glam-29 = ["firewheel-core/glam-29"]
 glam-30 = ["firewheel-core/glam-30"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.31.
 glam-31 = ["firewheel-core/glam-31"]
+# Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.32.
+glam-32 = ["firewheel-core/glam-32"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["firewheel-core/midi_events"]
 # Enables serde derives for types
@@ -250,3 +252,20 @@ criterion = "0.7"
 [[bench]]
 name = "core"
 harness = false
+
+
+[patch."crates-io"]
+firewheel = { git = "https://github.com/ChristopherBiscardi/Firewheel", branch = "chris-0.19" }
+firewheel-ircam-hrtf = { git = "https://github.com/ChristopherBiscardi/firewheel-ircam-hrtf", branch = "chris-0.19" }
+bevy_time = { git = "https://github.com/bevyengine/bevy" }
+bevy_transform = { git = "https://github.com/bevyengine/bevy" }
+bevy = { git = "https://github.com/bevyengine/bevy" }
+bevy_app = { git = "https://github.com/bevyengine/bevy" }
+bevy_asset = { git = "https://github.com/bevyengine/bevy" }
+bevy_ecs = { git = "https://github.com/bevyengine/bevy" }
+bevy_log = { git = "https://github.com/bevyengine/bevy" }
+bevy_math = { git = "https://github.com/bevyengine/bevy" }
+bevy_platform = { git = "https://github.com/bevyengine/bevy" }
+bevy_reflect = { git = "https://github.com/bevyengine/bevy" }
+bevy_macro_utils = { git = "https://github.com/bevyengine/bevy" }
+rtgc = { git = "https://codeberg.org/chrisbiscardi/rtgc", branch = "chris-0.19" }
