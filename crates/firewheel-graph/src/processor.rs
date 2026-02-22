@@ -10,13 +10,13 @@ use firewheel_core::{
     clock::InstantSamples,
     dsp::{buffer::ChannelBuffer, declick::DeclickValues},
     event::{NodeEvent, ProcEventsIndex},
-    log::RealtimeLogger,
-    node::{AudioNodeProcessor, ProcExtra, ProcStore},
+    node::{AudioNodeProcessor, ProcExtra},
     StreamInfo,
 };
 
 use crate::{
     backend::{AudioBackend, BackendProcessInfo},
+    context::ProcessorChannel,
     graph::ScheduleHeapData,
     processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
 };
@@ -119,26 +119,28 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
 
 impl<B: AudioBackend> FirewheelProcessorInner<B> {
     /// Note, this method gets called on the main thread, not the audio thread.
-    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
     pub(crate) fn new(
-        from_graph_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
-        to_graph_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
-        shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
+        proc_channel: ProcessorChannel<B>,
         immediate_event_buffer_capacity: usize,
         #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
         node_event_buffer_capacity: usize,
         stream_info: &StreamInfo,
         hard_clip_outputs: bool,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
-        logger: RealtimeLogger,
         debug_force_clear_buffers: bool,
-        store: ProcStore,
     ) -> Self {
+        let ProcessorChannel {
+            from_context_rx,
+            to_context_tx,
+            shared_clock_input,
+            logger,
+            store,
+        } = proc_channel;
         Self {
             nodes: Arena::new(),
             schedule_data: None,
-            from_graph_rx,
-            to_graph_tx,
+            from_graph_rx: from_context_rx,
+            to_graph_tx: to_context_tx,
             event_scheduler: EventScheduler::new(
                 immediate_event_buffer_capacity,
                 #[cfg(feature = "scheduled_events")]
