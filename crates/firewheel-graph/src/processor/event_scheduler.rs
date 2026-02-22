@@ -546,6 +546,7 @@ impl EventScheduler {
 
     /// Process in sub-chunks for each new scheduled event (or process a single
     /// chunk if there are no scheduled events).
+    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
     pub fn process_node(
         &mut self,
         node_id: NodeID,

@@ -159,6 +159,14 @@ struct ActiveState<B: AudioBackend> {
     stream_info: StreamInfo,
 }
 
+pub(crate) struct ProcessorChannel<B: AudioBackend> {
+    pub(crate) from_context_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
+    pub(crate) to_context_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
+    pub(crate) shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
+    pub(crate) logger: RealtimeLogger,
+    pub(crate) store: ProcStore,
+}
+
 /// A Firewheel context
 pub struct FirewheelCtx<B: AudioBackend> {
     graph: AudioGraph,
@@ -169,13 +177,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
 
     active_state: Option<ActiveState<B>>,
 
-    processor_channel: Option<(
-        ringbuf::HeapCons<ContextToProcessorMsg>,
-        ringbuf::HeapProd<ProcessorToContextMsg>,
-        triple_buffer::Input<SharedClock<B::Instant>>,
-        RealtimeLogger,
-        ProcStore,
-    )>,
+    processor_channel: Option<ProcessorChannel<B>>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner<B>>>,
 
     shared_clock_output: RefCell<triple_buffer::Output<SharedClock<B::Instant>>>,
@@ -218,7 +220,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let (logger, logger_rx) = firewheel_core::log::realtime_logger(config.logger_config);
 
-        let proc_store = ProcStore::with_capacity(config.proc_store_capacity);
+        let store = ProcStore::with_capacity(config.proc_store_capacity);
 
         Self {
             graph: AudioGraph::new(&config),
@@ -226,13 +228,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             from_processor_rx,
             logger_rx,
             active_state: None,
-            processor_channel: Some((
+            processor_channel: Some(ProcessorChannel {
                 from_context_rx,
                 to_context_tx,
                 shared_clock_input,
                 logger,
-                proc_store,
-            )),
+                store,
+            }),
             processor_drop_rx: None,
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
@@ -254,8 +256,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// If an audio stream is currently running, this will return `None`.
     pub fn proc_store(&self) -> Option<&ProcStore> {
-        if let Some((_, _, _, _, proc_store)) = &self.processor_channel {
-            Some(proc_store)
+        if let Some(proc_channel) = &self.processor_channel {
+            Some(&proc_channel.store)
         } else if let Some(processor) = self.processor_drop_rx.as_ref().unwrap().last() {
             if processor.poisoned {
                 panic!("The audio thread has panicked!");
@@ -271,8 +273,8 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// If an audio stream is currently running, this will return `None`.
     pub fn proc_store_mut(&mut self) -> Option<&mut ProcStore> {
-        if let Some((_, _, _, _, proc_store)) = &mut self.processor_channel {
-            Some(proc_store)
+        if let Some(proc_channel) = &mut self.processor_channel {
+            Some(&mut proc_channel.store)
         } else if let Some(processor) = self.processor_drop_rx.as_mut().unwrap().last_mut() {
             if processor.poisoned {
                 panic!("The audio thread has panicked!");
@@ -348,7 +350,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         }
 
         let (mut backend_handle, mut stream_info) =
-            B::start_stream(config).map_err(|e| StartStreamError::BackendError(e))?;
+            B::start_stream(config).map_err(StartStreamError::BackendError)?;
 
         stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
         stream_info.declick_frames = NonZeroU32::new(
@@ -371,40 +373,35 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner<B>>::new(1).split();
 
-        let processor =
-            if let Some((from_context_rx, to_context_tx, shared_clock_input, logger, proc_store)) =
-                maybe_processor
-            {
-                FirewheelProcessorInner::new(
-                    from_context_rx,
-                    to_context_tx,
-                    shared_clock_input,
-                    self.config.immediate_event_capacity,
-                    #[cfg(feature = "scheduled_events")]
-                    self.config.scheduled_event_capacity,
-                    self.config.event_queue_capacity,
-                    &stream_info,
-                    self.config.hard_clip_outputs,
-                    self.config.buffer_out_of_space_mode,
-                    logger,
-                    self.config.debug_force_clear_buffers,
-                    proc_store,
-                )
-            } else {
-                let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
+        let processor = if let Some(proc_channel) = maybe_processor {
+            FirewheelProcessorInner::new(
+                proc_channel,
+                self.config.immediate_event_capacity,
+                #[cfg(feature = "scheduled_events")]
+                self.config.scheduled_event_capacity,
+                self.config.event_queue_capacity,
+                &stream_info,
+                self.config.hard_clip_outputs,
+                self.config.buffer_out_of_space_mode,
+                self.config.debug_force_clear_buffers,
+            )
+        } else {
+            let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
 
-                if processor.poisoned {
-                    panic!("The audio thread has panicked!");
-                }
+            if processor.poisoned {
+                panic!("The audio thread has panicked!");
+            }
 
-                processor.new_stream(&stream_info);
+            processor.new_stream(&stream_info);
 
-                processor
-            };
+            processor
+        };
 
         backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
 
-        if let Err(_) = self.send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
+        if self
+            .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
+            .is_err()
         {
             panic!("Firewheel message channel is full!");
         }
@@ -461,7 +458,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let update_instant = audio_clock_update_instant_and_delay(&clock, &self.active_state)
+        let update_instant = audio_clock_update_instant_and_delay(clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant);
 
         AudioClock {
@@ -505,7 +502,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let clock = clock_borrowed.read();
 
         let Some((update_instant, delay)) =
-            audio_clock_update_instant_and_delay(&clock, &self.active_state)
+            audio_clock_update_instant_and_delay(clock, &self.active_state)
         else {
             // The audio thread is not currently running, so just return the
             // latest value of the clock.
@@ -571,7 +568,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        audio_clock_update_instant_and_delay(&clock, &self.active_state)
+        audio_clock_update_instant_and_delay(clock, &self.active_state)
             .map(|(update_instant, _delay)| update_instant)
     }
 
@@ -843,12 +840,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 
     /// Get a list of all the existing nodes in the graph.
-    pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry> {
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeEntry> {
         self.graph.nodes()
     }
 
     /// Get a list of all the existing edges in the graph.
-    pub fn edges<'a>(&'a self) -> impl Iterator<Item = &'a Edge> {
+    pub fn edges(&self) -> impl Iterator<Item = &Edge> {
         self.graph.edges()
     }
 

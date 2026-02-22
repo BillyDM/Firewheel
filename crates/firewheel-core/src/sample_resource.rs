@@ -284,12 +284,12 @@ impl SampleResourceF32 for Vec<Vec<f32>> {
 
 #[inline]
 pub fn pcm_i16_to_f32(s: i16) -> f32 {
-    f32::from(s) * (1.0 / core::i16::MAX as f32)
+    f32::from(s) * (1.0 / i16::MAX as f32)
 }
 
 #[inline]
 pub fn pcm_u16_to_f32(s: u16) -> f32 {
-    ((f32::from(s)) * (2.0 / core::u16::MAX as f32)) - 1.0
+    ((f32::from(s)) * (2.0 / u16::MAX as f32)) - 1.0
 }
 
 /// A helper method to fill buffers from a resource of interleaved samples.
@@ -301,7 +301,6 @@ pub fn fill_buffers_interleaved<T: Clone + Copy>(
     data: &[T],
     convert: impl Fn(T) -> f32,
 ) {
-    let start_frame = start_frame as usize;
     let channels = channels.get();
 
     let frames = buffer_range.end - buffer_range.start;
@@ -355,7 +354,6 @@ pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
     data: &[V],
     convert: impl Fn(T) -> f32,
 ) {
-    let start_frame = start_frame as usize;
     let frames = buffer_range.end - buffer_range.start;
 
     if data.len() == 2 && buffers.len() >= 2 {
@@ -391,8 +389,6 @@ pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
     start_frame: usize,
     data: &[V],
 ) {
-    let start_frame = start_frame as usize;
-
     for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
         buf[buffer_range.clone()].copy_from_slice(
             &ch.as_ref()[start_frame..start_frame + buffer_range.end - buffer_range.start],

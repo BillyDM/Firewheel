@@ -210,7 +210,7 @@ impl InstantSeconds {
     /// Returns the amount of time elapsed from another instant to this one, or
     /// `None`` if that instant is later than this one.
     pub fn checked_duration_since(&self, earlier: Self) -> Option<DurationSeconds> {
-        (self.0 >= earlier.0).then(|| DurationSeconds(self.0 - earlier.0))
+        (self.0 >= earlier.0).then_some(DurationSeconds(self.0 - earlier.0))
     }
 
     /// Returns the amount of time elapsed from another instant to this one, or
@@ -465,7 +465,7 @@ fn whole_seconds_and_fract(samples: i64, sample_rate: NonZeroU32) -> (i64, u32) 
     if fract_samples < 0 {
         (
             whole_seconds - 1,
-            sample_rate.get() - (fract_samples.abs() as u32),
+            sample_rate.get() - (fract_samples.unsigned_abs() as u32),
         )
     } else {
         (whole_seconds, fract_samples as u32)

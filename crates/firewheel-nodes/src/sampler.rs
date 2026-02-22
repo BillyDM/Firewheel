@@ -340,7 +340,7 @@ impl SamplerState {
                 frames.0
                     + InstantSeconds(update_instant.elapsed().as_secs_f64())
                         .to_samples(sample_rate)
-                        .0 as i64,
+                        .0,
             )
         } else {
             frames
@@ -583,7 +583,7 @@ impl AudioNode for SamplerNode {
         };
 
         SamplerProcessor {
-            config: config.clone(),
+            config: *config,
             params: self.clone(),
             shared_state: ArcGc::clone(&cx.custom_state::<SamplerState>().unwrap().shared_state),
             loaded_sample_state: None,
@@ -1068,18 +1068,16 @@ impl AudioNodeProcessor for SamplerProcessor {
                         self.queued_playback_instant = None;
                     }
                 }
+            } else if self.params.play_from == PlayFrom::Resume {
+                // Pause
+                self.declicker.fade_to_0(&extra.declick_values);
+                self.paused = true;
             } else {
-                if self.params.play_from == PlayFrom::Resume {
-                    // Pause
-                    self.declicker.fade_to_0(&extra.declick_values);
-                    self.paused = true;
-                } else {
-                    // Stop
-                    self.stop(buffers.outputs.len(), extra);
-                    self.shared_state
-                        .finished
-                        .store(self.params.play.id(), Ordering::Relaxed);
-                }
+                // Stop
+                self.stop(buffers.outputs.len(), extra);
+                self.shared_state
+                    .finished
+                    .store(self.params.play.id(), Ordering::Relaxed);
             }
 
             self.playing = new_playing;
@@ -1370,6 +1368,7 @@ impl Resampler {
         (finished_playing, num_channels)
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Function needs many arguments")]
     fn resample_linear_inner<OutToInFrame>(
         &mut self,
         out_to_in_frame: OutToInFrame,

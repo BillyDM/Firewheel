@@ -319,8 +319,8 @@ impl DistanceAttenuatorStereoDsp {
                 return true;
             } else if self.damping_disabled {
                 for i in 0..frames {
-                    out1[i] = out1[i] * self.gain.target_value();
-                    out2[i] = out2[i] * self.gain.target_value();
+                    out1[i] *= self.gain.target_value();
+                    out2[i] *= self.gain.target_value();
                 }
             } else {
                 // The cutoff parameter is not currently smoothing, so we can optimize by
@@ -347,8 +347,8 @@ impl DistanceAttenuatorStereoDsp {
                 for i in 0..frames {
                     let gain = self.gain.next_smoothed();
 
-                    out1[i] = out1[i] * gain;
-                    out2[i] = out2[i] * gain;
+                    out1[i] *= gain;
+                    out2[i] *= gain;
                 }
             } else {
                 let mut coeff = OnePoleIirLPFCoeffSimd::default();

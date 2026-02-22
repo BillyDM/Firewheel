@@ -139,13 +139,10 @@ pub fn cycle_detected<'a>(
     graph_in_id: NodeID,
     graph_out_id: NodeID,
 ) -> bool {
-    if let Err(CompileGraphError::CycleDetected) =
-        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0).sort_topologically(false)
-    {
-        true
-    } else {
-        false
-    }
+    matches!(
+        GraphIR::preprocess(nodes, edges, graph_in_id, graph_out_id, 0).sort_topologically(false),
+        Err(CompileGraphError::CycleDetected)
+    )
 }
 
 /// Internal IR used by the compiler algorithm. Built incrementally
@@ -268,13 +265,11 @@ impl<'a> GraphIR<'a> {
                 }
             }
 
-            if build_schedule {
-                if node_slot != self.graph_out_id.0.slot() {
-                    self.schedule.push(ScheduledNode::new(
-                        node_entry.id,
-                        node_entry.info.debug_name,
-                    ));
-                }
+            if build_schedule && node_slot != self.graph_out_id.0.slot() {
+                self.schedule.push(ScheduledNode::new(
+                    node_entry.id,
+                    node_entry.info.debug_name,
+                ));
             }
         }
 
@@ -442,7 +437,7 @@ impl<'a> GraphIR<'a> {
             self.max_out_buffers = self.max_out_buffers.max(num_outputs);
         }
 
-        self.max_num_buffers = allocator.num_buffers() as usize;
+        self.max_num_buffers = allocator.num_buffers();
         Ok(self)
     }
 

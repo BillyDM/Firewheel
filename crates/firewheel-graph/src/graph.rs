@@ -231,12 +231,12 @@ impl AudioGraph {
     }
 
     /// Get a list of all the existing nodes in the graph.
-    pub fn nodes<'a>(&'a self) -> impl Iterator<Item = &'a NodeEntry> {
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeEntry> {
         self.nodes.iter().map(|(_, n)| n)
     }
 
     /// Get a list of all the existing edges in the graph.
-    pub fn edges<'a>(&'a self) -> impl Iterator<Item = &'a Edge> {
+    pub fn edges(&self) -> impl Iterator<Item = &Edge> {
         self.edges.iter().map(|(_, e)| e)
     }
 
@@ -374,12 +374,10 @@ impl AudioGraph {
             edge_ids.push(new_edge_id);
         }
 
-        if check_for_cycles {
-            if self.cycle_detected() {
-                self.disconnect(src_node, dst_node, ports_src_dst);
+        if check_for_cycles && self.cycle_detected() {
+            self.disconnect(src_node, dst_node, ports_src_dst);
 
-                return Err(AddEdgeError::CycleDetected);
-            }
+            return Err(AddEdgeError::CycleDetected);
         }
 
         self.needs_compile = true;
@@ -408,9 +406,9 @@ impl AudioGraph {
         for (src_port, dst_port) in ports_src_dst.iter().copied() {
             if let Some(edge_id) = self.existing_edges.remove(&EdgeHash {
                 src_node,
-                src_port: src_port.into(),
+                src_port,
                 dst_node,
-                dst_port: dst_port.into(),
+                dst_port,
             }) {
                 self.disconnect_by_edge_id(edge_id);
                 any_removed = true;

@@ -1,3 +1,6 @@
+#![allow(clippy::excessive_precision)]
+#![allow(clippy::approx_constant)]
+
 pub const Q_BUTTERWORTH_ORD2: f32 = 0.70710678118654752440;
 pub const Q_BUTTERWORTH_ORD4: [f32; 2] = [0.54119610014619698440, 1.3065629648763765279];
 pub const Q_BUTTERWORTH_ORD6: [f32; 3] = [

@@ -888,11 +888,11 @@ impl ProcStore {
     /// If a resource with this `TypeID` already exists, then an error will
     /// be returned instead.
     pub fn insert<S: Send + 'static>(&mut self, resource: S) -> Result<(), S> {
-        if self.0.contains_key(&TypeId::of::<S>()) {
-            Err(resource)
-        } else {
-            self.0.insert(TypeId::of::<S>(), Box::new(resource));
+        if let Entry::Vacant(e) = self.0.entry(TypeId::of::<S>()) {
+            e.insert(Box::new(resource));
             Ok(())
+        } else {
+            Err(resource)
         }
     }
 
@@ -905,11 +905,11 @@ impl ProcStore {
         resource: Box<dyn Any + Send>,
         type_id: TypeId,
     ) -> Result<(), Box<dyn Any + Send>> {
-        if self.0.contains_key(&type_id) {
-            Err(resource)
-        } else {
-            self.0.insert(type_id, resource);
+        if let Entry::Vacant(e) = self.0.entry(type_id) {
+            e.insert(resource);
             Ok(())
+        } else {
+            Err(resource)
         }
     }
 
@@ -917,7 +917,7 @@ impl ProcStore {
     pub fn entry<'a, S: Send + 'static>(&'a mut self) -> ProcStoreEntry<'a, S> {
         ProcStoreEntry {
             boxed_entry: self.0.entry(TypeId::of::<S>()),
-            type_: PhantomData::default(),
+            type_: PhantomData,
         }
     }
 
@@ -988,7 +988,7 @@ impl<'a, S: Send + 'static> ProcStoreEntry<'a, S> {
             .and_modify(|e| (f)(e.downcast_mut().unwrap()));
         Self {
             boxed_entry: entry,
-            type_: PhantomData::default(),
+            type_: PhantomData,
         }
     }
 }

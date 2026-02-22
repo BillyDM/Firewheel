@@ -42,10 +42,10 @@ impl SvfCoeff {
 
     pub fn lowpass_ord4(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 2] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD4[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD4[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
@@ -54,10 +54,10 @@ impl SvfCoeff {
 
     pub fn lowpass_ord6(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 3] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD6[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD6[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
@@ -66,10 +66,10 @@ impl SvfCoeff {
 
     pub fn lowpass_ord8(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 4] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD8[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD8[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 0.0, 0.0, 1.0)
@@ -85,10 +85,10 @@ impl SvfCoeff {
 
     pub fn highpass_ord4(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 2] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD4_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD4[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD4[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 1.0, -k, -1.0)
@@ -97,10 +97,10 @@ impl SvfCoeff {
 
     pub fn highpass_ord6(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 3] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD6_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD6_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD6[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD6[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 1.0, -k, -1.0)
@@ -109,10 +109,10 @@ impl SvfCoeff {
 
     pub fn highpass_ord8(cutoff_hz: f32, q: f32, sample_rate_recip: f32) -> [Self; 4] {
         let g = g(cutoff_hz, sample_rate_recip);
-        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE as f32);
+        let q_norm = scale_q_norm_for_order(q_norm(q), ORD8_Q_SCALE);
 
         core::array::from_fn(|i| {
-            let q = q_norm * Q_BUTTERWORTH_ORD8[i] as f32;
+            let q = q_norm * Q_BUTTERWORTH_ORD8[i];
             let k = 1.0 / q;
 
             Self::from_g_and_k(g, k, 1.0, -k, -1.0)
@@ -373,7 +373,7 @@ fn g(cutoff_hz: f32, sample_rate_recip: f32) -> f32 {
 
 #[inline]
 fn q_norm(q: f32) -> f32 {
-    q * (1.0 / Q_BUTTERWORTH_ORD2 as f32)
+    q * (1.0 / Q_BUTTERWORTH_ORD2)
 }
 
 /*
