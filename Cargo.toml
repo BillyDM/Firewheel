@@ -137,6 +137,8 @@ bevy_reflect = [
 ]
 # Enables the wasm-bindgen feature for the CPAL backend
 wasm-bindgen = ["firewheel-cpal/wasm-bindgen"]
+# NOTE: these glam deps will also be maintenance burden, in an upstream future we should
+# only use the bevy glam version and not make it optional.
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.29.
 glam-29 = ["firewheel-core/glam-29"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.30.
@@ -198,6 +200,7 @@ members = [
 ]
 
 [workspace.dependencies]
+# if we upstream firewheel to bevy, these should become deps on bevy_log
 tracing = "0.1"
 tracing-subscriber = "0.3"
 log = "0.4"
@@ -216,6 +219,17 @@ firewheel-macros = { path = "crates/firewheel-macros", version = "0.10.0" }
 bevy_platform = { version = "0.18", default-features = false, features = [
     "alloc",
 ] }
+# NOTE: depending on bevy_ecs means upstreaming bevy_seedling requires upstreaming firewheel itself,
+# because otherwise publishing a release becomes impossible: seedling depends on firewheel with bevy
+# feature enabled, which effectively creates a dep cycle. Assuming we want to upstream firewheel to
+# bevy, the problem now becomes how to deal with the crate structure, since there's 8 crates.
+# The alternative is to make bevy_ecs depend on firewheel and move the Component impls to bevy_ecs,
+# but that is a non-starter.
+# My proposal for the path forward is to have a bevy_firewheel crate in bevy/crates, which houses a copy
+# of the firewheel top level crate and all firewheel subcrates (with names unchanged), as well as the
+# original top level firewheel crate. bevy_firewheel would bring in all the subcrates with bevy integration
+# enabled, and the original top level firewheel crate will be the way to use firewheel without bevy.
+# Versioning will become lockstep with bevy versions for all firewheel crates.
 bevy_ecs = { version = "0.18", default-features = false }
 bevy_reflect = { version = "0.18", default-features = false }
 num-traits = { version = "0.2", default-features = false }
