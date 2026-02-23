@@ -150,6 +150,16 @@ primitive_diff!(glam_30::Vec2, Vector2D);
 #[cfg(feature = "glam-30")]
 primitive_diff!(glam_30::Vec3, Vector3D);
 
+#[cfg(feature = "glam-31")]
+primitive_diff!(glam_31::Vec2, Vector2D);
+#[cfg(feature = "glam-31")]
+primitive_diff!(glam_31::Vec3, Vector3D);
+
+#[cfg(feature = "glam-32")]
+primitive_diff!(glam_32::Vec2, Vector2D);
+#[cfg(feature = "glam-32")]
+primitive_diff!(glam_32::Vec3, Vector3D);
+
 impl<A: ?Sized + Send + Sync + 'static> Diff for ArcGc<A> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if !ArcGc::ptr_eq(self, baseline) {
@@ -483,3 +493,13 @@ trivial_notify!(glam_29::Vec3);
 trivial_notify!(glam_30::Vec2);
 #[cfg(feature = "glam-30")]
 trivial_notify!(glam_30::Vec3);
+
+#[cfg(feature = "glam-31")]
+trivial_notify!(glam_31::Vec2);
+#[cfg(feature = "glam-31")]
+trivial_notify!(glam_31::Vec3);
+
+#[cfg(feature = "glam-32")]
+trivial_notify!(glam_32::Vec2);
+#[cfg(feature = "glam-32")]
+trivial_notify!(glam_32::Vec3);
