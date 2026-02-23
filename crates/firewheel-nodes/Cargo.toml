@@ -40,6 +40,7 @@ all_nodes = [
     "freeverb",
     "convolution",
     "fast_rms",
+    "echo",
     "triple_buffer",
 ]
 # All nodes which are no_std compatible
@@ -55,6 +56,7 @@ all_nodes_no_std = [
     "mix",
     "freeverb",
     "fast_rms",
+    "echo",
     "triple_buffer"
 ]
 # Enables event scheduling support in some nodes.
@@ -90,6 +92,8 @@ freeverb = []
 convolution = ["dep:fft-convolver"]
 # Enables the FastRmsNode for measuring loudness
 fast_rms = []
+# Enables the echo node
+echo = []
 # Enables `Component` derive macros
 bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 # Enables `Reflect` derive macros

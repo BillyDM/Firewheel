@@ -1,4 +1,4 @@
-use super::delay_line::DelayLine;
+use firewheel_core::dsp::delay_line::DelayLine;
 
 #[derive(Debug)]
 pub struct Comb {
@@ -30,7 +30,7 @@ impl Comb {
     }
 
     pub fn tick(&mut self, input: f64) -> f64 {
-        let output = self.delay_line.read();
+        let output = self.delay_line.read_last();
 
         self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
 
