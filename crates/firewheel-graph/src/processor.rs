@@ -1,10 +1,12 @@
 use core::num::NonZeroU32;
-
 use ringbuf::traits::Producer;
 use thunderdome::Arena;
 
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
+
+#[cfg(feature = "scheduled_events")]
+use bevy_platform::time::Instant;
 
 use firewheel_core::{
     clock::InstantSamples,
@@ -15,7 +17,7 @@ use firewheel_core::{
 };
 
 use crate::{
-    backend::{AudioBackend, BackendProcessInfo},
+    backend::BackendProcessInfo,
     context::ProcessorChannel,
     graph::ScheduleHeapData,
     processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
@@ -40,12 +42,12 @@ mod transport;
 #[cfg(feature = "musical_transport")]
 use transport::ProcTransportState;
 
-pub struct FirewheelProcessor<B: AudioBackend> {
-    inner: Option<FirewheelProcessorInner<B>>,
-    drop_tx: ringbuf::HeapProd<FirewheelProcessorInner<B>>,
+pub struct FirewheelProcessor {
+    inner: Option<FirewheelProcessorInner>,
+    drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
 }
 
-impl<B: AudioBackend> Drop for FirewheelProcessor<B> {
+impl Drop for FirewheelProcessor {
     fn drop(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
@@ -63,10 +65,10 @@ impl<B: AudioBackend> Drop for FirewheelProcessor<B> {
     }
 }
 
-impl<B: AudioBackend> FirewheelProcessor<B> {
+impl FirewheelProcessor {
     pub(crate) fn new(
-        processor: FirewheelProcessorInner<B>,
-        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner<B>>,
+        processor: FirewheelProcessorInner,
+        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
     ) -> Self {
         Self {
             inner: Some(processor),
@@ -78,7 +80,7 @@ impl<B: AudioBackend> FirewheelProcessor<B> {
         &mut self,
         input: &[f32],
         output: &mut [f32],
-        info: BackendProcessInfo<B>,
+        info: BackendProcessInfo,
     ) {
         if let Some(inner) = &mut self.inner {
             inner.process_interleaved(input, output, info);
@@ -86,7 +88,7 @@ impl<B: AudioBackend> FirewheelProcessor<B> {
     }
 }
 
-pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
+pub(crate) struct FirewheelProcessorInner {
     nodes: Arena<NodeEntry>,
     schedule_data: Option<Box<ScheduleHeapData>>,
 
@@ -101,7 +103,8 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     max_block_frames: usize,
 
     clock_samples: InstantSamples,
-    shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
+    #[cfg(feature = "scheduled_events")]
+    shared_clock_input: triple_buffer::Input<SharedClock>,
 
     #[cfg(feature = "musical_transport")]
     proc_transport_state: ProcTransportState,
@@ -117,10 +120,10 @@ pub(crate) struct FirewheelProcessorInner<B: AudioBackend> {
     debug_force_clear_buffers: bool,
 }
 
-impl<B: AudioBackend> FirewheelProcessorInner<B> {
+impl FirewheelProcessorInner {
     /// Note, this method gets called on the main thread, not the audio thread.
     pub(crate) fn new(
-        proc_channel: ProcessorChannel<B>,
+        proc_channel: ProcessorChannel,
         immediate_event_buffer_capacity: usize,
         #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
         node_event_buffer_capacity: usize,
@@ -132,6 +135,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         let ProcessorChannel {
             from_context_rx,
             to_context_tx,
+            #[cfg(feature = "scheduled_events")]
             shared_clock_input,
             logger,
             store,
@@ -152,6 +156,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: InstantSamples(0),
+            #[cfg(feature = "scheduled_events")]
             shared_clock_input,
             #[cfg(feature = "musical_transport")]
             proc_transport_state: ProcTransportState::new(),
@@ -201,8 +206,9 @@ pub(crate) struct ClearScheduledEventsEvent {
     pub event_type: ClearScheduledEventsType,
 }
 
+#[cfg(feature = "scheduled_events")]
 #[derive(Clone)]
-pub(crate) struct SharedClock<I: Clone> {
+pub(crate) struct SharedClock {
     pub clock_samples: InstantSamples,
     #[cfg(feature = "musical_transport")]
     pub current_playhead: Option<InstantMusical>,
@@ -210,10 +216,11 @@ pub(crate) struct SharedClock<I: Clone> {
     pub speed_multiplier: f64,
     #[cfg(feature = "musical_transport")]
     pub transport_is_playing: bool,
-    pub process_timestamp: Option<I>,
+    pub update_instant: Instant,
 }
 
-impl<I: Clone> Default for SharedClock<I> {
+#[cfg(feature = "scheduled_events")]
+impl Default for SharedClock {
     fn default() -> Self {
         Self {
             clock_samples: InstantSamples(0),
@@ -223,7 +230,7 @@ impl<I: Clone> Default for SharedClock<I> {
             speed_multiplier: 1.0,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: false,
-            process_timestamp: None,
+            update_instant: Instant::now(),
         }
     }
 }

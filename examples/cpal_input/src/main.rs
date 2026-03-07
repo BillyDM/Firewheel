@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use firewheel::{
-    channel_config::ChannelCount, cpal::CpalConfig, error::UpdateError, FirewheelConfig,
-    FirewheelContext,
+    channel_config::ChannelCount,
+    cpal::{CpalConfig, CpalStream},
+    FirewheelConfig, FirewheelContext,
 };
 
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
@@ -19,10 +20,13 @@ fn main() {
         num_graph_inputs: ChannelCount::new(1).unwrap(),
         ..Default::default()
     });
-    cx.start_stream(CpalConfig {
-        output: Default::default(),
-        input: Some(Default::default()),
-    })
+    let mut stream = CpalStream::new(
+        &mut cx,
+        CpalConfig {
+            output: Default::default(),
+            input: Some(Default::default()),
+        },
+    )
     .unwrap();
 
     dbg!(cx.stream_info());
@@ -39,20 +43,24 @@ fn main() {
     .unwrap();
 
     loop {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                break;
-            }
+        if let Err(e) = stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            break;
         }
 
         std::thread::sleep(UPDATE_INTERVAL);

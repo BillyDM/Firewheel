@@ -28,7 +28,7 @@ std = [
     "num-traits/std",
 ]
 # Enables scheduling events for audio nodes.
-scheduled_events = ["firewheel-core/scheduled_events"]
+scheduled_events = ["dep:triple_buffer", "firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 # Enables serde derives for types
@@ -64,7 +64,7 @@ firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-featu
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 ringbuf.workspace = true
-triple_buffer.workspace = true
+triple_buffer = { workspace = true, optional = true }
 smallvec.workspace = true
 arrayvec.workspace = true
 thunderdome.workspace = true

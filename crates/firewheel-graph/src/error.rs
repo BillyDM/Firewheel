@@ -1,4 +1,3 @@
-use core::error::Error;
 use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 
 use crate::graph::{Edge, EdgeID, PortIdx};
@@ -53,46 +52,36 @@ pub enum CompileGraphError {
     EdgeIDNotUnique(EdgeID),
 }
 
-/// An error occurred while attempting to activate an audio stream in
-/// a [`FirewheelCtx`][crate::context::FirewheelCtx].
+/// An error occurred while attempting to activate a
+/// [`FirewheelContext`][crate::context::FirewheelContext].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum StartStreamError<E: Error> {
-    /// An audio stream is already running in this context.
-    #[error("Audio stream is already running")]
-    AlreadyStarted,
-    /// The old audio stream has not finished stopping yet.
-    ///
-    /// Wait some time and then try starting again.
+pub enum ActivateError {
+    /// The Firewheel context is already active. Either it has never been activated
+    /// or the [`FirewheelProcessor`][crate::processor::FirewheelProcessor] counterpart
+    /// has not been dropped yet.
     ///
     /// Note, in rare cases where the audio thread crashes without cleanly
     /// dropping its contents, this may never succeed. Consider adding a
     /// timeout to avoid deadlocking.
-    #[error("Failed to start audio stream: The old audio stream has not finished stopping yet")]
-    OldStreamNotFinishedStopping,
+    #[error("Failed to activate Firewheel context: The Firewheel context is already active")]
+    AlreadyActive,
     /// The audio graph failed to compile.
-    #[error("Failed to start audio stream: Audio graph failed to compile: {0}")]
+    #[error("Failed to activate Firewheel context: Audio graph failed to compile: {0}")]
     GraphCompileError(#[from] CompileGraphError),
-    /// A backend-specific error occured.
-    #[error("Failed to start audio stream: {0}")]
-    BackendError(E),
 }
 
-/// An error occured while updating a [`FirewheelCtx`][crate::context::FirewheelCtx].
+/// An error occured while updating a [`FirewheelContext`][crate::context::FirewheelContext].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum UpdateError<E: Error> {
+pub enum UpdateError {
     /// The context to processor message channel is full.
     #[error("The Firewheel context to processor message channel is full")]
     MsgChannelFull,
     /// The audio graph failed to compile.
     #[error("The audio graph failed to compile: {0}")]
     GraphCompileError(#[from] CompileGraphError),
-    /// The audio stream stopped unexpectedly. A new audio stream (even if it's a
-    /// dummy audio stream), should be started as soon as possible.
-    #[error("The audio stream stopped unexpectedly: {0}")]
-    StreamStoppedUnexpectedly(Option<E>),
 }
 
-/// An error while removing a node in [`FirewheelCtx`][crate::context::FirewheelCtx].
+/// An error while removing a node in [`FirewheelContext`][crate::context::FirewheelContext].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RemoveNodeError {
     /// Removing the graph in node is not allowed.

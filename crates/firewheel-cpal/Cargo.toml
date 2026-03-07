@@ -30,7 +30,6 @@ firewheel-graph = { path = "../firewheel-graph", version = "0.10.0", default-fea
 cpal = "0.17.1"
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
-ringbuf.workspace = true
 thiserror.workspace = true
 fast-interleave.workspace = true
 fixed-resample = { version = "0.9.1", default-features = false, features = [

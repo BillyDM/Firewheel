@@ -13,14 +13,19 @@ use firewheel_core::{
 };
 
 use crate::{
-    backend::{AudioBackend, BackendProcessInfo},
-    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, SharedClock},
+    backend::BackendProcessInfo,
+    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry},
 };
+
+#[cfg(feature = "scheduled_events")]
+use crate::processor::SharedClock;
+#[cfg(feature = "scheduled_events")]
+use bevy_platform::time::Instant;
 
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::ProcTransportInfo;
 
-impl<B: AudioBackend> FirewheelProcessorInner<B> {
+impl FirewheelProcessorInner {
     // TODO: Add a `process_deinterleaved` method.
 
     /// Process the given buffers of audio data.
@@ -28,7 +33,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         &mut self,
         input: &[f32],
         output: &mut [f32],
-        info: BackendProcessInfo<B>,
+        info: BackendProcessInfo,
     ) {
         let BackendProcessInfo {
             num_in_channels,
@@ -40,6 +45,11 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             mut output_stream_status,
             mut dropped_frames,
         } = info;
+
+        #[cfg(feature = "scheduled_events")]
+        let process_timestamp = process_timestamp.unwrap_or_else(|| Instant::now());
+        #[cfg(not(feature = "scheduled_events"))]
+        let _ = process_timestamp;
 
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
             let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
@@ -58,7 +68,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         self.clock_samples += DurationSamples(frames as i64);
 
-        self.sync_shared_clock(Some(process_timestamp));
+        #[cfg(feature = "scheduled_events")]
+        self.sync_shared_clock(process_timestamp);
 
         // --- Process the audio graph in blocks ----------------------------------------------
 
@@ -487,7 +498,8 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         self.event_scheduler.cleanup_process_block();
     }
 
-    pub fn sync_shared_clock(&mut self, process_timestamp: Option<B::Instant>) {
+    #[cfg(feature = "scheduled_events")]
+    pub fn sync_shared_clock(&mut self, process_timestamp: Instant) {
         #[cfg(feature = "musical_transport")]
         let shared_clock_info = self.proc_transport_state.shared_clock_info(
             self.clock_samples,
@@ -503,7 +515,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             speed_multiplier: shared_clock_info.speed_multiplier,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: shared_clock_info.transport_is_playing,
-            process_timestamp,
+            update_instant: process_timestamp,
         });
     }
 }

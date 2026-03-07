@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use firewheel::{
-    diff::Memo, dsp::volume::Volume, error::UpdateError, nodes::beep_test::BeepTestNode,
+    cpal::CpalStream, diff::Memo, dsp::volume::Volume, nodes::beep_test::BeepTestNode,
     FirewheelContext,
 };
 
@@ -24,7 +24,7 @@ fn main() {
     println!("Firewheel memoized example...");
 
     let mut cx = FirewheelContext::new(Default::default());
-    cx.start_stream(Default::default()).unwrap();
+    let mut stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
     let mut beep_test_node = Memo::new(BeepTestNode {
         freq_hz: BEEP_FREQUENCY_HZ,
@@ -46,20 +46,24 @@ fn main() {
         // the corresponding parameter updates.
         beep_test_node.update_memo(&mut cx.event_queue(beep_test_id));
 
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                break;
-            }
+        if let Err(e) = stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            break;
         }
 
         std::thread::sleep(UPDATE_INTERVAL);

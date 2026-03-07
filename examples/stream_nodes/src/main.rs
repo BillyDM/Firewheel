@@ -4,7 +4,7 @@ use core::{num::NonZeroU32, time::Duration};
 use bevy_platform::sync::Arc;
 use firewheel::{
     channel_config::NonZeroChannelCount,
-    error::UpdateError,
+    cpal::CpalStream,
     nodes::stream::{
         reader::{StreamReaderConfig, StreamReaderNode, StreamReaderState},
         writer::{PushStatus, StreamWriterConfig, StreamWriterNode, StreamWriterState},
@@ -28,8 +28,9 @@ fn main() {
     .unwrap();
 
     let mut cx = FirewheelContext::new(Default::default());
-    cx.start_stream(Default::default()).unwrap();
-    let output_stream_sample_rate = cx.stream_info().unwrap().sample_rate;
+    let mut stream = CpalStream::new(&mut cx, Default::default()).unwrap();
+
+    let output_stream_sample_rate = stream.info().sample_rate;
 
     dbg!(output_stream_sample_rate);
 
@@ -280,29 +281,33 @@ fn main() {
     });
 
     loop {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // Notify the stream node handles that the output stream has stopped.
-                // This will automatically stop any active streams on the nodes.
-                cx.node_state_mut::<StreamWriterState>(stream_writer_id)
-                    .unwrap()
-                    .stop_stream();
-                cx.node_state_mut::<StreamReaderState>(stream_reader_id)
-                    .unwrap()
-                    .stop_stream();
+        if let Err(e) = stream.poll_status() {
+            tracing::error!("{:?}", &e);
 
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                break;
-            }
+            // Notify the stream node handles that the output stream has stopped.
+            // This will automatically stop any active streams on the nodes.
+            cx.node_state_mut::<StreamWriterState>(stream_writer_id)
+                .unwrap()
+                .stop_stream();
+            cx.node_state_mut::<StreamReaderState>(stream_reader_id)
+                .unwrap()
+                .stop_stream();
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            break;
         }
 
         std::thread::sleep(UPDATE_INTERVAL);

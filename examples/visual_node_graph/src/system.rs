@@ -1,8 +1,8 @@
 use firewheel::{
     channel_config::{ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
-    cpal::CpalBackend,
-    error::{AddEdgeError, UpdateError},
+    cpal::CpalStream,
+    error::AddEdgeError,
     event::NodeEventType,
     node::NodeID,
     nodes::{
@@ -56,6 +56,7 @@ pub enum NodeType {
 }
 
 pub struct AudioSystem {
+    stream: Option<CpalStream>,
     cx: FirewheelContext,
     pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
     pub(crate) ir_samples: Vec<(&'static str, Vec<Vec<f32>>)>,
@@ -69,7 +70,7 @@ const IR_SAMPLE_PATHS: [&'static str; 2] = [
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        cx.start_stream(Default::default()).unwrap();
+        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
@@ -125,6 +126,7 @@ impl AudioSystem {
 
         Self {
             cx,
+            stream: Some(stream),
             ir_samples,
             samples,
         }
@@ -281,14 +283,20 @@ impl AudioSystem {
     }
 
     pub fn is_activated(&self) -> bool {
-        self.cx.is_audio_stream_running()
+        self.cx.is_active()
     }
 
     pub fn update(&mut self) {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
+        if let Some(stream) = &mut self.stream {
+            if let Err(e) = stream.poll_status() {
+                tracing::error!("{:?}", &e);
+
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)
                 //
@@ -297,7 +305,8 @@ impl AudioSystem {
                 // output device).
                 //
                 // In this example we just quit the application.
-                panic!("Stream stopped unexpectedly.");
+                self.stream = None;
+                panic!("Stream stopped unexpectedly!");
             }
         }
     }
@@ -313,7 +322,15 @@ impl AudioSystem {
         self.cx.queue_event_for(node_id, event);
     }
 
-    pub fn event_queue(&mut self, node_id: NodeID) -> ContextQueue<'_, CpalBackend> {
+    pub fn event_queue(&mut self, node_id: NodeID) -> ContextQueue<'_> {
         self.cx.event_queue(node_id)
+    }
+}
+
+impl Drop for AudioSystem {
+    fn drop(&mut self) {
+        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
+        // is dropped, or else the application may take longer to close.
+        self.stream = None;
     }
 }

@@ -27,7 +27,7 @@ serde = ["dep:serde", "rtaudio/serde"]
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false, features = ["std"] }
 firewheel-graph = { path = "../firewheel-graph", version = "0.10.0", default-features = false, features = ["std"] }
-ringbuf.workspace = true
+thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 bevy_platform = { workspace = true, features = ["std"] }

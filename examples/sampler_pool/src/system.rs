@@ -1,15 +1,14 @@
 use firewheel::{
-    backend::AudioBackend,
     channel_config::NonZeroChannelCount,
+    cpal::CpalStream,
     diff::Memo,
-    error::UpdateError,
     nodes::{
         sampler::SamplerNode,
         volume::{VolumeNode, VolumeNodeConfig},
         StereoToMonoNode,
     },
     pool::{AudioNodePool, FxChain, SamplerPool, SamplerPoolVolumePan},
-    FirewheelContext, FirewheelCtx,
+    FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
 
@@ -22,6 +21,7 @@ use symphonium::SymphoniumLoader;
 pub const NUM_WORKERS: usize = 4;
 
 pub struct AudioSystem {
+    pub stream: Option<CpalStream>,
     pub cx: FirewheelContext,
 
     // `SamplerPoolVolumePan` is an alias for `AudioNodePool<SamplerPool, VolumePanChain>`.
@@ -33,7 +33,7 @@ pub struct AudioSystem {
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        cx.start_stream(Default::default()).unwrap();
+        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let graph_out = cx.graph_out_node_id();
 
@@ -78,6 +78,7 @@ impl AudioSystem {
 
         Self {
             cx,
+            stream: Some(stream),
             sampler_pool_1,
             sampler_pool_2,
             sampler_node,
@@ -85,10 +86,16 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
+        if let Some(stream) = &mut self.stream {
+            if let Err(e) = stream.poll_status() {
+                tracing::error!("{:?}", &e);
+
                 // The stream has stopped unexpectedly (i.e the user has
                 // unplugged their headphones.)
                 //
@@ -97,9 +104,18 @@ impl AudioSystem {
                 // output device).
                 //
                 // In this example we just quit the application.
+                self.stream = None;
                 panic!("Stream stopped unexpectedly!");
             }
         }
+    }
+}
+
+impl Drop for AudioSystem {
+    fn drop(&mut self) {
+        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
+        // is dropped, or else the application may take longer to close.
+        self.stream = None;
     }
 }
 
@@ -111,7 +127,7 @@ pub struct MyCustomChain {
 }
 
 impl FxChain for MyCustomChain {
-    fn construct_and_connect<B: AudioBackend>(
+    fn construct_and_connect(
         &mut self,
         // The ID of the sampler node in this worker instance.
         sampler_node_id: firewheel::node::NodeID,
@@ -123,7 +139,7 @@ impl FxChain for MyCustomChain {
         // The number of input channels on `dst_node_id`.
         dst_num_channels: NonZeroChannelCount,
         // The firewheel context.
-        cx: &mut FirewheelCtx<B>,
+        cx: &mut FirewheelContext,
     ) -> Vec<firewheel::node::NodeID> {
         // In this example we only support stereo, but you can have your FX
         // chain support multiple channel configurations.

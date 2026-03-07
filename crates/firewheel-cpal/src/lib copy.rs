@@ -312,22 +312,36 @@ pub fn host_enumerator(api: HostId) -> Result<HostEnumerator, HostUnavailable> {
     cpal::host_from_id(api).map(|host| HostEnumerator { host })
 }
 
-/// A CPAL stream running a [`FirewheelProcessor`].
-///
-/// The audio stream is automatically stopped when this struct is dropped.
-pub struct CpalStream {
+struct ActiveState {
     _out_stream_handle: cpal::Stream,
     _in_stream_handle: Option<cpal::Stream>,
     from_err_rx: mpsc::Receiver<cpal::StreamError>,
     stream_info: CpalStreamInfo,
 }
 
-impl CpalStream {
-    /// Create a new audio stream with the given [`FirewheelContext`].
-    pub fn new(cx: &mut FirewheelContext, config: CpalConfig) -> Result<Self, StartStreamError> {
+/// A CPAL backend for Firewheel.
+///
+/// The audio stream is automatically stopped when this struct is dropped.
+pub struct CpalFirewheelCtx {
+    /// The Firewheel context
+    pub cx: FirewheelContext,
+
+    active_state: Option<ActiveState>,
+}
+
+impl CpalFirewheelCtx {
+    pub fn new(cx: FirewheelContext) -> Self {
+        Self {
+            cx,
+            active_state: None,
+        }
+    }
+
+    /// Spawn a new audio stream
+    pub fn start_stream(&mut self, config: CpalConfig) -> Result<(), StartStreamError> {
         info!("Attempting to start CPAL audio stream...");
 
-        if cx.is_active() {
+        if self.cx.is_active() {
             return Err(StartStreamError::AlreadyActive);
         }
 
@@ -500,7 +514,7 @@ impl CpalStream {
             input_to_output_latency_seconds,
         };
 
-        let processor = cx.activate(activate_info)?;
+        let processor = self.cx.activate(activate_info)?;
 
         let mut data_callback = DataCallback::new(
             num_out_channels,
@@ -537,29 +551,85 @@ impl CpalStream {
             in_device_id,
         };
 
-        Ok(Self {
+        self.active_state = Some(ActiveState {
             _out_stream_handle: out_stream_handle,
             _in_stream_handle: input_stream_handle,
             from_err_rx,
             stream_info,
-        })
+        });
+
+        Ok(())
     }
 
-    /// Information about the running audio stream
-    pub fn info(&self) -> &CpalStreamInfo {
-        &self.stream_info
+    /// Stop the audio stream.
+    ///
+    /// Note, depending on the backend, it may take some time for the Firewheel processor
+    /// to be cleanly deactivated before a new stream can be started. Use
+    /// [`FirewheelContext::is_active`] to check if the context has been deactivated.
+    pub fn stop_stream(&mut self) {
+        self.active_state = None;
     }
 
-    /// Check if a stream error has occured. If one has, then this [`CpalStream`]
-    /// instance should be dropped.
+    /// Stop the audio stream, blocking the current thread until the Firewheel processor
+    /// to be cleanly deactivated.
+    ///
+    /// This does not block on `wasm` targets.
+    ///
+    /// * timeout - The maximum amount of time to wait for the audio stream to stop before
+    /// aborting.
+    pub fn stop_stream_blocking(&mut self, timeout: core::time::Duration) {
+        self.active_state = None;
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let now = bevy_platform::time::Instant::now();
+
+            while self.cx.is_active() {
+                if now.elapsed() > timeout {
+                    error!("Timed out waiting for audio stream to stop.");
+                }
+
+                bevy_platform::thread::sleep(core::time::Duration::from_millis(1));
+            }
+        }
+    }
+
+    /// Check if an error has occured that caused the stream to be stopped.
     ///
     /// This must be called periodically (i.e. once every frame).
-    pub fn poll_status(&mut self) -> Result<(), StreamError> {
-        if let Ok(e) = self.from_err_rx.try_recv() {
-            Err(e)
+    pub fn poll_stream_stopped(&mut self) -> Result<(), StreamError> {
+        if let Some(state) = &mut self.active_state {
+            if let Ok(e) = state.from_err_rx.try_recv() {
+                self.active_state = None;
+
+                Err(e)
+            } else {
+                Ok(())
+            }
         } else {
             Ok(())
         }
+    }
+
+    /// Returns `true` if the context is currently active (the [`FirewheelProcessor`]
+    /// counterpart is still alive) on an audio stream.
+    pub fn is_active(&self) -> bool {
+        self.cx.is_active()
+    }
+
+    /// Information about the running audio stream.
+    ///
+    /// Returns `None` if an audio stream is not running.
+    pub fn stream_info(&self) -> Option<&CpalStreamInfo> {
+        self.active_state.as_ref().map(|s| &s.stream_info)
+    }
+}
+
+impl Drop for CpalFirewheelCtx {
+    fn drop(&mut self) {
+        // Make sure that the stream is stopped before the Firewheel context
+        // is dropped.
+        self.stop_stream();
     }
 }
 
