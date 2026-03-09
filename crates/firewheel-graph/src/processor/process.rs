@@ -1,8 +1,5 @@
 use core::{num::NonZeroU32, time::Duration};
 
-#[cfg(not(feature = "std"))]
-use num_traits::Float;
-
 use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
