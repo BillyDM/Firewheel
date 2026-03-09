@@ -159,7 +159,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
 
         if self.hard_clip_outputs {
             for s in output.iter_mut() {
-                *s = s.fract();
+                *s = s.clamp(-1.0, 1.0);
             }
         }
     }
