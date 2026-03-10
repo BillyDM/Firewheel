@@ -47,6 +47,7 @@ std = [
     "glam-29?/std",
     "glam-30?/std",
     "glam-31?/std",
+    "glam-32?/std",
     "portable-atomic/std",
     "num-traits/std",
     "thiserror/std",
@@ -60,7 +61,8 @@ libm = [
     "num-traits/libm",
     "glam-29?/nostd-libm",
     "glam-30?/nostd-libm",
-    "glam-31?/nostd-libm"
+    "glam-31?/nostd-libm",
+    "glam-32?/nostd-libm"
 ]
 # Enables scheduling events for audio nodes.
 #
@@ -92,6 +94,8 @@ glam-29 = ["dep:glam-29"]
 glam-30 = ["dep:glam-30"]
 # Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.31.
 glam-31 = ["dep:glam-31"]
+# Enables `glam::Vec2` and `glam::Vec3` parameter derives for glam 0.32.
+glam-32 = ["dep:glam-32"]
 # Enables the `MIDI` event type, using the `wmidi` crate.
 midi_events = ["dep:wmidi"]
 # Enables serde derives for types
@@ -112,6 +116,7 @@ bevy_reflect = { workspace = true, optional = true }
 glam-29 = { package = "glam", version = "0.29", default-features = false, optional = true }
 glam-30 = { package = "glam", version = "0.30", default-features = false, optional = true }
 glam-31 = { package = "glam", version = "0.31", default-features = false, optional = true }
+glam-32 = { package = "glam", version = "0.32", default-features = false, optional = true }
 # TODO: Remove this once `bevy_platform` exposes the atomic float types from `portable-atomic`.
 portable-atomic = { version = "1", default-features = false, features = [
     "fallback",

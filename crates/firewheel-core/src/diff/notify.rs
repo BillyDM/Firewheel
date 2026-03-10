@@ -231,7 +231,7 @@ mod reflect {
                 bevy_reflect::utility::GenericTypeInfoCell::new();
             CELL.get_or_insert::<Self, _>(|| {
                 bevy_reflect::TypeInfo::Struct(
-                    bevy_reflect::StructInfo::new::<Self>(&[
+                    bevy_reflect::structs::StructInfo::new::<Self>(&[
                         bevy_reflect::NamedField::new::<T>("value").with_custom_attributes(
                             bevy_reflect::attributes::CustomAttributes::default(),
                         ),
@@ -340,7 +340,7 @@ mod reflect {
         }
     }
 
-    impl<T> bevy_reflect::Struct for Notify<T>
+    impl<T> bevy_reflect::prelude::Struct for Notify<T>
     where
         Notify<T>: ::core::any::Any + ::core::marker::Send + ::core::marker::Sync,
         T: Clone
@@ -388,12 +388,12 @@ mod reflect {
             1usize
         }
 
-        fn iter_fields<'a>(&'a self) -> bevy_reflect::FieldIter<'a> {
-            bevy_reflect::FieldIter::new(self)
+        fn iter_fields<'a>(&'a self) -> bevy_reflect::structs::FieldIter<'a> {
+            bevy_reflect::structs::FieldIter::new(self)
         }
 
-        fn to_dynamic_struct(&self) -> bevy_reflect::DynamicStruct {
-            let mut dynamic: bevy_reflect::DynamicStruct = Default::default();
+        fn to_dynamic_struct(&self) -> bevy_reflect::structs::DynamicStruct {
+            let mut dynamic: bevy_reflect::structs::DynamicStruct = Default::default();
             dynamic.set_represented_type(bevy_reflect::PartialReflect::get_represented_type_info(
                 self,
             ));
@@ -402,6 +402,10 @@ mod reflect {
                 bevy_reflect::PartialReflect::to_dynamic(&self.value),
             );
             dynamic
+        }
+
+        fn index_of_name(&self, name: &str) -> Option<usize> {
+            todo!("index_of_name is a new function");
         }
     }
 
@@ -427,11 +431,8 @@ mod reflect {
             if let bevy_reflect::ReflectRef::Struct(struct_value) =
                 bevy_reflect::PartialReflect::reflect_ref(value)
             {
-                for (i, value) in ::core::iter::Iterator::enumerate(
-                    bevy_reflect::Struct::iter_fields(struct_value),
-                ) {
-                    let name = bevy_reflect::Struct::name_at(struct_value, i).unwrap();
-                    if let Some(v) = bevy_reflect::Struct::field_mut(self, name) {
+                for (name, value) in struct_value {
+                    if let Some(v) = bevy_reflect::prelude::Struct::field_mut(self, name) {
                         bevy_reflect::PartialReflect::try_apply(v, value)?;
                     }
                 }
@@ -497,7 +498,7 @@ mod reflect {
         }
 
         fn reflect_partial_eq(&self, value: &dyn bevy_reflect::PartialReflect) -> Option<bool> {
-            (bevy_reflect::struct_partial_eq)(self, value)
+            (bevy_reflect::structs::struct_partial_eq)(self, value)
         }
 
         #[inline]
@@ -524,9 +525,9 @@ mod reflect {
             {
                 let mut this = <Self as ::core::default::Default>::default();
                 if let Some(field) = (|| {
-                    <T as bevy_reflect::FromReflect>::from_reflect(bevy_reflect::Struct::field(
-                        ref_struct, "value",
-                    )?)
+                    <T as bevy_reflect::FromReflect>::from_reflect(
+                        bevy_reflect::prelude::Struct::field(ref_struct, "value")?,
+                    )
                 })() {
                     this.value = field;
                 }

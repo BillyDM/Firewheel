@@ -323,6 +323,16 @@ param_data_from!(glam_30::Vec2, Vector2D);
 #[cfg(feature = "glam-30")]
 param_data_from!(glam_30::Vec3, Vector3D);
 
+#[cfg(feature = "glam-31")]
+param_data_from!(glam_31::Vec2, Vector2D);
+#[cfg(feature = "glam-31")]
+param_data_from!(glam_31::Vec3, Vector3D);
+
+#[cfg(feature = "glam-32")]
+param_data_from!(glam_32::Vec2, Vector2D);
+#[cfg(feature = "glam-32")]
+param_data_from!(glam_32::Vec3, Vector3D);
+
 impl From<()> for ParamData {
     fn from(_value: ()) -> Self {
         Self::None
