@@ -273,9 +273,7 @@ impl MixDSP {
                 second_r[0].as_mut(),
                 frames,
             );
-        }
-
-        if self.is_smoothing() {
+        } else if self.is_smoothing() {
             self.gain_0
                 .process_into_buffer(&mut scratch_buffer_0[..frames]);
             self.gain_1
