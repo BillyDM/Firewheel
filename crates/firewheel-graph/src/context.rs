@@ -436,14 +436,17 @@ impl FirewheelContext {
     /// If the `timoeout` duration has been reached and the context is still not
     /// deactivated, then an error is returned.
     #[cfg(not(target_family = "wasm"))]
-    pub fn deactivate_blocking(&mut self, timeout: Duration) -> Result<(), ()> {
+    pub fn deactivate_blocking(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), crate::error::DeactivateError> {
         self.request_deactivate();
 
         let now = bevy_platform::time::Instant::now();
 
         while self.is_active() {
             if now.elapsed() > timeout {
-                return Err(());
+                return Err(crate::error::DeactivateError::TimedOut);
             }
 
             bevy_platform::thread::sleep(core::time::Duration::from_millis(1));

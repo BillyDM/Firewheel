@@ -91,3 +91,10 @@ pub enum RemoveNodeError {
     #[error("Removing the graph out node is not allowed")]
     CannotRemoveGraphOutNode,
 }
+
+/// An error occured while deactivate a [`FirewheelContext`][crate::context::FirewheelContext].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DeactivateError {
+    #[error("Timed out waiting for the Firewheel context to deactivate")]
+    TimedOut,
+}
