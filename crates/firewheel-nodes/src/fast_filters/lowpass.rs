@@ -194,6 +194,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 // this can be used to only recalculate them every few frames.
                 //
                 // TODO: use core::hint::cold_path() once that stabilizes
+                // TODO: instead, we can extract a function and use #[cold] + #[inline(always)] today
                 //
                 // TODO: Alternatively, this could be optimized using a lookup table
                 if self.coeff_update_mask.do_update(i) {

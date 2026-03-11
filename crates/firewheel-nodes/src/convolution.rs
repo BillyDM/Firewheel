@@ -342,6 +342,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
             DeclickFadeCurve::EqualPower3dB,
         );
 
+        // TODO: double check this epsilon choice
         buffers.check_for_silence_on_outputs(f32::EPSILON)
     }
 }

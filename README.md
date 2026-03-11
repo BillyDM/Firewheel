@@ -7,6 +7,8 @@
 A mid-level open source audio graph engine for games and other applications, written in Rust.
 
 This crate can be used as-is or as a base for other higher-level audio engines. (Think of it like [wgpu](https://wgpu.rs/) but for audio).
+NOTE: I disagree that this is like wgpu for audio. This is a step higher than wgpu, since it provides DSP infrastructure. This is more akin
+to bevy_render, and cpal is more like wgpu in this analogy. ALSA/JACK/WASAPI/ASIO/CoreAudio, etc are equivalent to Vulkan/Metal/DirectX/OpenGL/WebGPU etc.
 
 ## Key Features
 

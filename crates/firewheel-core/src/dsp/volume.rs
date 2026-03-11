@@ -353,6 +353,7 @@ impl Default for DbMeterNormalizer {
 pub fn is_buffer_silent(buffer: &[f32], amp_epsilon: f32) -> bool {
     let mut silent = true;
     for &s in buffer.iter() {
+        // TODO: check if this autovectorizes
         if s.abs() > amp_epsilon {
             silent = false;
             break;

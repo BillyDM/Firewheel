@@ -137,6 +137,7 @@ impl RealtimeLogger {
     pub fn try_debug(&mut self, message: &str) -> Result<(), RealtimeLogError> {
         #[cfg(debug_assertions)]
         {
+            // TODO: code duplication
             if message.len() > self.max_msg_length {
                 self.shared_state
                     .message_too_long_occured

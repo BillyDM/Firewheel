@@ -660,7 +660,9 @@ fn sum_inputs(
         .set_silent(all_buffers_silent, frames as u16);
 }
 
+// TODO: this must be marked as unsafe, and invariants justified at every callsite.
 #[inline]
+// TODO: this should use an UnsafeCell type for interior mutability. This allow is not acceptable
 #[allow(clippy::mut_from_ref)]
 fn buffer_slice_mut(
     buffers: &[f32],
