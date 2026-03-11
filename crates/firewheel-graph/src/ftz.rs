@@ -1,3 +1,8 @@
+// NOTE: Setting the FTZ/MXCSR flags is technically undefined behavior in Rust.
+// See https://github.com/rust-lang/rust/issues/136469 for the tracking issue
+// to resolve this. In practice, the only consequence of any UB here would be
+// audio glitches, not memory safety issues.
+//
 // The following code is from nih_plug:
 // https://github.com/robbert-vdh/nih-plug/blob/28b149ec4d62757d0b448809148a0c3ca6e09a95/src/wrapper/util.rs
 //
