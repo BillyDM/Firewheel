@@ -10,7 +10,7 @@ use firewheel_core::{
         fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
         mix::{Mix, MixDSP},
-        volume::Volume,
+        volume::{Volume, DEFAULT_AMP_EPSILON},
     },
     event::NodeEventType,
     node::{
@@ -342,7 +342,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for ConvolutionProcessor<CHANNELS
             DeclickFadeCurve::EqualPower3dB,
         );
 
-        buffers.check_for_silence_on_outputs(f32::EPSILON)
+        buffers.check_for_silence_on_outputs(DEFAULT_AMP_EPSILON)
     }
 }
 
