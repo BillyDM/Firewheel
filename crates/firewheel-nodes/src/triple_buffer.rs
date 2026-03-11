@@ -12,7 +12,7 @@ use firewheel_core::{
 };
 
 #[cfg(not(feature = "std"))]
-use bevy_platform::prelude::Vec;
+use bevy_platform::prelude::{vec, Vec};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -248,12 +248,7 @@ impl AudioNode for TripleBufferNode {
             (self.window_size.as_frames(sample_rate) as usize).min(max_window_size_frames);
 
         let tmp_ring_buffer = (0..config.channels.get().get() as usize)
-            .map(|_| {
-                let mut v = Vec::new();
-                v.reserve_exact(max_window_size_frames);
-                v.resize(window_size_frames, 0.0);
-                v
-            })
+            .map(|_| vec![0.0; max_window_size_frames])
             .collect();
 
         Processor {
@@ -303,10 +298,11 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         let was_enabled = self.params.enabled;
 
+        let mut new_window_size_frames = self.window_size_frames;
         for patch in events.drain_patches::<TripleBufferNode>() {
             match patch {
                 TripleBufferNodePatch::WindowSize(window_size) => {
-                    self.window_size_frames = (window_size.as_frames(info.sample_rate) as usize)
+                    new_window_size_frames = (window_size.as_frames(info.sample_rate) as usize)
                         .min(self.max_window_size_frames);
                 }
                 _ => {}
@@ -323,8 +319,8 @@ impl AudioNodeProcessor for Processor {
                     let buffer = producer.input_buffer_mut();
 
                     for buf_ch in buffer.buffers.iter_mut() {
-                        buf_ch.clear();
-                        buf_ch.resize(self.window_size_frames, 0.0);
+                        buf_ch.truncate(new_window_size_frames);
+                        buf_ch.fill(0.0);
                     }
 
                     self.generation += 1;
@@ -334,13 +330,13 @@ impl AudioNodeProcessor for Processor {
                 producer.publish();
 
                 for tmp_ch in self.tmp_ring_buffer.iter_mut() {
-                    tmp_ch.clear();
-                    tmp_ch.resize(self.window_size_frames, 0.0);
+                    tmp_ch[..new_window_size_frames].fill(0.0);
                 }
 
+                self.window_size_frames = new_window_size_frames;
                 self.ring_buf_ptr = 0;
                 self.prev_publish_was_silent = true;
-                self.num_silent_frames_in_tmp = self.window_size_frames;
+                self.num_silent_frames_in_tmp = new_window_size_frames;
                 self.tmp_buffer_needs_cleared = false;
             }
 
@@ -348,43 +344,33 @@ impl AudioNodeProcessor for Processor {
         }
 
         let mut resized = false;
-        if self.tmp_ring_buffer[0].len() != self.window_size_frames {
-            let prev_window_size_frames = self.tmp_ring_buffer[0].len();
+        if self.window_size_frames != new_window_size_frames {
+            let prev = self.window_size_frames;
 
             // Use the data in the triple buffer as a temporary scratch buffer.
             let buffer = producer.input_buffer_mut();
-
-            let first_copy_frames = prev_window_size_frames - self.ring_buf_ptr;
-            let second_copy_frames = prev_window_size_frames - first_copy_frames;
 
             for (buf_ch, tmp_ch) in buffer
                 .buffers
                 .iter_mut()
                 .zip(self.tmp_ring_buffer.iter_mut())
             {
-                buf_ch.clear();
+                let (head, tail) = tmp_ch[..prev].split_at(self.ring_buf_ptr);
+                buf_ch[..tail.len()].copy_from_slice(tail);
+                buf_ch[tail.len()..prev].copy_from_slice(head);
 
-                if first_copy_frames > 0 {
-                    buf_ch.extend_from_slice(
-                        &tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames],
-                    );
-                }
-                if second_copy_frames > 0 {
-                    buf_ch.extend_from_slice(&tmp_ch[0..second_copy_frames]);
-                }
-
-                tmp_ch.clear();
-                if prev_window_size_frames >= self.window_size_frames {
-                    tmp_ch.extend_from_slice(
-                        &buf_ch[prev_window_size_frames - self.window_size_frames
-                            ..prev_window_size_frames],
-                    );
+                // Rebuild tmp_ch at the new window size.
+                if prev >= new_window_size_frames {
+                    tmp_ch[..new_window_size_frames]
+                        .copy_from_slice(&buf_ch[prev - new_window_size_frames..prev]);
                 } else {
-                    tmp_ch.resize(self.window_size_frames - prev_window_size_frames, 0.0);
-                    tmp_ch.extend_from_slice(&buf_ch[0..prev_window_size_frames]);
+                    let pad = new_window_size_frames - prev;
+                    tmp_ch[..pad].fill(0.0);
+                    tmp_ch[pad..new_window_size_frames].copy_from_slice(&buf_ch[..prev]);
                 }
             }
 
+            self.window_size_frames = new_window_size_frames;
             self.ring_buf_ptr = 0;
             self.num_silent_frames_in_tmp = 0;
             resized = true;
@@ -412,7 +398,7 @@ impl AudioNodeProcessor for Processor {
         if info.frames >= self.window_size_frames {
             // Just copy all the new data.
             for (tmp_ch, in_ch) in self.tmp_ring_buffer.iter_mut().zip(buffers.inputs.iter()) {
-                tmp_ch[0..self.window_size_frames]
+                tmp_ch[..self.window_size_frames]
                     .copy_from_slice(&in_ch[info.frames - self.window_size_frames..info.frames]);
             }
             self.ring_buf_ptr = 0;
@@ -422,8 +408,7 @@ impl AudioNodeProcessor for Processor {
                 self.tmp_buffer_needs_cleared = false;
 
                 for tmp_ch in self.tmp_ring_buffer.iter_mut() {
-                    tmp_ch.clear();
-                    tmp_ch.resize(self.window_size_frames, 0.0);
+                    tmp_ch[..self.window_size_frames].fill(0.0);
                 }
                 self.ring_buf_ptr = 0;
             }
@@ -434,13 +419,12 @@ impl AudioNodeProcessor for Processor {
             for (tmp_ch, in_ch) in self.tmp_ring_buffer.iter_mut().zip(buffers.inputs.iter()) {
                 if first_copy_frames > 0 {
                     tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
-                        .copy_from_slice(&in_ch[0..first_copy_frames]);
+                        .copy_from_slice(&in_ch[..first_copy_frames]);
                 }
 
                 if second_copy_frames > 0 {
-                    tmp_ch[0..second_copy_frames].copy_from_slice(
-                        &in_ch[first_copy_frames..first_copy_frames + second_copy_frames],
-                    );
+                    tmp_ch[..second_copy_frames]
+                        .copy_from_slice(&in_ch[first_copy_frames..info.frames]);
                 }
             }
 
@@ -454,20 +438,12 @@ impl AudioNodeProcessor for Processor {
         {
             let buffer = producer.input_buffer_mut();
 
-            let first_copy_frames = self.window_size_frames - self.ring_buf_ptr;
-            let second_copy_frames = self.window_size_frames - first_copy_frames;
-
             for (buf_ch, tmp_ch) in buffer.buffers.iter_mut().zip(self.tmp_ring_buffer.iter()) {
-                buf_ch.clear();
-
-                if first_copy_frames > 0 {
-                    buf_ch.extend_from_slice(
-                        &tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames],
-                    );
-                }
-                if second_copy_frames > 0 {
-                    buf_ch.extend_from_slice(&tmp_ch[0..second_copy_frames]);
-                }
+                let (head, tail) = tmp_ch[..self.window_size_frames].split_at(self.ring_buf_ptr);
+                buf_ch[..tail.len()].copy_from_slice(tail);
+                buf_ch[tail.len()..self.window_size_frames].copy_from_slice(head);
+                // Set consumer-visible length to window_size_frames.
+                buf_ch.truncate(self.window_size_frames);
             }
 
             self.generation += 1;
@@ -497,12 +473,7 @@ impl AudioNodeProcessor for Processor {
             .min(self.max_window_size_frames);
 
         self.tmp_ring_buffer = (0..self.config.channels.get().get() as usize)
-            .map(|_| {
-                let mut v = Vec::new();
-                v.reserve_exact(self.max_window_size_frames);
-                v.resize(self.window_size_frames, 0.0);
-                v
-            })
+            .map(|_| vec![0.0; self.max_window_size_frames])
             .collect();
         self.ring_buf_ptr = 0;
         self.num_silent_frames_in_tmp = self.window_size_frames;
