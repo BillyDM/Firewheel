@@ -129,6 +129,21 @@ impl<const CHANNELS: usize> AudioNode for FastBandpassNode<CHANNELS> {
     }
 }
 
+#[cold]
+#[inline(never)]
+fn calc_coeffs<const CHANNELS: usize>(
+    cutoff_hz: f32,
+    sample_rate_recip: f32,
+) -> (
+    OnePoleIirLPFCoeffSimd<CHANNELS>,
+    OnePoleIirHPFCoeffSimd<CHANNELS>,
+) {
+    (
+        OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(cutoff_hz, sample_rate_recip)),
+        OnePoleIirHPFCoeffSimd::splat(OnePoleIirHPFCoeff::new(cutoff_hz, sample_rate_recip)),
+    )
+}
+
 struct Processor<const CHANNELS: usize> {
     lpf: OnePoleIirLPFSimd<CHANNELS>,
     hpf: OnePoleIirHPFSimd<CHANNELS>,
@@ -202,21 +217,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             for i in 0..info.frames {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
-                // Because recalculating filter coefficients is expensive, a trick like
-                // this can be used to only recalculate them every few frames.
-                //
-                // TODO: use core::hint::cold_path() once that stabilizes
-                //
-                // TODO: Alternatively, this could be optimized using a lookup table
+                // Only recalculate coefficients every 2^coeff_update_factor frames
                 if self.coeff_update_mask.do_update(i) {
-                    self.lpf_coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
-                        cutoff_hz,
-                        info.sample_rate_recip as f32,
-                    ));
-                    self.hpf_coeff = OnePoleIirHPFCoeffSimd::splat(OnePoleIirHPFCoeff::new(
-                        cutoff_hz,
-                        info.sample_rate_recip as f32,
-                    ));
+                    (self.lpf_coeff, self.hpf_coeff) =
+                        calc_coeffs(cutoff_hz, info.sample_rate_recip as f32);
                 }
 
                 let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -236,27 +240,15 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             }
 
             if self.cutoff_hz.settle() {
-                self.lpf_coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
-                    self.cutoff_hz.target_value(),
-                    info.sample_rate_recip as f32,
-                ));
-                self.hpf_coeff = OnePoleIirHPFCoeffSimd::splat(OnePoleIirHPFCoeff::new(
-                    self.cutoff_hz.target_value(),
-                    info.sample_rate_recip as f32,
-                ));
+                (self.lpf_coeff, self.hpf_coeff) =
+                    calc_coeffs(self.cutoff_hz.target_value(), info.sample_rate_recip as f32);
             }
         } else {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
             if cutoff_changed {
-                self.lpf_coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
-                    self.cutoff_hz.target_value(),
-                    info.sample_rate_recip as f32,
-                ));
-                self.hpf_coeff = OnePoleIirHPFCoeffSimd::splat(OnePoleIirHPFCoeff::new(
-                    self.cutoff_hz.target_value(),
-                    info.sample_rate_recip as f32,
-                ));
+                (self.lpf_coeff, self.hpf_coeff) =
+                    calc_coeffs(self.cutoff_hz.target_value(), info.sample_rate_recip as f32);
             }
 
             for i in 0..info.frames {
@@ -291,13 +283,9 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
     fn new_stream(&mut self, stream_info: &StreamInfo, _context: &mut ProcStreamCtx) {
         self.cutoff_hz.update_sample_rate(stream_info.sample_rate);
-        self.lpf_coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
+        (self.lpf_coeff, self.hpf_coeff) = calc_coeffs(
             self.cutoff_hz.target_value(),
             stream_info.sample_rate_recip as f32,
-        ));
-        self.hpf_coeff = OnePoleIirHPFCoeffSimd::splat(OnePoleIirHPFCoeff::new(
-            self.cutoff_hz.target_value(),
-            stream_info.sample_rate_recip as f32,
-        ));
+        );
     }
 }
