@@ -3,7 +3,7 @@ use firewheel_core::{
     diff::{Diff, PathBuilder},
     node::NodeID,
 };
-use firewheel_graph::{backend::AudioBackend, ContextQueue, FirewheelCtx};
+use firewheel_graph::{ContextQueue, FirewheelContext};
 use firewheel_nodes::sampler::{SamplerConfig, SamplerNode, SamplerState};
 
 use crate::{PoolError, PoolableNode};
@@ -32,10 +32,7 @@ impl PoolableNode for SamplerPool {
     /// Return `true` if the node state of the given node is stopped.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn node_is_stopped<B: AudioBackend>(
-        node_id: NodeID,
-        cx: &FirewheelCtx<B>,
-    ) -> Result<bool, PoolError> {
+    fn node_is_stopped(node_id: NodeID, cx: &FirewheelContext) -> Result<bool, PoolError> {
         cx.node_state::<SamplerState>(node_id)
             .map(|s| s.stopped())
             .ok_or(PoolError::InvalidNodeID(node_id))
@@ -46,10 +43,10 @@ impl PoolableNode for SamplerPool {
     /// The worker with the highest worker score will be chosen for the new work.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn worker_score<B: AudioBackend>(
+    fn worker_score(
         params: &SamplerNode,
         node_id: NodeID,
-        cx: &mut FirewheelCtx<B>,
+        cx: &mut FirewheelContext,
     ) -> Result<u64, PoolError> {
         cx.node_state::<SamplerState>(node_id)
             .map(|s| s.worker_score(params))
@@ -57,11 +54,7 @@ impl PoolableNode for SamplerPool {
     }
 
     /// Diff the new parameters and push the changes into the event queue.
-    fn diff<B: AudioBackend>(
-        baseline: &SamplerNode,
-        new: &SamplerNode,
-        event_queue: &mut ContextQueue<B>,
-    ) {
+    fn diff(baseline: &SamplerNode, new: &SamplerNode, event_queue: &mut ContextQueue) {
         new.diff(baseline, PathBuilder::default(), event_queue);
     }
 
@@ -71,10 +64,7 @@ impl PoolableNode for SamplerPool {
     /// and the node receiving the event.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn mark_playing<B: AudioBackend>(
-        node_id: NodeID,
-        cx: &mut FirewheelCtx<B>,
-    ) -> Result<(), PoolError> {
+    fn mark_playing(node_id: NodeID, cx: &mut FirewheelContext) -> Result<(), PoolError> {
         cx.node_state_mut::<SamplerState>(node_id)
             .map(|s| s.mark_playing())
             .ok_or(PoolError::InvalidNodeID(node_id))

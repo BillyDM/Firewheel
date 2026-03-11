@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use firewheel::{
-    error::UpdateError,
+    cpal::CpalStream,
     nodes::sampler::{SamplerNode, SamplerState},
     FirewheelContext,
 };
@@ -29,7 +29,7 @@ fn main() {
     // --- Start the context and get the sample rate of the audio stream. ----------------
 
     let mut cx = FirewheelContext::new(Default::default());
-    cx.start_stream(Default::default()).unwrap();
+    let mut stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
     let sample_rate = cx.stream_info().unwrap().sample_rate;
 
@@ -75,20 +75,24 @@ fn main() {
             break;
         }
 
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                break;
-            }
+        if let Err(e) = stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            break;
         }
 
         std::thread::sleep(UPDATE_INTERVAL);

@@ -12,7 +12,6 @@ use bevy_platform::prelude::Box;
 use firewheel_core::clock::TransportState;
 
 use crate::{
-    backend::AudioBackend,
     graph::{NodeHeapData, ScheduleHeapData},
     processor::{
         ContextToProcessorMsg, FirewheelProcessorInner, NodeEntry, NodeEventSchedulerData,
@@ -20,7 +19,7 @@ use crate::{
     },
 };
 
-impl<B: AudioBackend> FirewheelProcessorInner<B> {
+impl FirewheelProcessorInner {
     pub fn poll_messages(&mut self) {
         while let Some(msg) = self.from_graph_rx.try_pop() {
             match msg {
@@ -154,8 +153,6 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
     }
 
     pub fn stream_stopped(&mut self) {
-        self.sync_shared_clock(None);
-
         for (_, node) in self.nodes.iter_mut() {
             node.processor.stream_stopped(&mut ProcStreamCtx {
                 store: &mut self.extra.store,

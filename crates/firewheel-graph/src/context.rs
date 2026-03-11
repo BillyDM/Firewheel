@@ -1,14 +1,14 @@
-use bevy_platform::time::Instant;
-use core::cell::RefCell;
+use bevy_platform::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
-use firewheel_core::clock::DurationSeconds;
 use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
 use firewheel_core::node::ProcStore;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    clock::AudioClock,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
@@ -20,30 +20,50 @@ use smallvec::SmallVec;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
+#[cfg(feature = "scheduled_events")]
+use bevy_platform::time::Instant;
+#[cfg(feature = "scheduled_events")]
+use core::cell::RefCell;
+#[cfg(feature = "scheduled_events")]
+use firewheel_core::clock::{AudioClock, DurationSeconds};
+
 #[cfg(all(not(feature = "std"), feature = "musical_transport"))]
 use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::error::RemoveNodeError;
+use crate::error::{ActivateError, RemoveNodeError};
 use crate::processor::BufferOutOfSpaceMode;
 use crate::{
-    backend::AudioBackend,
-    error::{AddEdgeError, StartStreamError, UpdateError},
+    error::{AddEdgeError, UpdateError},
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
     processor::{
         ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorInner, ProcessorToContextMsg,
-        SharedClock,
     },
 };
 
 #[cfg(feature = "scheduled_events")]
-use crate::processor::ClearScheduledEventsEvent;
+use crate::processor::{ClearScheduledEventsEvent, SharedClock};
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
 
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::TransportState;
+
+/// Information about the running audio stream.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActivateInfo {
+    /// The sample rate of the audio stream.
+    pub sample_rate: NonZeroU32,
+    /// The maximum number of frames that can appear in a single process cyle.
+    pub max_block_frames: NonZeroU32,
+    /// The number of input audio channels in the stream.
+    pub num_stream_in_channels: u32,
+    /// The number of output audio channels in the stream.
+    pub num_stream_out_channels: u32,
+    /// The latency of the input to output stream in seconds.
+    pub input_to_output_latency_seconds: f64,
+}
 
 /// The configuration of a Firewheel context.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,35 +174,33 @@ impl Default for FirewheelConfig {
     }
 }
 
-struct ActiveState<B: AudioBackend> {
-    backend_handle: B,
-    stream_info: StreamInfo,
-}
-
-pub(crate) struct ProcessorChannel<B: AudioBackend> {
+pub(crate) struct ProcessorChannel {
     pub(crate) from_context_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
     pub(crate) to_context_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
-    pub(crate) shared_clock_input: triple_buffer::Input<SharedClock<B::Instant>>,
+    #[cfg(feature = "scheduled_events")]
+    pub(crate) shared_clock_input: triple_buffer::Input<SharedClock>,
     pub(crate) logger: RealtimeLogger,
     pub(crate) store: ProcStore,
 }
 
 /// A Firewheel context
-pub struct FirewheelCtx<B: AudioBackend> {
+pub struct FirewheelContext {
     graph: AudioGraph,
 
     to_processor_tx: ringbuf::HeapProd<ContextToProcessorMsg>,
     from_processor_rx: ringbuf::HeapCons<ProcessorToContextMsg>,
+    processor_drop_flag: Option<Arc<AtomicBool>>,
     logger_rx: RealtimeLoggerMainThread,
 
-    active_state: Option<ActiveState<B>>,
+    processor_channel: Option<ProcessorChannel>,
+    processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
-    processor_channel: Option<ProcessorChannel<B>>,
-    processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner<B>>>,
+    #[cfg(feature = "scheduled_events")]
+    shared_clock_output: RefCell<triple_buffer::Output<SharedClock>>,
 
-    shared_clock_output: RefCell<triple_buffer::Output<SharedClock<B::Instant>>>,
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
+    stream_info: Option<StreamInfo>,
 
     #[cfg(feature = "musical_transport")]
     transport_state: Box<TransportState>,
@@ -200,7 +218,7 @@ pub struct FirewheelCtx<B: AudioBackend> {
     config: FirewheelConfig,
 }
 
-impl<B: AudioBackend> FirewheelCtx<B> {
+impl FirewheelContext {
     /// Create a new Firewheel context.
     pub fn new(config: FirewheelConfig) -> Self {
         let (to_processor_tx, from_context_rx) =
@@ -215,6 +233,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             event_group_pool.push(Vec::with_capacity(initial_event_group_capacity));
         }
 
+        #[cfg(feature = "scheduled_events")]
         let (shared_clock_input, shared_clock_output) =
             triple_buffer::triple_buffer(&SharedClock::default());
 
@@ -226,19 +245,22 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             graph: AudioGraph::new(&config),
             to_processor_tx,
             from_processor_rx,
+            processor_drop_flag: None,
             logger_rx,
-            active_state: None,
             processor_channel: Some(ProcessorChannel {
                 from_context_rx,
                 to_context_tx,
+                #[cfg(feature = "scheduled_events")]
                 shared_clock_input,
                 logger,
                 store,
             }),
             processor_drop_rx: None,
+            #[cfg(feature = "scheduled_events")]
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
+            stream_info: None,
             #[cfg(feature = "musical_transport")]
             transport_state: Box::new(TransportState::default()),
             #[cfg(feature = "musical_transport")]
@@ -258,12 +280,16 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn proc_store(&self) -> Option<&ProcStore> {
         if let Some(proc_channel) = &self.processor_channel {
             Some(&proc_channel.store)
-        } else if let Some(processor) = self.processor_drop_rx.as_ref().unwrap().last() {
-            if processor.poisoned {
-                panic!("The audio thread has panicked!");
-            }
+        } else if let Some(processor) = self.processor_drop_rx.as_ref() {
+            if let Some(processor) = processor.last() {
+                if processor.poisoned {
+                    panic!("The audio thread has panicked!");
+                }
 
-            Some(&processor.extra.store)
+                Some(&processor.extra.store)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -275,95 +301,72 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     pub fn proc_store_mut(&mut self) -> Option<&mut ProcStore> {
         if let Some(proc_channel) = &mut self.processor_channel {
             Some(&mut proc_channel.store)
-        } else if let Some(processor) = self.processor_drop_rx.as_mut().unwrap().last_mut() {
-            if processor.poisoned {
-                panic!("The audio thread has panicked!");
-            }
+        } else if let Some(processor) = self.processor_drop_rx.as_mut() {
+            if let Some(processor) = processor.last_mut() {
+                if processor.poisoned {
+                    panic!("The audio thread has panicked!");
+                }
 
-            Some(&mut processor.extra.store)
+                Some(&mut processor.extra.store)
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
-    /// Get a reference to the currently active instance of the backend. Returns `None` if the backend has not
-    /// yet been initialized with `start_stream`.
-    pub fn active_backend(&self) -> Option<&B> {
-        self.active_state
-            .as_ref()
-            .map(|state| &state.backend_handle)
-    }
-
-    /// Get a mutable reference to the currently active instance of the backend. Returns `None` if the backend has not
-    /// yet been initialized with `start_stream`.
-    pub fn active_backend_mut(&mut self) -> Option<&mut B> {
-        self.active_state
-            .as_mut()
-            .map(|state| &mut state.backend_handle)
-    }
-
-    /// Get a struct used to retrieve the list of available audio devices
-    /// on the system and their available ocnfigurations.
-    pub fn device_enumerator(&self) -> B::Enumerator {
-        B::enumerator()
-    }
-
-    /// Returns `true` if an audio stream can be started right now.
-    ///
-    /// When calling [`FirewheelCtx::stop_stream()`], it may take some time for the
-    /// old stream to be fully stopped. This method is used to check if it has been
-    /// dropped yet.
-    ///
-    /// Note, in rare cases where the audio thread crashes without cleanly dropping
-    /// its contents, this may never return `true`. Consider adding a timeout to
-    /// avoid deadlocking.
-    pub fn can_start_stream(&self) -> bool {
-        if self.is_audio_stream_running() {
-            false
-        } else if let Some(rx) = &self.processor_drop_rx {
-            rx.try_peek().is_some()
+    /// Returns `true` if the context is currently active (the [`FirewheelProcessor`]
+    /// counterpart is still alive).
+    pub fn is_active(&self) -> bool {
+        if let Some(rx) = &self.processor_drop_rx {
+            rx.try_peek().is_none()
         } else {
-            true
+            false
         }
     }
 
-    /// Start an audio stream for this context. Only one audio stream can exist on
-    /// a context at a time.
+    /// Activate the context with the given audio stream.
     ///
-    /// When calling [`FirewheelCtx::stop_stream()`], it may take some time for the
-    /// old stream to be fully stopped. Use [`FirewheelCtx::can_start_stream`] to
-    /// check if it has been dropped yet.
+    /// Use [`FirewheelContext::is_active`] to check if the context is ready to
+    /// be activated.
     ///
     /// Note, in rare cases where the audio thread crashes without cleanly dropping
     /// its contents, this may never succeed. Consider adding a timeout to avoid
     /// deadlocking.
-    pub fn start_stream(
-        &mut self,
-        config: B::Config,
-    ) -> Result<(), StartStreamError<B::StartStreamError>> {
-        if self.is_audio_stream_running() {
-            return Err(StartStreamError::AlreadyStarted);
+    pub fn activate(&mut self, info: ActivateInfo) -> Result<FirewheelProcessor, ActivateError> {
+        let ActivateInfo {
+            sample_rate,
+            max_block_frames,
+            num_stream_in_channels,
+            num_stream_out_channels,
+            input_to_output_latency_seconds,
+        } = info;
+
+        if self.is_active() {
+            return Err(ActivateError::AlreadyActive);
         }
-
-        if !self.can_start_stream() {
-            return Err(StartStreamError::OldStreamNotFinishedStopping);
-        }
-
-        let (mut backend_handle, mut stream_info) =
-            B::start_stream(config).map_err(StartStreamError::BackendError)?;
-
-        stream_info.sample_rate_recip = (stream_info.sample_rate.get() as f64).recip();
-        stream_info.declick_frames = NonZeroU32::new(
-            (self.config.declick_seconds * stream_info.sample_rate.get() as f32).round() as u32,
-        )
-        .unwrap_or(NonZeroU32::MIN);
 
         let maybe_processor = self.processor_channel.take();
 
-        stream_info.prev_sample_rate = if maybe_processor.is_some() {
-            stream_info.sample_rate
+        let prev_sample_rate = if maybe_processor.is_some() {
+            sample_rate
         } else {
             self.sample_rate
+        };
+
+        let stream_info = StreamInfo {
+            sample_rate,
+            sample_rate_recip: (sample_rate.get() as f64).recip(),
+            prev_sample_rate,
+            max_block_frames,
+            num_stream_in_channels,
+            num_stream_out_channels,
+            input_to_output_latency_seconds,
+            declick_frames: NonZeroU32::new(
+                (self.config.declick_seconds * sample_rate.get() as f32).round() as u32,
+            )
+            .unwrap_or(NonZeroU32::MIN),
         };
 
         self.sample_rate = stream_info.sample_rate;
@@ -371,7 +374,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
         let schedule = self.graph.compile(&stream_info)?;
 
-        let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner<B>>::new(1).split();
+        let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner>::new(1).split();
 
         let processor = if let Some(proc_channel) = maybe_processor {
             FirewheelProcessorInner::new(
@@ -397,8 +400,6 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             processor
         };
 
-        backend_handle.set_processor(FirewheelProcessor::new(processor, drop_tx));
-
         if self
             .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule))
             .is_err()
@@ -406,39 +407,69 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             panic!("Firewheel message channel is full!");
         }
 
-        self.active_state = Some(ActiveState {
-            backend_handle,
-            stream_info,
-        });
         self.processor_drop_rx = Some(drop_rx);
+        self.stream_info = Some(stream_info);
+
+        let drop_flag = Arc::new(AtomicBool::new(false));
+        self.processor_drop_flag = Some(drop_flag.clone());
+
+        Ok(FirewheelProcessor::new(processor, drop_tx, drop_flag))
+    }
+
+    /// Request the context to be deactivated if it is active.
+    ///
+    /// This does not block the current thread. It might take a while for the
+    /// context to deactivate. Use [`FirewheelContext::is_active`] to check when
+    /// the context has been deactivated.
+    ///
+    /// Note, another way to deactivate the context is to drop the [`FirewheelProcessor`]
+    /// counterpart in the audio thread.
+    pub fn request_deactivate(&mut self) {
+        if let Some(flag) = &self.processor_drop_flag {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// If the context is active, request the context to be deactivated and wait
+    /// for the context to be deactivated before returning.
+    ///
+    /// If the `timoeout` duration has been reached and the context is still not
+    /// deactivated, then an error is returned.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn deactivate_blocking(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), crate::error::DeactivateError> {
+        self.request_deactivate();
+
+        let now = bevy_platform::time::Instant::now();
+
+        while self.is_active() {
+            if now.elapsed() > timeout {
+                return Err(crate::error::DeactivateError::TimedOut);
+            }
+
+            bevy_platform::thread::sleep(core::time::Duration::from_millis(1));
+        }
 
         Ok(())
     }
 
-    /// Stop the audio stream in this context.
-    pub fn stop_stream(&mut self) {
-        // When the backend handle is dropped, the backend will automatically
-        // stop its stream.
-        self.active_state = None;
-        self.graph.deactivate();
-    }
-
-    /// Returns `true` if there is currently a running audio stream.
-    pub fn is_audio_stream_running(&self) -> bool {
-        self.active_state.is_some()
-    }
-
     /// Information about the running audio stream.
     ///
-    /// Returns `None` if no audio stream is currently running.
+    /// Returns `None` if the context is not currently active.
     pub fn stream_info(&self) -> Option<&StreamInfo> {
-        self.active_state.as_ref().map(|s| &s.stream_info)
+        if self.is_active() {
+            self.stream_info.as_ref()
+        } else {
+            None
+        }
     }
 
     /// Get the current time of the audio clock, without accounting for the delay
     /// between when the clock was last updated and now.
     ///
-    /// For most use cases you probably want to use [`FirewheelCtx::audio_clock_corrected`]
+    /// For most use cases you probably want to use [`FirewheelContext::audio_clock_corrected`]
     /// instead, but this method is provided if needed.
     ///
     /// Note, due to the nature of audio processing, this clock is is *NOT* synced with
@@ -449,6 +480,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
+    #[cfg(feature = "scheduled_events")]
     pub fn audio_clock(&self) -> AudioClock {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
@@ -457,9 +489,6 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         // will never panic.
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
-
-        let update_instant = audio_clock_update_instant_and_delay(clock, &self.active_state)
-            .map(|(update_instant, _delay)| update_instant);
 
         AudioClock {
             samples: clock.clock_samples,
@@ -470,13 +499,13 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             musical: clock.current_playhead,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: clock.transport_is_playing,
-            update_instant,
+            update_instant: self.is_active().then(|| clock.update_instant.clone()),
         }
     }
 
     /// Get the current time of the audio clock.
     ///
-    /// Unlike, [`FirewheelCtx::audio_clock`], this method accounts for the delay
+    /// Unlike, [`FirewheelContext::audio_clock`], this method accounts for the delay
     /// between when the audio clock was last updated and now, leading to a more
     /// accurate result for games and other applications.
     ///
@@ -492,6 +521,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
+    #[cfg(feature = "scheduled_events")]
     pub fn audio_clock_corrected(&self) -> AudioClock {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
@@ -501,9 +531,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        let Some((update_instant, delay)) =
-            audio_clock_update_instant_and_delay(clock, &self.active_state)
-        else {
+        if !self.is_active() {
             // The audio thread is not currently running, so just return the
             // latest value of the clock.
             return AudioClock {
@@ -517,7 +545,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                 transport_is_playing: clock.transport_is_playing,
                 update_instant: None,
             };
-        };
+        }
+
+        let update_instant = clock.update_instant.clone();
+        let delay = update_instant.elapsed();
 
         // Account for the delay between when the clock was last updated and now.
         let delta_seconds = DurationSeconds(delay.as_secs_f64());
@@ -550,15 +581,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 
     /// Get the instant the audio clock was last updated.
     ///
-    /// This method accounts for the delay between when the audio clock was last
-    /// updated and now, leading to a more accurate result for games and other
-    /// applications.
-    ///
-    /// If the audio thread is not currently running, or if the delay could not
+    /// If the audio thread is not currently running, or if the instant could not
     /// be determined for any other reason, then this will return `None`.
     ///
     /// Note, calling this method is not super cheap, so avoid calling it many
     /// times within the same game loop iteration if possible.
+    #[cfg(feature = "scheduled_events")]
     pub fn audio_clock_instant(&self) -> Option<Instant> {
         // Reading the latest value of the clock doesn't meaningfully mutate
         // state, so treat it as an immutable operation with interior mutability.
@@ -568,18 +596,14 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         let mut clock_borrowed = self.shared_clock_output.borrow_mut();
         let clock = clock_borrowed.read();
 
-        audio_clock_update_instant_and_delay(clock, &self.active_state)
-            .map(|(update_instant, _delay)| update_instant)
+        self.is_active().then(|| clock.update_instant.clone())
     }
 
     /// Sync the state of the musical transport.
     ///
     /// If the message channel is full, then this will return an error.
     #[cfg(feature = "musical_transport")]
-    pub fn sync_transport(
-        &mut self,
-        transport: &TransportState,
-    ) -> Result<(), UpdateError<B::StreamError>> {
+    pub fn sync_transport(&mut self, transport: &TransportState) -> Result<(), UpdateError> {
         if &*self.transport_state != transport {
             let transport_msg = if let Some(mut t) = self.transport_state_alloc_reuse.take() {
                 *t = transport.clone();
@@ -622,10 +646,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// assumption is true.)
     ///
     /// If the message channel is full, then this will return an error.
-    pub fn set_hard_clip_outputs(
-        &mut self,
-        hard_clip_outputs: bool,
-    ) -> Result<(), UpdateError<B::StreamError>> {
+    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) -> Result<(), UpdateError> {
         if self.config.hard_clip_outputs == hard_clip_outputs {
             return Ok(());
         }
@@ -638,7 +659,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Update the firewheel context.
     ///
     /// This must be called reguarly (i.e. once every frame).
-    pub fn update(&mut self) -> Result<(), UpdateError<B::StreamError>> {
+    pub fn update(&mut self) -> Result<(), UpdateError> {
         self.logger_rx.flush(
             |msg| {
                 #[cfg(feature = "tracing")]
@@ -685,38 +706,12 @@ impl<B: AudioBackend> FirewheelCtx<B> {
             }
         }
 
-        self.graph.update(
-            self.active_state.as_ref().map(|s| &s.stream_info),
-            &mut self.event_group,
-        );
+        self.graph
+            .update(self.stream_info.as_ref(), &mut self.event_group);
 
-        if let Some(active_state) = &mut self.active_state {
-            if let Err(e) = active_state.backend_handle.poll_status() {
-                self.active_state = None;
-                self.graph.deactivate();
-
-                return Err(UpdateError::StreamStoppedUnexpectedly(Some(e)));
-            }
-
-            if self
-                .processor_drop_rx
-                .as_ref()
-                .unwrap()
-                .try_peek()
-                .is_some()
-            {
-                self.active_state = None;
-                self.graph.deactivate();
-
-                return Err(UpdateError::StreamStoppedUnexpectedly(None));
-            }
-        }
-
-        if self.is_audio_stream_running() {
+        if self.is_active() {
             if self.graph.needs_compile() {
-                let schedule_data = self
-                    .graph
-                    .compile(&self.active_state.as_ref().unwrap().stream_info)?;
+                let schedule_data = self.graph.compile(self.stream_info.as_ref().unwrap())?;
 
                 if let Err((msg, e)) = self
                     .send_message_to_processor(ContextToProcessorMsg::NewSchedule(schedule_data))
@@ -769,6 +764,9 @@ impl<B: AudioBackend> FirewheelCtx<B> {
                     return Err(e);
                 }
             }
+        } else {
+            self.stream_info = None;
+            self.graph.deactivate();
         }
 
         Ok(())
@@ -940,7 +938,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Queue an event to be sent to an audio node's processor.
     ///
     /// Note, this event will not be sent until the event queue is flushed
-    /// in [`FirewheelCtx::update`].
+    /// in [`FirewheelContext::update`].
     pub fn queue_event(&mut self, event: NodeEvent) {
         self.event_group.push(event);
     }
@@ -948,7 +946,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Queue an event to be sent to an audio node's processor.
     ///
     /// Note, this event will not be sent until the event queue is flushed
-    /// in [`FirewheelCtx::update`].
+    /// in [`FirewheelContext::update`].
     pub fn queue_event_for(&mut self, node_id: NodeID, event: NodeEventType) {
         self.queue_event(NodeEvent {
             node_id,
@@ -964,7 +962,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// processor receives the event.
     ///
     /// Note, this event will not be sent until the event queue is flushed
-    /// in [`FirewheelCtx::update`].
+    /// in [`FirewheelContext::update`].
     #[cfg(feature = "scheduled_events")]
     pub fn schedule_event_for(
         &mut self,
@@ -982,10 +980,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Cancel scheduled events for all nodes.
     ///
     /// This will clear all events that have been scheduled since the last call to
-    /// [`FirewheelCtx::update`]. Any events scheduled between then and the next call
-    /// to [`FirewheelCtx::update`] will not be canceled.
+    /// [`FirewheelContext::update`]. Any events scheduled between then and the next call
+    /// to [`FirewheelContext::update`] will not be canceled.
     ///
-    /// This only takes effect once [`FirewheelCtx::update`] is called.
+    /// This only takes effect once [`FirewheelContext::update`] is called.
     #[cfg(feature = "scheduled_events")]
     pub fn cancel_all_scheduled_events(&mut self, event_type: ClearScheduledEventsType) {
         self.queued_clear_scheduled_events
@@ -998,10 +996,10 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     /// Cancel scheduled events for a specific node.
     ///
     /// This will clear all events that have been scheduled since the last call to
-    /// [`FirewheelCtx::update`]. Any events scheduled between then and the next call
-    /// to [`FirewheelCtx::update`] will not be canceled.
+    /// [`FirewheelContext::update`]. Any events scheduled between then and the next call
+    /// to [`FirewheelContext::update`] will not be canceled.
     ///
-    /// This only takes effect once [`FirewheelCtx::update`] is called.
+    /// This only takes effect once [`FirewheelContext::update`] is called.
     #[cfg(feature = "scheduled_events")]
     pub fn cancel_scheduled_events_for(
         &mut self,
@@ -1018,39 +1016,30 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     fn send_message_to_processor(
         &mut self,
         msg: ContextToProcessorMsg,
-    ) -> Result<(), (ContextToProcessorMsg, UpdateError<B::StreamError>)> {
+    ) -> Result<(), (ContextToProcessorMsg, UpdateError)> {
         self.to_processor_tx
             .try_push(msg)
             .map_err(|msg| (msg, UpdateError::MsgChannelFull))
     }
 }
 
-impl<B: AudioBackend> Drop for FirewheelCtx<B> {
+impl Drop for FirewheelContext {
     fn drop(&mut self) {
-        self.stop_stream();
-
         // Wait for the processor to be drop to avoid deallocating it on
         // the audio thread.
         #[cfg(not(target_family = "wasm"))]
-        if let Some(drop_rx) = self.processor_drop_rx.take() {
-            let now = bevy_platform::time::Instant::now();
+        let _ = self.deactivate_blocking(core::time::Duration::from_secs(3));
 
-            while drop_rx.try_peek().is_none() {
-                if now.elapsed() > core::time::Duration::from_secs(2) {
-                    break;
-                }
-
-                bevy_platform::thread::sleep(core::time::Duration::from_millis(2));
-            }
-        }
+        #[cfg(target_family = "wasm")]
+        self.request_deactivate();
 
         firewheel_core::collector::GlobalRtGc::collect();
     }
 }
 
-impl<B: AudioBackend> FirewheelCtx<B> {
-    /// Construct an [`ContextQueue`] for diffing.
-    pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_, B> {
+impl FirewheelContext {
+    /// Construct a [`ContextQueue`] for diffing.
+    pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_> {
         ContextQueue {
             context: self,
             id,
@@ -1064,7 +1053,7 @@ impl<B: AudioBackend> FirewheelCtx<B> {
         &mut self,
         id: NodeID,
         time: Option<EventInstant>,
-    ) -> ContextQueue<'_, B> {
+    ) -> ContextQueue<'_> {
         ContextQueue {
             context: self,
             id,
@@ -1073,16 +1062,16 @@ impl<B: AudioBackend> FirewheelCtx<B> {
     }
 }
 
-/// An event queue acquired from [`FirewheelCtx::event_queue`].
+/// An event queue acquired from [`FirewheelContext::event_queue`].
 ///
 /// This can help reduce event queue allocations
 /// when you have direct access to the context.
 ///
 /// ```
 /// # use firewheel_core::{diff::{Diff, PathBuilder}, node::NodeID};
-/// # use firewheel_graph::{backend::AudioBackend, FirewheelCtx, ContextQueue};
+/// # use firewheel_graph::{backend::AudioBackend, FirewheelContext, ContextQueue};
 /// # fn context_queue<B: AudioBackend, D: Diff>(
-/// #     context: &mut FirewheelCtx<B>,
+/// #     context: &mut FirewheelContext,
 /// #     node_id: NodeID,
 /// #     params: &D,
 /// #     baseline: &D,
@@ -1093,21 +1082,21 @@ impl<B: AudioBackend> FirewheelCtx<B> {
 /// params.diff(baseline, PathBuilder::default(), &mut queue);
 /// # }
 /// ```
-pub struct ContextQueue<'a, B: AudioBackend> {
-    context: &'a mut FirewheelCtx<B>,
+pub struct ContextQueue<'a> {
+    context: &'a mut FirewheelContext,
     id: NodeID,
     #[cfg(feature = "scheduled_events")]
     time: Option<EventInstant>,
 }
 
 #[cfg(feature = "scheduled_events")]
-impl<'a, B: AudioBackend> ContextQueue<'a, B> {
+impl<'a> ContextQueue<'a> {
     pub fn time(&self) -> Option<EventInstant> {
         self.time
     }
 }
 
-impl<B: AudioBackend> firewheel_core::diff::EventQueue for ContextQueue<'_, B> {
+impl firewheel_core::diff::EventQueue for ContextQueue<'_> {
     fn push(&mut self, data: NodeEventType) {
         self.context.queue_event(NodeEvent {
             event: data,
@@ -1129,25 +1118,4 @@ pub enum ClearScheduledEventsType {
     NonMusicalOnly,
     /// Clear only musical scheduled events.
     MusicalOnly,
-}
-
-fn audio_clock_update_instant_and_delay<B: AudioBackend>(
-    clock: &SharedClock<B::Instant>,
-    active_state: &Option<ActiveState<B>>,
-) -> Option<(Instant, Duration)> {
-    active_state.as_ref().and_then(|active_state| {
-        clock
-            .process_timestamp
-            .clone()
-            .and_then(|process_timestamp| {
-                active_state
-                    .backend_handle
-                    .delay_from_last_process(process_timestamp)
-                    .and_then(|delay| {
-                        Instant::now()
-                            .checked_sub(delay)
-                            .map(|instant| (instant, delay))
-                    })
-            })
-    })
 }

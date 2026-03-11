@@ -1,9 +1,10 @@
-use firewheel::{diff::Memo, error::UpdateError, node::NodeID, FirewheelContext};
+use firewheel::{cpal::CpalStream, diff::Memo, node::NodeID, FirewheelContext};
 
 use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::FastRmsNode};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
+    pub stream: CpalStream,
 
     pub noise_gen_node: Memo<NoiseGenNode>,
     pub filter_node: Memo<FilterNode>,
@@ -17,7 +18,7 @@ pub struct AudioSystem {
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        cx.start_stream(Default::default()).unwrap();
+        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let noise_gen_node = NoiseGenNode::default();
         let filter_node = FilterNode::default();
@@ -38,6 +39,7 @@ impl AudioSystem {
 
         Self {
             cx,
+            stream,
             noise_gen_node: Memo::new(noise_gen_node),
             filter_node: Memo::new(filter_node),
             rms_node: Memo::new(rms_node),
@@ -48,20 +50,24 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                panic!("Stream stopped unexpectedly!");
-            }
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
     }
 }

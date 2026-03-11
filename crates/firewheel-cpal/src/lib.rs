@@ -1,7 +1,6 @@
 use core::{
     fmt::Debug,
     num::{NonZeroU32, NonZeroUsize},
-    str::FromStr,
     time::Duration,
 };
 use std::sync::mpsc;
@@ -9,17 +8,16 @@ use std::sync::mpsc;
 pub use cpal;
 
 use bevy_platform::time::Instant;
-use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    DeviceId, HostId, HostUnavailable,
-};
-use firewheel_core::{node::StreamStatus, StreamInfo};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+pub use cpal::{DeviceId, HostId, HostUnavailable, StreamError};
+use firewheel_core::node::StreamStatus;
 use firewheel_graph::{
-    backend::{AudioBackend, BackendProcessInfo, DeviceInfoSimple, SimpleStreamConfig},
+    backend::BackendProcessInfo,
+    error::{ActivateError, CompileGraphError},
     processor::FirewheelProcessor,
+    ActivateInfo, FirewheelContext,
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
-use ringbuf::traits::{Consumer, Producer, Split};
 
 #[cfg(all(feature = "log", not(feature = "tracing")))]
 use log::{error, info, warn};
@@ -31,7 +29,6 @@ use tracing::{error, info, warn};
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const INPUT_ALLOC_BLOCK_FRAMES: usize = 4096;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
-const MSG_CHANNEL_CAPACITY: usize = 4;
 const MAX_INPUT_CHANNELS: usize = 16;
 
 /// The configuration of an output audio stream in the CPAL backend.
@@ -149,33 +146,6 @@ pub struct CpalConfig {
     ///
     /// By default this is set to `None`.
     pub input: Option<CpalInputConfig>,
-}
-
-/// A struct used to retrieve the list of available audio devices
-/// on the system and their available ocnfigurations.
-pub struct CpalEnumerator;
-
-impl CpalEnumerator {
-    /// The system audio hosts (APIs) that are available on this system.
-    ///
-    /// The first host in the list is the default one for the system.
-    pub fn available_hosts(&self) -> Vec<cpal::HostId> {
-        cpal::available_hosts()
-    }
-
-    /// Get a struct used to retrieve the list of available audio devices
-    /// for the default system audio host (API).
-    pub fn default_host(&self) -> HostEnumerator {
-        HostEnumerator {
-            host: cpal::default_host(),
-        }
-    }
-
-    /// Get a struct used to retrieve the list of available audio devices
-    /// for the given system audio host (API).
-    pub fn get_host(&self, api: HostId) -> Result<HostEnumerator, HostUnavailable> {
-        cpal::host_from_id(api).map(|host| HostEnumerator { host })
-    }
 }
 
 /// A struct used to retrieve the list of available audio devices
@@ -302,116 +272,64 @@ pub struct DeviceInfo {
     pub is_default: bool,
 }
 
-/// A CPAL backend for Firewheel
-pub struct CpalBackend {
-    from_err_rx: mpsc::Receiver<cpal::StreamError>,
-    to_stream_tx: ringbuf::HeapProd<CtxToStreamMsg>,
-    _out_stream_handle: cpal::Stream,
-    _in_stream_handle: Option<cpal::Stream>,
+/// Information about a running CPAL audio stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CpalStreamInfo {
+    /// The sample rate of the audio stream.
+    pub sample_rate: NonZeroU32,
+    /// The maximum number of frames that can appear in a single process cyle.
+    pub max_block_frames: NonZeroU32,
+    /// The number of input audio channels in the stream.
+    pub num_stream_in_channels: u32,
+    /// The number of output audio channels in the stream.
+    pub num_stream_out_channels: u32,
+    /// The latency of the input to output stream in seconds.
+    pub input_to_output_latency_seconds: f64,
+    /// The ID of the output audio device.
+    pub out_device_id: Option<DeviceId>,
+    /// The ID of the input audio device.
+    pub in_device_id: Option<DeviceId>,
 }
 
-impl AudioBackend for CpalBackend {
-    type Enumerator = CpalEnumerator;
-    type Config = CpalConfig;
-    type StartStreamError = StreamStartError;
-    type StreamError = cpal::StreamError;
-    type Instant = bevy_platform::time::Instant;
+/// The system audio hosts (APIs) that are available on this system.
+///
+/// The first host in the list is the default one for the system.
+pub fn available_hosts() -> Vec<cpal::HostId> {
+    cpal::available_hosts()
+}
 
-    fn enumerator() -> Self::Enumerator {
-        CpalEnumerator {}
+/// Get a struct used to retrieve the list of available audio devices
+/// for the default system audio host (API).
+pub fn default_host_enumerator() -> HostEnumerator {
+    HostEnumerator {
+        host: cpal::default_host(),
     }
+}
 
-    fn input_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
-        let enumerator = CpalEnumerator {};
-        let host_enumerator = enumerator.default_host();
+/// Get a struct used to retrieve the list of available audio devices
+/// for the given system audio host (API).
+pub fn host_enumerator(api: HostId) -> Result<HostEnumerator, HostUnavailable> {
+    cpal::host_from_id(api).map(|host| HostEnumerator { host })
+}
 
-        let mut default_device_index = None;
+/// A CPAL stream running a [`FirewheelProcessor`].
+///
+/// The audio stream is automatically stopped when this struct is dropped.
+pub struct CpalStream {
+    _out_stream_handle: cpal::Stream,
+    _in_stream_handle: Option<cpal::Stream>,
+    from_err_rx: mpsc::Receiver<cpal::StreamError>,
+    stream_info: CpalStreamInfo,
+}
 
-        let mut devices: Vec<DeviceInfoSimple> = host_enumerator
-            .input_devices()
-            .iter()
-            .enumerate()
-            .map(|(i, info)| {
-                if info.is_default {
-                    default_device_index = Some(i);
-                }
-
-                DeviceInfoSimple {
-                    name: info.name.clone().unwrap_or_else(|| String::from("unkown")),
-                    id: format!("{}", info.id),
-                }
-            })
-            .collect();
-
-        // Make sure the default device is the first in the list.
-        if let Some(i) = default_device_index {
-            devices.swap(0, i);
-        }
-
-        devices
-    }
-
-    fn output_devices_simple(&mut self) -> Vec<DeviceInfoSimple> {
-        let enumerator = CpalEnumerator {};
-        let host_enumerator = enumerator.default_host();
-
-        let mut default_device_index = None;
-
-        let mut devices: Vec<DeviceInfoSimple> = host_enumerator
-            .output_devices()
-            .iter()
-            .enumerate()
-            .map(|(i, info)| {
-                if info.is_default {
-                    default_device_index = Some(i);
-                }
-
-                DeviceInfoSimple {
-                    name: info.name.clone().unwrap_or_else(|| String::from("unkown")),
-                    id: format!("{}", info.id),
-                }
-            })
-            .collect();
-
-        // Make sure the default device is the first in the list.
-        if let Some(i) = default_device_index {
-            devices.swap(0, i);
-        }
-
-        devices
-    }
-
-    fn convert_simple_config(&mut self, config: &SimpleStreamConfig) -> Self::Config {
-        let string_to_id = |s: Option<&String>| -> Option<DeviceId> {
-            s.and_then(|s| match DeviceId::from_str(s) {
-                Ok(id) => Some(id),
-                Err(e) => {
-                    warn!(
-                        "Failed to convert string to DeviceID, falling back to default device: {}",
-                        e
-                    );
-                    None
-                }
-            })
-        };
-
-        CpalConfig {
-            output: CpalOutputConfig {
-                device_id: string_to_id(config.output.device.as_ref()),
-                desired_sample_rate: config.desired_sample_rate,
-                desired_block_frames: config.desired_block_frames,
-                ..Default::default()
-            },
-            input: config.input.as_ref().map(|input_config| CpalInputConfig {
-                device_id: string_to_id(input_config.device.as_ref()),
-                desired_block_frames: config.desired_block_frames,
-                ..Default::default()
-            }),
-        }
-    }
-
-    fn start_stream(config: Self::Config) -> Result<(Self, StreamInfo), Self::StartStreamError> {
+impl CpalStream {
+    /// Create a new audio stream with the given [`FirewheelContext`].
+    pub fn new(cx: &mut FirewheelContext, config: CpalConfig) -> Result<Self, StartStreamError> {
         info!("Attempting to start CPAL audio stream...");
+
+        if cx.is_active() {
+            return Err(StartStreamError::AlreadyActive);
+        }
 
         let host = if let Some(host_id) = config.output.host {
             match cpal::host_from_id(host_id) {
@@ -440,16 +358,19 @@ impl AudioBackend for CpalBackend {
 
         if out_device.is_none() {
             let Some(default_device) = host.default_output_device() else {
-                return Err(StreamStartError::DefaultOutputDeviceNotFound);
+                return Err(StartStreamError::DefaultOutputDeviceNotFound);
             };
             out_device = Some(default_device);
         }
         let out_device = out_device.unwrap();
 
-        let output_device_id = out_device.id().map(|d| d.to_string()).unwrap_or_else(|e| {
-            warn!("Failed to get id of output audio device: {}", e);
-            String::from("unknown")
-        });
+        let out_device_id = match out_device.id() {
+            Ok(id) => Some(id),
+            Err(e) => {
+                warn!("Failed to get id of output audio device: {}", e);
+                None
+            }
+        };
 
         let default_config = out_device.default_output_config()?;
 
@@ -546,16 +467,16 @@ impl AudioBackend for CpalBackend {
         }
 
         let (
-            input_stream_handle,
+            in_stream_handle,
             input_stream_cons,
             num_stream_in_channels,
-            input_device_id,
+            in_device_id,
             input_to_output_latency_seconds,
         ) = if let StartInputStreamResult::Started {
             stream_handle,
             cons,
             num_stream_in_channels,
-            input_device_id,
+            in_device_id,
         } = input_stream
         {
             let input_to_output_latency_seconds = cons.latency_seconds();
@@ -564,26 +485,33 @@ impl AudioBackend for CpalBackend {
                 Some(stream_handle),
                 Some(cons),
                 num_stream_in_channels,
-                Some(input_device_id),
+                in_device_id,
                 input_to_output_latency_seconds,
             )
         } else {
             (None, None, 0, None, 0.0)
         };
 
-        let (to_stream_tx, from_cx_rx) =
-            ringbuf::HeapRb::<CtxToStreamMsg>::new(MSG_CHANNEL_CAPACITY).split();
+        let activate_info = ActivateInfo {
+            sample_rate: NonZeroU32::new(out_stream_config.sample_rate).unwrap(),
+            max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
+            num_stream_in_channels,
+            num_stream_out_channels: num_out_channels as u32,
+            input_to_output_latency_seconds,
+        };
+
+        let processor = cx.activate(activate_info)?;
 
         let mut data_callback = DataCallback::new(
             num_out_channels,
-            from_cx_rx,
+            processor,
             out_stream_config.sample_rate,
             input_stream_cons,
         );
 
         info!(
-            "Starting output audio stream with device \"{}\" with configuration {:?}",
-            &output_device_id, &out_stream_config
+            "Starting output audio stream with device \"{:?}\" with configuration {:?}",
+            &out_device_id, &out_stream_config
         );
 
         let out_stream_handle = out_device.build_output_stream(
@@ -599,49 +527,39 @@ impl AudioBackend for CpalBackend {
 
         out_stream_handle.play()?;
 
-        let stream_info = StreamInfo {
-            sample_rate: NonZeroU32::new(out_stream_config.sample_rate).unwrap(),
-            max_block_frames: NonZeroU32::new(max_block_frames as u32).unwrap(),
-            num_stream_in_channels,
-            num_stream_out_channels: num_out_channels as u32,
-            input_to_output_latency_seconds,
-            output_device_id,
-            input_device_id,
-            // The engine will overwrite the other values.
-            ..Default::default()
+        let stream_info = CpalStreamInfo {
+            sample_rate: activate_info.sample_rate,
+            max_block_frames: activate_info.max_block_frames,
+            num_stream_in_channels: activate_info.num_stream_in_channels,
+            num_stream_out_channels: activate_info.num_stream_out_channels,
+            input_to_output_latency_seconds: activate_info.input_to_output_latency_seconds,
+            out_device_id,
+            in_device_id,
         };
 
-        Ok((
-            Self {
-                from_err_rx,
-                to_stream_tx,
-                _out_stream_handle: out_stream_handle,
-                _in_stream_handle: input_stream_handle,
-            },
+        Ok(Self {
+            _out_stream_handle: out_stream_handle,
+            _in_stream_handle: in_stream_handle,
+            from_err_rx,
             stream_info,
-        ))
+        })
     }
 
-    fn set_processor(&mut self, processor: FirewheelProcessor<Self>) {
-        if self
-            .to_stream_tx
-            .try_push(CtxToStreamMsg::NewProcessor(processor))
-            .is_err()
-        {
-            panic!("Failed to send new processor to cpal stream");
-        }
+    /// Information about the running audio stream
+    pub fn info(&self) -> &CpalStreamInfo {
+        &self.stream_info
     }
 
-    fn poll_status(&mut self) -> Result<(), Self::StreamError> {
+    /// Check if a stream error has occured. If one has, then this [`CpalStream`]
+    /// instance should be dropped.
+    ///
+    /// This must be called periodically (i.e. once every frame).
+    pub fn poll_status(&mut self) -> Result<(), StreamError> {
         if let Ok(e) = self.from_err_rx.try_recv() {
             Err(e)
         } else {
             Ok(())
         }
-    }
-
-    fn delay_from_last_process(&self, process_timestamp: Self::Instant) -> Option<Duration> {
-        Some(process_timestamp.elapsed())
     }
 }
 
@@ -649,7 +567,7 @@ fn start_input_stream(
     config: &CpalInputConfig,
     output_sample_rate: cpal::SampleRate,
     err_to_cx_tx: mpsc::Sender<cpal::StreamError>,
-) -> Result<StartInputStreamResult, StreamStartError> {
+) -> Result<StartInputStreamResult, StartStreamError> {
     let host = if let Some(host_id) = config.host {
         match cpal::host_from_id(host_id) {
             Ok(host) => host,
@@ -684,7 +602,7 @@ fn start_input_stream(
         if let Some(default_device) = host.default_input_device() {
             in_device = Some(default_device);
         } else if config.fail_on_no_input {
-            return Err(StreamStartError::DefaultInputDeviceNotFound);
+            return Err(StartStreamError::DefaultInputDeviceNotFound);
         } else {
             warn!("No default audio input device found. Input stream will not be started.");
             return Ok(StartInputStreamResult::NotStarted);
@@ -692,10 +610,13 @@ fn start_input_stream(
     }
     let in_device = in_device.unwrap();
 
-    let in_device_id = in_device.id().map(|id| id.to_string()).unwrap_or_else(|e| {
-        warn!("Failed to get ID of input audio device: {}", e);
-        String::from("unknown")
-    });
+    let in_device_id = match in_device.id() {
+        Ok(id) => Some(id),
+        Err(e) => {
+            warn!("Failed to get id of input audio device: {}", e);
+            None
+        }
+    };
 
     let default_config = in_device.default_input_config()?;
 
@@ -726,7 +647,7 @@ fn start_input_stream(
     #[cfg(not(feature = "resample_inputs"))]
     if sample_rate != output_sample_rate {
         if config.fail_on_no_input {
-            return Err(StreamStartError::CouldNotMatchSampleRate(
+            return Err(StartStreamError::CouldNotMatchSampleRate(
                 output_sample_rate,
             ));
         } else {
@@ -758,7 +679,7 @@ fn start_input_stream(
     );
 
     info!(
-        "Starting input audio stream with device \"{}\" with configuration {:?}",
+        "Starting input audio stream with device \"{:?}\" with configuration {:?}",
         &in_device_id, &stream_config
     );
 
@@ -775,7 +696,7 @@ fn start_input_stream(
         Ok(s) => s,
         Err(e) => {
             if config.fail_on_no_input {
-                return Err(StreamStartError::BuildStreamError(e));
+                return Err(StartStreamError::BuildStreamError(e));
             } else {
                 error!(
                     "Failed to build input audio stream, input stream will not be started. {}",
@@ -788,7 +709,7 @@ fn start_input_stream(
 
     if let Err(e) = stream_handle.play() {
         if config.fail_on_no_input {
-            return Err(StreamStartError::PlayStreamError(e));
+            return Err(StartStreamError::PlayStreamError(e));
         } else {
             error!(
                 "Failed to start input audio stream, input stream will not be started. {}",
@@ -802,7 +723,7 @@ fn start_input_stream(
         stream_handle,
         cons,
         num_stream_in_channels: num_in_channels as u32,
-        input_device_id: in_device_id,
+        in_device_id,
     })
 }
 
@@ -812,18 +733,15 @@ enum StartInputStreamResult {
         stream_handle: cpal::Stream,
         cons: fixed_resample::ResamplingCons<f32>,
         num_stream_in_channels: u32,
-        input_device_id: String,
+        in_device_id: Option<DeviceId>,
     },
 }
 
 struct DataCallback {
     num_out_channels: usize,
-    from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
-    processor: Option<FirewheelProcessor<CpalBackend>>,
+    processor: FirewheelProcessor,
     sample_rate: u32,
     sample_rate_recip: f64,
-    //_first_internal_clock_instant: Option<cpal::StreamInstant>,
-    //_prev_stream_instant: Option<cpal::StreamInstant>,
     predicted_delta_time: Duration,
     prev_instant: Option<Instant>,
     stream_start_instant: Instant,
@@ -834,7 +752,7 @@ struct DataCallback {
 impl DataCallback {
     fn new(
         num_out_channels: usize,
-        from_cx_rx: ringbuf::HeapCons<CtxToStreamMsg>,
+        processor: FirewheelProcessor,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     ) -> Self {
@@ -851,12 +769,9 @@ impl DataCallback {
 
         Self {
             num_out_channels,
-            from_cx_rx,
-            processor: None,
+            processor,
             sample_rate,
             sample_rate_recip: f64::from(sample_rate).recip(),
-            //_first_internal_clock_instant: None,
-            //_prev_stream_instant: None,
             predicted_delta_time: Duration::default(),
             prev_instant: None,
             stream_start_instant,
@@ -867,11 +782,6 @@ impl DataCallback {
 
     fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
         let process_timestamp = bevy_platform::time::Instant::now();
-
-        for msg in self.from_cx_rx.pop_iter() {
-            let CtxToStreamMsg::NewProcessor(p) = msg;
-            self.processor = Some(p);
-        }
 
         let frames = output.len() / self.num_out_channels;
 
@@ -984,40 +894,43 @@ impl DataCallback {
             (0, StreamStatus::empty())
         };
 
-        if let Some(processor) = &mut self.processor {
-            let mut output_stream_status = StreamStatus::empty();
-
-            if underflow {
-                output_stream_status.insert(StreamStatus::OUTPUT_UNDERFLOW);
-            }
-
-            processor.process_interleaved(
-                &self.input_buffer[..frames * num_in_channels],
-                output,
-                BackendProcessInfo {
-                    num_in_channels,
-                    num_out_channels: self.num_out_channels,
-                    frames,
-                    process_timestamp,
-                    duration_since_stream_start,
-                    input_stream_status,
-                    output_stream_status,
-                    dropped_frames,
-                },
-            );
-        } else {
-            output.fill(0.0);
+        let mut output_stream_status = StreamStatus::empty();
+        if underflow {
+            output_stream_status.insert(StreamStatus::OUTPUT_UNDERFLOW);
         }
-    }
-}
 
-enum CtxToStreamMsg {
-    NewProcessor(FirewheelProcessor<CpalBackend>),
+        self.processor.process_interleaved(
+            &self.input_buffer[..frames * num_in_channels],
+            output,
+            BackendProcessInfo {
+                num_in_channels,
+                num_out_channels: self.num_out_channels,
+                frames,
+                process_timestamp: Some(process_timestamp),
+                duration_since_stream_start,
+                input_stream_status,
+                output_stream_status,
+                dropped_frames,
+            },
+        );
+    }
 }
 
 /// An error occured while trying to start a CPAL audio stream.
 #[derive(Debug, thiserror::Error)]
-pub enum StreamStartError {
+pub enum StartStreamError {
+    /// The Firewheel context is already active. Either it has never been activated
+    /// or the [`FirewheelProcessor`] counterpart has not been dropped yet.
+    ///
+    /// Note, in rare cases where the audio thread crashes without cleanly
+    /// dropping its contents, this may never succeed. Consider adding a
+    /// timeout to avoid deadlocking.
+    #[error("Failed to activate Firewheel context: The Firewheel context is already active")]
+    AlreadyActive,
+    /// The audio graph failed to compile.
+    #[error("Failed to activate Firewheel context: Audio graph failed to compile: {0}")]
+    GraphCompileError(#[from] CompileGraphError),
+
     #[error("The requested audio input device was not found: {0}")]
     InputDeviceNotFound(String),
     #[error("The requested audio output device was not found: {0}")]
@@ -1040,4 +953,13 @@ pub enum StreamStartError {
     #[cfg(not(feature = "resample_inputs"))]
     #[error("Not able to use a samplerate of {0} for the input audio device")]
     CouldNotMatchSampleRate(u32),
+}
+
+impl From<ActivateError> for StartStreamError {
+    fn from(e: ActivateError) -> Self {
+        match e {
+            ActivateError::AlreadyActive => Self::AlreadyActive,
+            ActivateError::GraphCompileError(e) => Self::GraphCompileError(e),
+        }
+    }
 }

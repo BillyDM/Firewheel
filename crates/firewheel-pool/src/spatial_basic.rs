@@ -5,7 +5,7 @@ use bevy_platform::prelude::{vec, Vec};
 use firewheel_core::clock::EventInstant;
 
 use firewheel_core::{channel_config::NonZeroChannelCount, diff::Diff, node::NodeID};
-use firewheel_graph::{backend::AudioBackend, FirewheelCtx};
+use firewheel_graph::FirewheelContext;
 
 use crate::FxChain;
 
@@ -24,12 +24,12 @@ impl SpatialBasicChain {
     /// * `time` - The instant these new parameters should take effect. If this
     /// is `None`, then the parameters will take effect as soon as the node receives
     /// the event.
-    pub fn set_params<B: AudioBackend>(
+    pub fn set_params(
         &mut self,
         params: firewheel_nodes::spatial_basic::SpatialBasicNode,
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         node_ids: &[NodeID],
-        cx: &mut FirewheelCtx<B>,
+        cx: &mut FirewheelContext,
     ) {
         use firewheel_core::diff::PathBuilder;
 
@@ -47,13 +47,13 @@ impl SpatialBasicChain {
 }
 
 impl FxChain for SpatialBasicChain {
-    fn construct_and_connect<B: AudioBackend>(
+    fn construct_and_connect(
         &mut self,
         first_node_id: NodeID,
         first_node_num_out_channels: NonZeroChannelCount,
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
-        cx: &mut FirewheelCtx<B>,
+        cx: &mut FirewheelContext,
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
 

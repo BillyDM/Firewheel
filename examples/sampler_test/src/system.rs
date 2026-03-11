@@ -1,7 +1,7 @@
 use firewheel::{
+    cpal::CpalStream,
     diff::Memo,
     dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
-    error::UpdateError,
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
@@ -25,6 +25,7 @@ struct Sampler {
 
 pub struct AudioSystem {
     cx: FirewheelContext,
+    stream: CpalStream,
 
     samplers: Vec<Sampler>,
 
@@ -36,7 +37,7 @@ pub struct AudioSystem {
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        cx.start_stream(Default::default()).unwrap();
+        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
@@ -80,6 +81,7 @@ impl AudioSystem {
 
         Self {
             cx,
+            stream,
             samplers,
             peak_meter_id,
             peak_meter_smoother,
@@ -88,7 +90,7 @@ impl AudioSystem {
     }
 
     pub fn is_activated(&self) -> bool {
-        self.cx.is_audio_stream_running()
+        self.cx.is_active()
     }
 
     pub fn start_or_restart(&mut self, sampler_i: usize) {
@@ -173,20 +175,24 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                panic!("Stream stopped unexpectedly!");
-            }
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
     }
 

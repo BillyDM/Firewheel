@@ -1,8 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(not(feature = "std"))]
-use bevy_platform::prelude::String;
-
 pub mod atomic_float;
 pub mod channel_config;
 pub mod clock;
@@ -54,10 +51,6 @@ pub struct StreamInfo {
     /// Note to users implementing a custom `AudioBackend`: The context will overwrite
     /// this value, so just set this to the default value.
     pub declick_frames: NonZeroU32,
-    /// The identifier of the output audio device (converted to a string).
-    pub output_device_id: String,
-    /// The identifier of the input audio device (converted to a string).
-    pub input_device_id: Option<String>,
 }
 
 impl Default for StreamInfo {
@@ -71,8 +64,6 @@ impl Default for StreamInfo {
             num_stream_out_channels: 2,
             input_to_output_latency_seconds: 0.0,
             declick_frames: NonZeroU32::MIN,
-            output_device_id: String::new(),
-            input_device_id: None,
         }
     }
 }

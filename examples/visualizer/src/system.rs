@@ -1,7 +1,7 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
+    cpal::CpalStream,
     diff::Memo,
-    error::UpdateError,
     node::NodeID,
     nodes::{
         sampler::SamplerNode,
@@ -15,6 +15,7 @@ pub const SAMPLE_PATH: &'static str = "assets/test_files/bird-sound.wav";
 
 pub struct AudioSystem {
     cx: FirewheelContext,
+    stream: CpalStream,
 
     sampler_params: Memo<SamplerNode>,
     sampler_node_id: NodeID,
@@ -27,7 +28,7 @@ pub struct AudioSystem {
 impl AudioSystem {
     pub fn new(window_size: u32) -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        cx.start_stream(Default::default()).unwrap();
+        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
         let mut loader = SymphoniumLoader::new();
@@ -75,6 +76,7 @@ impl AudioSystem {
 
         Self {
             cx,
+            stream,
             sampler_params: Memo::new(sampler_params),
             sampler_node_id,
             triple_buffer_params: Memo::new(triple_buffer_params),
@@ -102,24 +104,28 @@ impl AudioSystem {
     }
 
     pub fn update(&mut self) {
+        // Update the firewheel context.
+        // This must be called reguarly (i.e. once every frame).
         if let Err(e) = self.cx.update() {
             tracing::error!("{:?}", &e);
+        }
 
-            if let UpdateError::StreamStoppedUnexpectedly(_) = e {
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                panic!("Stream stopped unexpectedly!");
-            }
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
+
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
     }
 
     pub fn is_activated(&self) -> bool {
-        self.cx.is_audio_stream_running()
+        self.cx.is_active()
     }
 }
