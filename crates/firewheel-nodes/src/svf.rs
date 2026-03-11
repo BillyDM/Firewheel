@@ -658,7 +658,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
         }
     }
 
-    fn loop_lowpass_ord2(
+    /// Smoothing loop for single-filter types that don't use gain
+    /// (Lowpass, Highpass, Notch, Allpass).
+    fn smoothing_loop_single(
         &mut self,
         info: &ProcInfo,
         inputs: &[&[f32]],
@@ -698,165 +700,14 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
         }
     }
 
-    fn loop_lowpass_ord4(
+    /// Smoothing loop for single-filter types that use gain
+    /// (LowShelf, HighShelf, Bell).
+    fn smoothing_loop_single_with_gain(
         &mut self,
         info: &ProcInfo,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
     ) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let s = self.filter_0.process(s, &self.filter_0_coeff);
-            let out = self.filter_1.process(s, &self.filter_1_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_highpass_ord2(
-        &mut self,
-        info: &ProcInfo,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-    ) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let out = self.filter_0.process(s, &self.filter_0_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_highpass_ord4(
-        &mut self,
-        info: &ProcInfo,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-    ) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let s = self.filter_0.process(s, &self.filter_0_coeff);
-            let out = self.filter_1.process(s, &self.filter_1_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_bandpass(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let s = self.filter_0.process(s, &self.filter_0_coeff);
-            let out = self.filter_1.process(s, &self.filter_1_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_low_shelf(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
         assert!(inputs.len() == CHANNELS);
         assert!(outputs.len() == CHANNELS);
         for ch in inputs.iter() {
@@ -892,79 +743,14 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
         }
     }
 
-    fn loop_high_shelf(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-            let gain = self.gain.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, gain, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let out = self.filter_0.process(s, &self.filter_0_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_bell(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-            let gain = self.gain.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, gain, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let out = self.filter_0.process(s, &self.filter_0_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_notch(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
+    /// Smoothing loop for dual-filter types that don't use gain
+    /// (LowpassX2, HighpassX2, Bandpass).
+    fn smoothing_loop_dual(
+        &mut self,
+        info: &ProcInfo,
+        inputs: &[&[f32]],
+        outputs: &mut [&mut [f32]],
+    ) {
         assert!(inputs.len() == CHANNELS);
         assert!(outputs.len() == CHANNELS);
         for ch in inputs.iter() {
@@ -988,42 +774,8 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
                 unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
             });
 
-            let out = self.filter_0.process(s, &self.filter_0_coeff);
-
-            for ch_i in 0..CHANNELS {
-                // Safety: These bounds have been checked above.
-                unsafe {
-                    *outputs.get_unchecked_mut(ch_i).get_unchecked_mut(i) = out[ch_i];
-                }
-            }
-        }
-    }
-
-    fn loop_allpass(&mut self, info: &ProcInfo, inputs: &[&[f32]], outputs: &mut [&mut [f32]]) {
-        assert!(inputs.len() == CHANNELS);
-        assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-        for ch in outputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
-
-        for i in 0..info.frames {
-            let cutoff_hz = self.cutoff_hz.next_smoothed();
-            let q = self.q_factor.next_smoothed();
-
-            // Only recalculate coefficients every 2^coeff_update_factor frames
-            if self.coeff_update_mask.do_update(i) {
-                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
-            }
-
-            let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
-                // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
-            });
-
-            let out = self.filter_0.process(s, &self.filter_0_coeff);
+            let s = self.filter_0.process(s, &self.filter_0_coeff);
+            let out = self.filter_1.process(s, &self.filter_1_coeff);
 
             for ch_i in 0..CHANNELS {
                 // Safety: These bounds have been checked above.
@@ -1105,18 +857,15 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         if self.cutoff_hz.is_smoothing() || self.q_factor.is_smoothing() || self.gain.is_smoothing()
         {
             match self.filter_type {
-                SvfType::Lowpass => self.loop_lowpass_ord2(info, buffers.inputs, buffers.outputs),
-                SvfType::LowpassX2 => self.loop_lowpass_ord4(info, buffers.inputs, buffers.outputs),
-                SvfType::Highpass => self.loop_highpass_ord2(info, buffers.inputs, buffers.outputs),
-                SvfType::HighpassX2 => {
-                    self.loop_highpass_ord4(info, buffers.inputs, buffers.outputs)
+                SvfType::Lowpass | SvfType::Highpass | SvfType::Notch | SvfType::Allpass => {
+                    self.smoothing_loop_single(info, buffers.inputs, buffers.outputs)
                 }
-                SvfType::Bandpass => self.loop_bandpass(info, buffers.inputs, buffers.outputs),
-                SvfType::LowShelf => self.loop_low_shelf(info, buffers.inputs, buffers.outputs),
-                SvfType::HighShelf => self.loop_high_shelf(info, buffers.inputs, buffers.outputs),
-                SvfType::Bell => self.loop_bell(info, buffers.inputs, buffers.outputs),
-                SvfType::Notch => self.loop_notch(info, buffers.inputs, buffers.outputs),
-                SvfType::Allpass => self.loop_allpass(info, buffers.inputs, buffers.outputs),
+                SvfType::LowShelf | SvfType::HighShelf | SvfType::Bell => {
+                    self.smoothing_loop_single_with_gain(info, buffers.inputs, buffers.outputs)
+                }
+                SvfType::LowpassX2 | SvfType::HighpassX2 | SvfType::Bandpass => {
+                    self.smoothing_loop_dual(info, buffers.inputs, buffers.outputs)
+                }
             }
 
             if self.cutoff_hz.settle() && self.q_factor.settle() && self.gain.settle() {
