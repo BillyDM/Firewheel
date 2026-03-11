@@ -33,7 +33,7 @@ log = { workspace = true, optional = true }
 ringbuf.workspace = true
 thiserror.workspace = true
 fast-interleave.workspace = true
-fixed-resample = { version = "0.9.1", default-features = false, features = [
+fixed-resample = { workspace = true, features = [
   "channel",
 ] }
 bevy_platform = { workspace = true, features = ["std"] }
