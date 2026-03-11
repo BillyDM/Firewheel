@@ -307,6 +307,8 @@ impl CompiledSchedule {
     ) {
         let frames = frames.min(self.max_block_frames);
         let frames_u16 = frames as u16;
+        let buffers_ptr = self.buffers.as_mut_ptr();
+        let max_block_frames = self.max_block_frames;
 
         let graph_in_node = self.schedule.first().unwrap();
 
@@ -315,12 +317,14 @@ impl CompiledSchedule {
         let fill_input_len = num_stream_inputs.min(graph_in_node.output_buffers.len());
 
         for i in 0..fill_input_len {
-            inputs.push(buffer_slice_mut(
-                &self.buffers,
-                graph_in_node.output_buffers[i].buffer_index,
-                self.max_block_frames,
-                frames,
-            ));
+            // SAFETY: Output buffer indexes within a single node are guaranteed non-overlapping by the buffer allocator.
+            inputs.push(unsafe {
+                core::slice::from_raw_parts_mut(
+                    buffers_ptr
+                        .add(graph_in_node.output_buffers[i].buffer_index * max_block_frames),
+                    frames,
+                )
+            });
         }
 
         let silence_mask = (fill_inputs)(inputs.as_mut_slice());
@@ -333,8 +337,13 @@ impl CompiledSchedule {
 
         if fill_input_len < graph_in_node.output_buffers.len() {
             for b in graph_in_node.output_buffers.iter().skip(fill_input_len) {
-                let buf_slice =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                // SAFETY: Each buffer index is used once per iteration.
+                let buf_slice = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        buffers_ptr.add(b.buffer_index * max_block_frames),
+                        frames,
+                    )
+                };
                 buf_slice.fill(0.0);
 
                 flag_mut(&mut self.buffer_flags, b.buffer_index).set_silent(true, frames_u16);
@@ -347,7 +356,10 @@ impl CompiledSchedule {
             let flag = flag_mut(&mut self.buffer_flags, i);
 
             if (flag.silent || flag.constant) && flag.frames < frames_u16 {
-                let buf_slice = buffer_slice_mut(&self.buffers, i, self.max_block_frames, frames);
+                // SAFETY: Each buffer index `i` is used once per iteration.
+                let buf_slice = unsafe {
+                    core::slice::from_raw_parts_mut(buffers_ptr.add(i * max_block_frames), frames)
+                };
 
                 if flag.silent {
                     buf_slice[flag.frames as usize..frames].fill(0.0);
@@ -368,6 +380,8 @@ impl CompiledSchedule {
         read_outputs: impl FnOnce(&[&[f32]], SilenceMask),
     ) {
         let frames = frames.min(self.max_block_frames);
+        let buffers_ptr = self.buffers.as_mut_ptr();
+        let max_block_frames = self.max_block_frames;
 
         let graph_out_node = self.schedule.last().unwrap();
 
@@ -384,12 +398,13 @@ impl CompiledSchedule {
                 silence_mask.set_channel(i, true);
             }
 
-            outputs.push(buffer_slice_mut(
-                &self.buffers,
-                buffer_index,
-                self.max_block_frames,
-                frames,
-            ));
+            // SAFETY: Input buffer indexes within a single node are guaranteed non-overlapping by the buffer allocator.
+            outputs.push(unsafe {
+                core::slice::from_raw_parts_mut(
+                    buffers_ptr.add(buffer_index * max_block_frames),
+                    frames,
+                )
+            });
         }
 
         (read_outputs)(outputs.as_slice(), silence_mask);
@@ -417,6 +432,8 @@ impl CompiledSchedule {
     ) {
         let frames = frames.min(self.max_block_frames);
         let frames_u16 = frames as u16;
+        let buffers_ptr = self.buffers.as_mut_ptr();
+        let max_block_frames = self.max_block_frames;
 
         let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
@@ -447,13 +464,17 @@ impl CompiledSchedule {
             }
 
             for inserted_sum in scheduled_node.sum_inputs.iter() {
-                sum_inputs(
-                    inserted_sum,
-                    &self.buffers,
-                    &mut self.buffer_flags,
-                    self.max_block_frames,
-                    frames,
-                );
+                // SAFETY: buffers_ptr is derived from &mut self.buffers.
+                // Buffer indexes in sum_inputs are guaranteed non-overlapping by the buffer allocator.
+                unsafe {
+                    sum_inputs(
+                        inserted_sum,
+                        buffers_ptr,
+                        &mut self.buffer_flags,
+                        max_block_frames,
+                        frames,
+                    );
+                }
             }
 
             let mut in_silence_mask = SilenceMask::NONE_SILENT;
@@ -465,8 +486,13 @@ impl CompiledSchedule {
             outputs.clear();
 
             for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
-                let buf =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                // SAFETY: Input buffer indexes within a single node are guaranteed non-overlapping by the buffer allocator.
+                let buf = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        buffers_ptr.add(b.buffer_index * max_block_frames),
+                        frames,
+                    )
+                };
                 let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
                 if b.should_clear && (!flag.silent || debug_force_clear_buffers) {
@@ -481,8 +507,13 @@ impl CompiledSchedule {
             }
 
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                let buf =
-                    buffer_slice_mut(&self.buffers, b.buffer_index, self.max_block_frames, frames);
+                // SAFETY: Output buffer indexes within a single node are guaranteed non-overlapping by the buffer allocator.
+                let buf = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        buffers_ptr.add(b.buffer_index * max_block_frames),
+                        frames,
+                    )
+                };
                 let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
                 if debug_force_clear_buffers {
@@ -510,21 +541,23 @@ impl CompiledSchedule {
                 },
             );
 
-            let clear_buffer = |buffer_index: usize, flag: &mut BufferFlags| {
-                if !flag.silent || debug_force_clear_buffers {
-                    buffer_slice_mut(&self.buffers, buffer_index, self.max_block_frames, frames)
-                        .fill(0.0);
-                    flag.set_silent(true, frames_u16);
-                }
-            };
-
             match status {
                 ProcessStatus::ClearAllOutputs => {
                     // Clear output buffers which need cleared.
                     for b in scheduled_node.output_buffers.iter() {
                         let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                        clear_buffer(b.buffer_index, flag);
+                        if !flag.silent || debug_force_clear_buffers {
+                            // SAFETY: Each buffer index is used once per iteration.
+                            unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    buffers_ptr.add(b.buffer_index * max_block_frames),
+                                    frames,
+                                )
+                            }
+                            .fill(0.0);
+                            flag.set_silent(true, frames_u16);
+                        }
                     }
                 }
                 ProcessStatus::Bypass => {
@@ -537,20 +570,31 @@ impl CompiledSchedule {
                         let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
 
                         if in_flag.silent {
-                            clear_buffer(out_buf.buffer_index, out_flag);
+                            if !out_flag.silent || debug_force_clear_buffers {
+                                // SAFETY: Each buffer index is used once per iteration.
+                                unsafe {
+                                    core::slice::from_raw_parts_mut(
+                                        buffers_ptr.add(out_buf.buffer_index * max_block_frames),
+                                        frames,
+                                    )
+                                }
+                                .fill(0.0);
+                                out_flag.set_silent(true, frames_u16);
+                            }
                         } else {
-                            let in_buf_slice = buffer_slice_mut(
-                                &self.buffers,
-                                in_buf.buffer_index,
-                                self.max_block_frames,
-                                frames,
-                            );
-                            let out_buf_slice = buffer_slice_mut(
-                                &self.buffers,
-                                out_buf.buffer_index,
-                                self.max_block_frames,
-                                frames,
-                            );
+                            // SAFETY: Input and output buffer indexes are guaranteed distinct by the buffer allocator.
+                            let in_buf_slice = unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    buffers_ptr.add(in_buf.buffer_index * max_block_frames),
+                                    frames,
+                                )
+                            };
+                            let out_buf_slice = unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    buffers_ptr.add(out_buf.buffer_index * max_block_frames),
+                                    frames,
+                                )
+                            };
 
                             out_buf_slice.copy_from_slice(in_buf_slice);
                             *out_flag = in_flag;
@@ -564,7 +608,17 @@ impl CompiledSchedule {
                     {
                         let s = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                        clear_buffer(b.buffer_index, s);
+                        if !s.silent || debug_force_clear_buffers {
+                            // SAFETY: Each buffer index is used once per iteration.
+                            unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    buffers_ptr.add(b.buffer_index * max_block_frames),
+                                    frames,
+                                )
+                            }
+                            .fill(0.0);
+                            s.set_silent(true, frames_u16);
+                        }
                     }
                 }
                 ProcessStatus::OutputsModified => {
@@ -586,12 +640,13 @@ impl CompiledSchedule {
 
                             if constant_mask.is_channel_constant(i) {
                                 flag.constant = true;
-                                flag.silent = buffer_slice_mut(
-                                    &self.buffers,
-                                    b.buffer_index,
-                                    self.max_block_frames,
-                                    1,
-                                )[0] == 0.0;
+                                // SAFETY: Each buffer index is used once per iteration.
+                                flag.silent = unsafe {
+                                    core::slice::from_raw_parts_mut(
+                                        buffers_ptr.add(b.buffer_index * max_block_frames),
+                                        1,
+                                    )
+                                }[0] == 0.0;
                                 flag.frames = frames_u16;
                             } else {
                                 flag.set_silent(false, frames_u16);
@@ -604,39 +659,41 @@ impl CompiledSchedule {
     }
 }
 
-fn sum_inputs(
+/// # Safety
+///
+/// - `buffers_ptr` must be valid for reads and writes for all buffer indexes
+///   referenced by `inserted_sum`, each spanning `max_block_frames` elements.
+/// - `frames` must be less than or equal to `max_block_frames`.
+/// - The buffer regions referenced by `inserted_sum` must not alias.
+unsafe fn sum_inputs(
     inserted_sum: &InsertedSum,
-    buffers: &[f32],
+    buffers_ptr: *mut f32,
     buffer_flags: &mut [BufferFlags],
     max_block_frames: usize,
     frames: usize,
 ) {
     let mut all_buffers_silent = true;
 
-    let out_slice = buffer_slice_mut(
-        buffers,
-        inserted_sum.output_buffer.buffer_index,
-        max_block_frames,
-        frames,
-    );
+    // SAFETY: Buffer indexes are guaranteed non-overlapping by the allocator.
+    let out_slice = unsafe {
+        core::slice::from_raw_parts_mut(
+            buffers_ptr.add(inserted_sum.output_buffer.buffer_index * max_block_frames),
+            frames,
+        )
+    };
 
     if flag_mut(buffer_flags, inserted_sum.input_buffers[0].buffer_index).silent {
         if !flag_mut(buffer_flags, inserted_sum.output_buffer.buffer_index).silent {
-            buffer_slice_mut(
-                buffers,
-                inserted_sum.output_buffer.buffer_index,
-                max_block_frames,
-                frames,
-            )
-            .fill(0.0);
+            out_slice.fill(0.0);
         }
     } else {
-        let in_slice = buffer_slice_mut(
-            buffers,
-            inserted_sum.input_buffers[0].buffer_index,
-            max_block_frames,
-            frames,
-        );
+        // SAFETY: Input and output buffer indexes are guaranteed distinct by the allocator.
+        let in_slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                buffers_ptr.add(inserted_sum.input_buffers[0].buffer_index * max_block_frames),
+                frames,
+            )
+        };
         out_slice.copy_from_slice(in_slice);
 
         all_buffers_silent = false;
@@ -650,7 +707,14 @@ fn sum_inputs(
 
         all_buffers_silent = false;
 
-        let in_slice = buffer_slice_mut(buffers, buf_id.buffer_index, max_block_frames, frames);
+        // SAFETY: Input buffer indexes are guaranteed distinct from the output buffer
+        // index by the allocator.
+        let in_slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                buffers_ptr.add(buf_id.buffer_index * max_block_frames),
+                frames,
+            )
+        };
         for (os, &is) in out_slice.iter_mut().zip(in_slice.iter()) {
             *os += is;
         }
@@ -658,42 +722,6 @@ fn sum_inputs(
 
     flag_mut(buffer_flags, inserted_sum.output_buffer.buffer_index)
         .set_silent(all_buffers_silent, frames as u16);
-}
-
-#[inline]
-#[allow(clippy::mut_from_ref)]
-fn buffer_slice_mut(
-    buffers: &[f32],
-    buffer_index: usize,
-    max_block_frames: usize,
-    frames: usize,
-) -> &mut [f32] {
-    // SAFETY
-    //
-    // `buffer_index` is guaranteed to be valid because [`BufferAllocator`]
-    // correctly counts the total number of buffers used, and therefore
-    // `b.buffer_index` is guaranteed to be less than the value of
-    // `num_buffers` that was passed into [`CompiledSchedule::new`].
-    //
-    // The methods calling this function make sure that `frames <= max_block_frames`,
-    // and `buffers` was initialized with a length of `num_buffers * max_block_frames`
-    // in the constructor. And because `buffer_index` is guaranteed to be less than
-    // `num_buffers`, this slice will always point to a valid range.
-    //
-    // Due to the way [`GraphIR::solve_buffer_requirements`] works, no
-    // two buffer indexes in a single `ScheduledNode` can alias. (A buffer
-    // index can only be reused after `allocator.release()` is called for
-    // that buffer, and that method only gets called *after* all buffer
-    // assignments have already been populated for that `ScheduledNode`.)
-    // Also, `self` is borrowed mutably here, ensuring that the caller cannot
-    // call any other method on [`CompiledSchedule`] while those buffers are
-    // still borrowed.
-    unsafe {
-        core::slice::from_raw_parts_mut(
-            (buffers.as_ptr() as *mut f32).add(buffer_index * max_block_frames),
-            frames,
-        )
-    }
 }
 
 #[inline]
