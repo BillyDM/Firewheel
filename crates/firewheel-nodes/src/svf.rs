@@ -546,7 +546,12 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
             coeff_update_mask: self.coeff_update_factor.mask(),
         };
 
-        new_self.calc_coefficients(cx.stream_info.sample_rate_recip as f32);
+        new_self.update_coefficients(
+            new_self.cutoff_hz.target_value(),
+            new_self.q_factor.target_value(),
+            new_self.gain.target_value(),
+            cx.stream_info.sample_rate_recip as f32,
+        );
 
         new_self
     }
@@ -574,11 +579,9 @@ struct Processor<const CHANNELS: usize> {
 }
 
 impl<const CHANNELS: usize> Processor<CHANNELS> {
-    pub fn calc_coefficients(&mut self, sample_rate_recip: f32) {
-        let cutoff_hz = self.cutoff_hz.target_value();
-        let q = self.q_factor.target_value();
-        let gain = self.gain.target_value();
-
+    #[cold]
+    #[inline(never)]
+    fn update_coefficients(&mut self, cutoff_hz: f32, q: f32, gain: f32, sample_rate_recip: f32) {
         match self.filter_type {
             SvfType::Lowpass => {
                 self.num_filters = 1;
@@ -674,18 +677,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::lowpass_ord2(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -723,17 +717,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                let [coeff_0, coeff_1] =
-                    SvfCoeff::lowpass_ord4(cutoff_hz, q, info.sample_rate_recip as f32);
-                self.filter_0_coeff = SvfCoeffSimd::splat(coeff_0);
-                self.filter_1_coeff = SvfCoeffSimd::splat(coeff_1);
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -772,18 +758,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::highpass_ord2(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -821,17 +798,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                let [coeff_0, coeff_1] =
-                    SvfCoeff::highpass_ord4(cutoff_hz, q, info.sample_rate_recip as f32);
-                self.filter_0_coeff = SvfCoeffSimd::splat(coeff_0);
-                self.filter_1_coeff = SvfCoeffSimd::splat(coeff_1);
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -865,23 +834,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::lowpass_ord2(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
-                self.filter_1_coeff = SvfCoeffSimd::splat(SvfCoeff::highpass_ord2(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -916,19 +871,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let q = self.q_factor.next_smoothed();
             let gain = self.gain.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::low_shelf(
-                    cutoff_hz,
-                    q,
-                    gain,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, gain, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -962,19 +907,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let q = self.q_factor.next_smoothed();
             let gain = self.gain.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::high_shelf(
-                    cutoff_hz,
-                    q,
-                    gain,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, gain, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -1008,19 +943,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let q = self.q_factor.next_smoothed();
             let gain = self.gain.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::bell(
-                    cutoff_hz,
-                    q,
-                    gain,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, gain, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -1053,18 +978,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::notch(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -1097,18 +1013,9 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
             let cutoff_hz = self.cutoff_hz.next_smoothed();
             let q = self.q_factor.next_smoothed();
 
-            // Because recalculating filter coefficients is expensive, a trick like
-            // this can be used to only recalculate them every few frames.
-            //
-            // TODO: use core::hint::cold_path() once that stabilizes
-            //
-            // TODO: Alternatively, this could be optimized using a lookup table
+            // Only recalculate coefficients every 2^coeff_update_factor frames
             if self.coeff_update_mask.do_update(i) {
-                self.filter_0_coeff = SvfCoeffSimd::splat(SvfCoeff::allpass(
-                    cutoff_hz,
-                    q,
-                    info.sample_rate_recip as f32,
-                ));
+                self.update_coefficients(cutoff_hz, q, 0.0, info.sample_rate_recip as f32);
             }
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
@@ -1213,13 +1120,23 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             }
 
             if self.cutoff_hz.settle() && self.q_factor.settle() && self.gain.settle() {
-                self.calc_coefficients(info.sample_rate_recip as f32);
+                self.update_coefficients(
+                    self.cutoff_hz.target_value(),
+                    self.q_factor.target_value(),
+                    self.gain.target_value(),
+                    info.sample_rate_recip as f32,
+                );
             }
         } else {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
             if params_changed {
-                self.calc_coefficients(info.sample_rate_recip as f32);
+                self.update_coefficients(
+                    self.cutoff_hz.target_value(),
+                    self.q_factor.target_value(),
+                    self.gain.target_value(),
+                    info.sample_rate_recip as f32,
+                );
             }
 
             assert!(buffers.inputs.len() == CHANNELS);
@@ -1286,6 +1203,11 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         self.q_factor.update_sample_rate(stream_info.sample_rate);
         self.gain.update_sample_rate(stream_info.sample_rate);
 
-        self.calc_coefficients(stream_info.sample_rate_recip as f32);
+        self.update_coefficients(
+            self.cutoff_hz.target_value(),
+            self.q_factor.target_value(),
+            self.gain.target_value(),
+            stream_info.sample_rate_recip as f32,
+        );
     }
 }
