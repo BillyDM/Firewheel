@@ -467,7 +467,7 @@ impl CpalStream {
         }
 
         let (
-            input_stream_handle,
+            in_stream_handle,
             input_stream_cons,
             num_stream_in_channels,
             in_device_id,
@@ -539,7 +539,7 @@ impl CpalStream {
 
         Ok(Self {
             _out_stream_handle: out_stream_handle,
-            _in_stream_handle: input_stream_handle,
+            _in_stream_handle: in_stream_handle,
             from_err_rx,
             stream_info,
         })

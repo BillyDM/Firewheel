@@ -14,8 +14,8 @@ use symphonium::SymphoniumLoader;
 pub const SAMPLE_PATH: &'static str = "assets/test_files/bird-sound.wav";
 
 pub struct AudioSystem {
-    stream: Option<CpalStream>,
     cx: FirewheelContext,
+    stream: CpalStream,
 
     sampler_params: Memo<SamplerNode>,
     sampler_node_id: NodeID,
@@ -76,7 +76,7 @@ impl AudioSystem {
 
         Self {
             cx,
-            stream: Some(stream),
+            stream,
             sampler_params: Memo::new(sampler_params),
             sampler_node_id,
             triple_buffer_params: Memo::new(triple_buffer_params),
@@ -110,33 +110,22 @@ impl AudioSystem {
             tracing::error!("{:?}", &e);
         }
 
-        if let Some(stream) = &mut self.stream {
-            if let Err(e) = stream.poll_status() {
-                tracing::error!("{:?}", &e);
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
 
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                self.stream = None;
-                panic!("Stream stopped unexpectedly!");
-            }
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
     }
 
     pub fn is_activated(&self) -> bool {
         self.cx.is_active()
-    }
-}
-
-impl Drop for AudioSystem {
-    fn drop(&mut self) {
-        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
-        // is dropped, or else the application may take longer to close.
-        self.stream = None;
     }
 }

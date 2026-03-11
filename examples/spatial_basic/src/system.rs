@@ -11,8 +11,8 @@ use firewheel::{
 use symphonium::SymphoniumLoader;
 
 pub struct AudioSystem {
-    pub stream: Option<CpalStream>,
     pub cx: FirewheelContext,
+    pub stream: CpalStream,
 
     pub _sampler_node: SamplerNode,
     pub _sampler_node_id: NodeID,
@@ -67,7 +67,7 @@ impl AudioSystem {
 
         Self {
             cx,
-            stream: Some(stream),
+            stream,
             _sampler_node: sampler_node,
             _sampler_node_id: sampler_node_id,
             spatial_basic_node: Memo::new(spatial_basic_node),
@@ -82,29 +82,18 @@ impl AudioSystem {
             tracing::error!("{:?}", &e);
         }
 
-        if let Some(stream) = &mut self.stream {
-            if let Err(e) = stream.poll_status() {
-                tracing::error!("{:?}", &e);
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
 
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                self.stream = None;
-                panic!("Stream stopped unexpectedly!");
-            }
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
-    }
-}
-
-impl Drop for AudioSystem {
-    fn drop(&mut self) {
-        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
-        // is dropped, or else the application may take longer to close.
-        self.stream = None;
     }
 }

@@ -1,3 +1,7 @@
+use bevy_platform::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use core::num::NonZeroU32;
 use ringbuf::traits::Producer;
 use thunderdome::Arena;
@@ -45,10 +49,50 @@ use transport::ProcTransportState;
 pub struct FirewheelProcessor {
     inner: Option<FirewheelProcessorInner>,
     drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
+    drop_flag: Arc<AtomicBool>,
 }
 
 impl Drop for FirewheelProcessor {
     fn drop(&mut self) {
+        self.drop_inner();
+    }
+}
+
+impl FirewheelProcessor {
+    pub(crate) fn new(
+        processor: FirewheelProcessorInner,
+        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
+        drop_flag: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            inner: Some(processor),
+            drop_tx,
+            drop_flag,
+        }
+    }
+
+    pub fn process_interleaved(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        info: BackendProcessInfo,
+    ) {
+        self.poll_drop_flag();
+
+        if let Some(inner) = &mut self.inner {
+            inner.process_interleaved(input, output, info);
+        } else {
+            output.fill(0.0);
+        }
+    }
+
+    fn poll_drop_flag(&mut self) {
+        if self.inner.is_some() && self.drop_flag.load(Ordering::Relaxed) {
+            self.drop_inner();
+        }
+    }
+
+    fn drop_inner(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
         };
@@ -62,29 +106,6 @@ impl Drop for FirewheelProcessor {
         }
 
         let _ = self.drop_tx.try_push(inner);
-    }
-}
-
-impl FirewheelProcessor {
-    pub(crate) fn new(
-        processor: FirewheelProcessorInner,
-        drop_tx: ringbuf::HeapProd<FirewheelProcessorInner>,
-    ) -> Self {
-        Self {
-            inner: Some(processor),
-            drop_tx,
-        }
-    }
-
-    pub fn process_interleaved(
-        &mut self,
-        input: &[f32],
-        output: &mut [f32],
-        info: BackendProcessInfo,
-    ) {
-        if let Some(inner) = &mut self.inner {
-            inner.process_interleaved(input, output, info);
-        }
     }
 }
 

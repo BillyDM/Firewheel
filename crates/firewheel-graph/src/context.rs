@@ -1,4 +1,9 @@
+use bevy_platform::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use core::num::NonZeroU32;
+use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
 use firewheel_core::node::ProcStore;
@@ -184,6 +189,7 @@ pub struct FirewheelContext {
 
     to_processor_tx: ringbuf::HeapProd<ContextToProcessorMsg>,
     from_processor_rx: ringbuf::HeapCons<ProcessorToContextMsg>,
+    processor_drop_flag: Option<Arc<AtomicBool>>,
     logger_rx: RealtimeLoggerMainThread,
 
     processor_channel: Option<ProcessorChannel>,
@@ -239,6 +245,7 @@ impl FirewheelContext {
             graph: AudioGraph::new(&config),
             to_processor_tx,
             from_processor_rx,
+            processor_drop_flag: None,
             logger_rx,
             processor_channel: Some(ProcessorChannel {
                 from_context_rx,
@@ -321,8 +328,8 @@ impl FirewheelContext {
 
     /// Activate the context with the given audio stream.
     ///
-    /// Use [`FirewheelContext::is_active`] to check if the old processor counterpart
-    /// has been dropped yet.
+    /// Use [`FirewheelContext::is_active`] to check if the context is ready to
+    /// be activated.
     ///
     /// Note, in rare cases where the audio thread crashes without cleanly dropping
     /// its contents, this may never succeed. Consider adding a timeout to avoid
@@ -403,7 +410,46 @@ impl FirewheelContext {
         self.processor_drop_rx = Some(drop_rx);
         self.stream_info = Some(stream_info);
 
-        Ok(FirewheelProcessor::new(processor, drop_tx))
+        let drop_flag = Arc::new(AtomicBool::new(false));
+        self.processor_drop_flag = Some(drop_flag.clone());
+
+        Ok(FirewheelProcessor::new(processor, drop_tx, drop_flag))
+    }
+
+    /// Request the context to be deactivated if it is active.
+    ///
+    /// This does not block the current thread. It might take a while for the
+    /// context to deactivate. Use [`FirewheelContext::is_active`] to check when
+    /// the context has been deactivated.
+    ///
+    /// Note, another way to deactivate the context is to drop the [`FirewheelProcessor`]
+    /// counterpart in the audio thread.
+    pub fn request_deactivate(&mut self) {
+        if let Some(flag) = &self.processor_drop_flag {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// If the context is active, request the context to be deactivated and wait
+    /// for the context to be deactivated before returning.
+    ///
+    /// If the `timoeout` duration has been reached and the context is still not
+    /// deactivated, then an error is returned.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn deactivate_blocking(&mut self, timeout: Duration) -> Result<(), ()> {
+        self.request_deactivate();
+
+        let now = bevy_platform::time::Instant::now();
+
+        while self.is_active() {
+            if now.elapsed() > timeout {
+                return Err(());
+            }
+
+            bevy_platform::thread::sleep(core::time::Duration::from_millis(1));
+        }
+
+        Ok(())
     }
 
     /// Information about the running audio stream.
@@ -979,24 +1025,17 @@ impl Drop for FirewheelContext {
         // Wait for the processor to be drop to avoid deallocating it on
         // the audio thread.
         #[cfg(not(target_family = "wasm"))]
-        if let Some(drop_rx) = self.processor_drop_rx.take() {
-            let now = bevy_platform::time::Instant::now();
+        let _ = self.deactivate_blocking(core::time::Duration::from_secs(3));
 
-            while drop_rx.try_peek().is_none() {
-                if now.elapsed() > core::time::Duration::from_secs(2) {
-                    break;
-                }
-
-                bevy_platform::thread::sleep(core::time::Duration::from_millis(1));
-            }
-        }
+        #[cfg(target_family = "wasm")]
+        self.request_deactivate();
 
         firewheel_core::collector::GlobalRtGc::collect();
     }
 }
 
 impl FirewheelContext {
-    /// Construct an [`ContextQueue`] for diffing.
+    /// Construct a [`ContextQueue`] for diffing.
     pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_> {
         ContextQueue {
             context: self,

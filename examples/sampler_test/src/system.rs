@@ -24,8 +24,8 @@ struct Sampler {
 }
 
 pub struct AudioSystem {
-    stream: Option<CpalStream>,
     cx: FirewheelContext,
+    stream: CpalStream,
 
     samplers: Vec<Sampler>,
 
@@ -81,7 +81,7 @@ impl AudioSystem {
 
         Self {
             cx,
-            stream: Some(stream),
+            stream,
             samplers,
             peak_meter_id,
             peak_meter_smoother,
@@ -181,21 +181,18 @@ impl AudioSystem {
             tracing::error!("{:?}", &e);
         }
 
-        if let Some(stream) = &mut self.stream {
-            if let Err(e) = stream.poll_status() {
-                tracing::error!("{:?}", &e);
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
 
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                self.stream = None;
-                panic!("Stream stopped unexpectedly!");
-            }
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
     }
 
@@ -216,13 +213,5 @@ impl AudioSystem {
 
     pub fn peak_meter_has_clipped(&self) -> [bool; 2] {
         self.peak_meter_smoother.has_clipped()
-    }
-}
-
-impl Drop for AudioSystem {
-    fn drop(&mut self) {
-        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
-        // is dropped, or else the application may take longer to close.
-        self.stream = None;
     }
 }

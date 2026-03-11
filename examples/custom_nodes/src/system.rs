@@ -3,8 +3,8 @@ use firewheel::{cpal::CpalStream, diff::Memo, node::NodeID, FirewheelContext};
 use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::FastRmsNode};
 
 pub struct AudioSystem {
-    pub stream: Option<CpalStream>,
     pub cx: FirewheelContext,
+    pub stream: CpalStream,
 
     pub noise_gen_node: Memo<NoiseGenNode>,
     pub filter_node: Memo<FilterNode>,
@@ -39,7 +39,7 @@ impl AudioSystem {
 
         Self {
             cx,
-            stream: Some(stream),
+            stream,
             noise_gen_node: Memo::new(noise_gen_node),
             filter_node: Memo::new(filter_node),
             rms_node: Memo::new(rms_node),
@@ -56,29 +56,18 @@ impl AudioSystem {
             tracing::error!("{:?}", &e);
         }
 
-        if let Some(stream) = &mut self.stream {
-            if let Err(e) = stream.poll_status() {
-                tracing::error!("{:?}", &e);
+        if let Err(e) = self.stream.poll_status() {
+            tracing::error!("{:?}", &e);
 
-                // The stream has stopped unexpectedly (i.e the user has
-                // unplugged their headphones.)
-                //
-                // Typically you should start a new stream as soon as
-                // possible to resume processing (even if it's a dummy
-                // output device).
-                //
-                // In this example we just quit the application.
-                self.stream = None;
-                panic!("Stream stopped unexpectedly!");
-            }
+            // The stream has stopped unexpectedly (i.e the user has
+            // unplugged their headphones.)
+            //
+            // Typically you should start a new stream as soon as
+            // possible to resume processing (even if it's a dummy
+            // output device).
+            //
+            // In this example we just quit the application.
+            panic!("Stream stopped unexpectedly!");
         }
-    }
-}
-
-impl Drop for AudioSystem {
-    fn drop(&mut self) {
-        // Make sure that the `CpalStream` is dropped before the `FirewheelContext`
-        // is dropped, or else the application may take longer to close.
-        self.stream = None;
     }
 }
