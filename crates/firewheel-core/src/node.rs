@@ -504,7 +504,9 @@ pub struct ProcBuffers<'a, 'b> {
     ///
     /// Each channel slice will have a length of [`ProcInfo::frames`].
     ///
-    /// These buffers may contain junk data.
+    /// These buffers may contain stale data from previous processing cycles.
+    /// They are zero-initialized before the first use, so this is not
+    /// uninitialized memory, but the contents should not be assumed zero.
     pub outputs: &'a mut [&'b mut [f32]],
 }
 
