@@ -24,7 +24,7 @@ use firewheel::{
     ContextQueue, FirewheelContext,
 };
 use symphonium::SymphoniumLoader;
-
+use firewheel::nodes::clap_plugin::ClapPluginNode;
 use crate::ui::GuiAudioNode;
 
 pub const SAMPLE_PATHS: [&'static str; 4] = [
@@ -53,6 +53,7 @@ pub enum NodeType {
     Freeverb,
     ConvolutionMono,
     ConvolutionStereo,
+    ClapPlugin,
 }
 
 pub struct AudioSystem {
@@ -185,6 +186,7 @@ impl AudioSystem {
                 }),
             ),
             NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
+            NodeType::ClapPlugin => self.cx.add_node(ClapPluginNode::new("assets/", "").unwrap(), None),
         }
         .expect("Failed to add node");
 
@@ -254,6 +256,7 @@ impl AudioSystem {
                 id,
                 params: Default::default(),
             },
+            NodeType::ClapPlugin => todo!(),
         }
     }
 

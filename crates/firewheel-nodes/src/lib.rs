@@ -49,3 +49,6 @@ pub use stereo_to_mono::StereoToMonoNode;
 pub mod volume_pan;
 
 pub mod volume;
+
+#[cfg(feature = "clap_plugin")]
+pub mod clap_plugin;

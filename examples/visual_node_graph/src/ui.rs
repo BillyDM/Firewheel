@@ -26,7 +26,7 @@ use firewheel::{
     },
     Volume,
 };
-
+use firewheel::nodes::clap_plugin::ClapPluginNode;
 use crate::system::{AudioSystem, NodeType, SAMPLE_PATHS};
 
 const CABLE_COLOR: Color32 = Color32::from_rgb(0xb0, 0x00, 0xb0);
@@ -102,6 +102,12 @@ pub enum GuiAudioNode {
         id: firewheel::node::NodeID,
         params: Memo<ConvolutionNode<2>>,
     },
+    ClapPlugin {
+        id: firewheel::node::NodeID,
+        num_inputs: usize,
+        num_outputs: usize,
+        params: Memo<ClapPluginNode>,
+    }
 }
 
 impl GuiAudioNode {
@@ -126,6 +132,7 @@ impl GuiAudioNode {
             &Self::Freeverb { id, .. } => id,
             &Self::ConvolutionMono { id, .. } => id,
             &Self::ConvolutionStereo { id, .. } => id,
+            &Self::ClapPlugin { id, .. } => id,
         }
     }
 
@@ -150,6 +157,7 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => "Freeverb",
             &Self::ConvolutionMono { .. } => "Convolution (Mono)",
             &Self::ConvolutionStereo { .. } => "Convolution (Stereo)",
+            &Self::ClapPlugin { .. } => "Clap Plugin",
         }
         .into()
     }
@@ -175,6 +183,7 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::ClapPlugin { num_inputs, .. } => num_inputs,
         }
     }
 
@@ -199,6 +208,7 @@ impl GuiAudioNode {
             &Self::Freeverb { .. } => 2,
             &Self::ConvolutionMono { .. } => 1,
             &Self::ConvolutionStereo { .. } => 2,
+            &Self::ClapPlugin { num_outputs, .. } => num_outputs,
         }
     }
 }
@@ -419,6 +429,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 ui.close_kind(UiKind::Menu);
             }
         });
+        if ui.button("Clap Plugin").clicked() {
+            let node = self.audio_system.add_node(NodeType::Clap);
+            snarl.insert_node(pos, node);
+            ui.close_kind(UiKind::Menu);
+        }
     }
 
     fn has_dropped_wire_menu(
