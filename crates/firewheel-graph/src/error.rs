@@ -31,7 +31,7 @@ pub enum AddEdgeError {
 
 /// An error occurred while attempting to compile the audio graph
 /// into a schedule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CompileGraphError {
     /// A cycle was detected in the graph.
     #[error("Failed to compile audio graph: a cycle was detected")]
@@ -50,13 +50,13 @@ pub enum CompileGraphError {
     )]
     EdgeIDNotUnique(EdgeID),
     /// There was an error constructing the processor
-    #[error("Failed to construct a node's processor")]
-    ProcessorConstructionFailed,
+    #[error("Failed to construct a node's processor: {0}")]
+    ProcessorConstructionFailed(String),
 }
 
 /// An error occurred while attempting to activate a
 /// [`FirewheelContext`][crate::context::FirewheelContext].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ActivateError {
     /// The Firewheel context is already active. Either it has never been activated
     /// or the [`FirewheelProcessor`][crate::processor::FirewheelProcessor] counterpart
@@ -73,7 +73,7 @@ pub enum ActivateError {
 }
 
 /// An error occured while updating a [`FirewheelContext`][crate::context::FirewheelContext].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UpdateError {
     /// The context to processor message channel is full.
     #[error("The Firewheel context to processor message channel is full")]

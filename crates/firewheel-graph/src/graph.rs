@@ -565,7 +565,9 @@ impl AudioGraph {
                     processor: entry
                         .dyn_node
                         .construct_processor(cx)
-                        .map_err(|_| CompileGraphError::ProcessorConstructionFailed)?,
+                        .map_err(|node_error| {
+                            CompileGraphError::ProcessorConstructionFailed(node_error.to_string())
+                        })?,
                     is_pre_process: entry.info.channel_config.is_empty(),
                 });
             }
