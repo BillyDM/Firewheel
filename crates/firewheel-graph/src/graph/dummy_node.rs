@@ -1,3 +1,4 @@
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::ChannelConfig,
     event::ProcEvents,
@@ -20,18 +21,18 @@ pub(crate) struct DummyNodeConfig {
 impl AudioNode for DummyNode {
     type Configuration = DummyNodeConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("dummy")
-            .channel_config(config.channel_config)
+            .channel_config(config.channel_config))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         _cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        DummyProcessor
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(DummyProcessor)
     }
 }
 

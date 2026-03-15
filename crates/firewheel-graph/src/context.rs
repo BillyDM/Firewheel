@@ -6,7 +6,7 @@ use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
 use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
-use firewheel_core::node::ProcStore;
+use firewheel_core::node::{NodeError, ProcStore};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     dsp::declick::DeclickValues,
@@ -787,12 +787,15 @@ impl FirewheelContext {
         &mut self,
         node: T,
         config: Option<T::Configuration>,
-    ) -> NodeID {
+    ) -> Result<NodeID, NodeError> {
         self.graph.add_node(node, config)
     }
 
     /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
-    pub fn add_dyn_node<T: DynAudioNode + 'static>(&mut self, node: T) -> NodeID {
+    pub fn add_dyn_node<T: DynAudioNode + 'static>(
+        &mut self,
+        node: T,
+    ) -> Result<NodeID, NodeError> {
         self.graph.add_dyn_node(node)
     }
 

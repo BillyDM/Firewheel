@@ -1,6 +1,7 @@
 use core::f32;
 
 use fft_convolver::FFTConvolver;
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     collector::OwnedGc,
@@ -19,6 +20,13 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
     sample_resource::SampleResourceF32,
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ConvolutionNodeError {
+    #[error("ConvolutionNode::CHANNELS cannot be greater than 2, got {0}")]
+    InvalidChannelCount(usize),
+}
 
 pub type ConvolutionMonoNode = ConvolutionNode<1>;
 pub type ConvolutionStereoNode = ConvolutionNode<2>;
@@ -147,36 +155,34 @@ impl<const CHANNELS: usize> Default for ConvolutionNode<CHANNELS> {
 impl<const CHANNELS: usize> AudioNode for ConvolutionNode<CHANNELS> {
     type Configuration = ConvolutionNodeConfig<CHANNELS>;
 
-    fn info(&self, _configuration: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         if CHANNELS > 2 {
-            panic!(
-                "ConvolutionNode::CHANNELS cannot be greater than 2, got {}",
-                CHANNELS
-            );
+            return Err(ConvolutionNodeError::InvalidChannelCount(CHANNELS).into());
         }
-        AudioNodeInfo::new()
+
+        Ok(AudioNodeInfo::new()
             .debug_name("convolution")
-            .channel_config(ChannelConfig::new(CHANNELS, CHANNELS))
+            .channel_config(ChannelConfig::new(CHANNELS, CHANNELS)))
     }
 
     fn construct_processor(
         &self,
         _configuration: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let sample_rate = cx.stream_info.sample_rate;
         let smooth_config = SmootherConfig {
             smooth_seconds: self.smooth_seconds,
             ..Default::default()
         };
-        ConvolutionProcessor::<CHANNELS> {
-            params: self.clone(),
+        Ok(ConvolutionProcessor::<CHANNELS> {
+            params: *self,
             mix: MixDSP::new(self.mix, self.fade_curve, smooth_config, sample_rate),
             wet_gain_smoothed: SmoothedParam::new(self.wet_gain.amp(), smooth_config, sample_rate),
             declick: Declicker::default(),
             impulse_response: OwnedGc::new(None),
             next_impulse_response: OwnedGc::new(None),
-        }
+        })
     }
 }
 
@@ -353,14 +359,20 @@ mod tests {
     // Behave as expected up to stereo
     #[test]
     fn mono_stereo_ok() {
-        ConvolutionNode::<1>::default().info(&ConvolutionNodeConfig::default());
-        ConvolutionNode::<2>::default().info(&ConvolutionNodeConfig::default());
+        ConvolutionNode::<1>::default()
+            .info(&ConvolutionNodeConfig::default())
+            .unwrap();
+        ConvolutionNode::<2>::default()
+            .info(&ConvolutionNodeConfig::default())
+            .unwrap();
     }
 
     // Error when 3+ channels are requested
     #[test]
     #[should_panic]
     fn fail_above_stereo() {
-        ConvolutionNode::<3>::default().info(&ConvolutionNodeConfig::default());
+        ConvolutionNode::<3>::default()
+            .info(&ConvolutionNodeConfig::default())
+            .unwrap();
     }
 }

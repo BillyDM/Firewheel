@@ -48,7 +48,10 @@ impl AudioSystem {
         let peak_meter_node = PeakMeterNode::<2> { enabled: true };
         let peak_meter_smoother = PeakMeterSmoother::<2>::new(Default::default());
 
-        let peak_meter_id = cx.add_node(peak_meter_node.clone(), None);
+        let peak_meter_id = cx
+            .add_node(peak_meter_node.clone(), None)
+            .expect("Peak meter node should construct without error");
+
         cx.connect(peak_meter_id, graph_out, &[(0, 0), (1, 1)], false)
             .unwrap();
 
@@ -67,7 +70,9 @@ impl AudioSystem {
                 let mut params = SamplerNode::default();
                 params.set_sample(sample);
 
-                let node_id = cx.add_node(params.clone(), None);
+                let node_id = cx
+                    .add_node(params.clone(), None)
+                    .expect("Sampler node should construct without error");
 
                 cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();

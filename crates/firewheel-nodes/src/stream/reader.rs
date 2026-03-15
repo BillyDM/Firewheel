@@ -7,6 +7,7 @@ use core::{
     ops::Range,
 };
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
@@ -312,27 +313,27 @@ impl Drop for StreamReaderState {
 impl AudioNode for StreamReaderNode {
     type Configuration = StreamReaderConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("stream_reader")
             .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
                 num_outputs: ChannelCount::ZERO,
             })
-            .custom_state(StreamReaderState::new(config.channels))
+            .custom_state(StreamReaderState::new(config.channels)))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        Processor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(Processor {
             prod: None,
             shared_state: ArcGc::clone(
                 &cx.custom_state::<StreamReaderState>().unwrap().shared_state,
             ),
-        }
+        })
     }
 }
 

@@ -1,5 +1,6 @@
 //! A simple node that generates white noise.
 
+use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -62,17 +63,17 @@ impl AudioNode for NoiseGenNode {
 
     // Return information about your node. This method is only ever called
     // once.
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         // The builder pattern is used for future-proofness as it is likely that
         // more fields will be added in the future.
-        AudioNodeInfo::new()
+        Ok(AudioNodeInfo::new()
             // A static name used for debugging purposes.
             .debug_name("example_noise_gen")
             // The configuration of the input/output ports.
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
-            })
+            }))
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -84,15 +85,15 @@ impl AudioNode for NoiseGenNode {
         &self,
         config: &Self::Configuration,
         _cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         // Seed cannot be zero.
         let seed = if config.seed == 0 { 17 } else { config.seed };
 
-        Processor {
+        Ok(Processor {
             fpd: seed,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
             params: *self,
-        }
+        })
     }
 }
 

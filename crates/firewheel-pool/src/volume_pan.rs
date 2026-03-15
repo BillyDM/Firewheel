@@ -60,7 +60,9 @@ impl FxChain for VolumePanChain {
     ) -> Vec<NodeID> {
         let volume_pan_params = firewheel_nodes::volume_pan::VolumePanNode::default();
 
-        let volume_pan_node_id = cx.add_node(volume_pan_params, Some(self.config));
+        let volume_pan_node_id = cx
+            .add_node(volume_pan_params, Some(self.config))
+            .expect("Volume pan node should construct without error");
 
         cx.connect(
             first_node_id,

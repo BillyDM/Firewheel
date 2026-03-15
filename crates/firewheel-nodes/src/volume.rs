@@ -1,3 +1,4 @@
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
@@ -126,24 +127,24 @@ impl VolumeNode {
 impl AudioNode for VolumeNode {
     type Configuration = VolumeNodeConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("volume")
             .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let min_gain = self.min_gain.max(0.0);
         let gain = self.volume.amp_clamped(min_gain);
 
-        VolumeProcessor {
+        Ok(VolumeProcessor {
             gain: SmoothedParam::new(
                 gain,
                 SmootherConfig {
@@ -153,7 +154,7 @@ impl AudioNode for VolumeNode {
                 cx.stream_info.sample_rate,
             ),
             min_gain,
-        }
+        })
     }
 }
 

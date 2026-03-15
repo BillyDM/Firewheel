@@ -13,6 +13,7 @@ use firewheel_core::{
 
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{vec, Vec};
+use firewheel_core::node::NodeError;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -208,8 +209,8 @@ impl<'a> OutputAudioData<'a> {
 impl AudioNode for TripleBufferNode {
     type Configuration = TripleBufferConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("triple_buffer")
             .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
@@ -218,14 +219,14 @@ impl AudioNode for TripleBufferNode {
             .custom_state(TripleBufferState {
                 num_channels: config.channels,
                 active_state: Arc::new(Mutex::new(None)),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         mut cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let sample_rate = cx.stream_info.sample_rate;
         let max_window_size_frames = config.max_window_size.as_frames(sample_rate) as usize;
 
@@ -251,7 +252,7 @@ impl AudioNode for TripleBufferNode {
             .map(|_| vec![0.0; max_window_size_frames])
             .collect();
 
-        Processor {
+        Ok(Processor {
             producer: Some(producer),
             config: *config,
             max_window_size_frames,
@@ -264,7 +265,7 @@ impl AudioNode for TripleBufferNode {
             prev_publish_was_silent: true,
             num_silent_frames_in_tmp: window_size_frames,
             tmp_buffer_needs_cleared: false,
-        }
+        })
     }
 }
 

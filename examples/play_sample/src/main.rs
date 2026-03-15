@@ -37,7 +37,10 @@ fn main() {
 
     let mut sampler_node = SamplerNode::default();
 
-    let sampler_id = cx.add_node(sampler_node.clone(), None);
+    let sampler_id = cx
+        .add_node(sampler_node.clone(), None)
+        .expect("Sampler node should construct without error");
+
     let graph_out_id = cx.graph_out_node_id();
 
     cx.connect(sampler_id, graph_out_id, &[(0, 0), (1, 1)], false)

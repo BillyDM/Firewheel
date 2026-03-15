@@ -20,6 +20,7 @@ use firewheel_core::{
 };
 use fixed_resample::{ReadStatus, ResamplingChannelConfig};
 
+use firewheel_core::node::NodeError;
 pub use fixed_resample::PushStatus;
 
 pub const MAX_CHANNELS: usize = 16;
@@ -297,29 +298,29 @@ impl Drop for StreamWriterState {
 impl AudioNode for StreamWriterNode {
     type Configuration = StreamWriterConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("stream_writer")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.channels.get(),
             })
-            .custom_state(StreamWriterState::new(config.channels))
+            .custom_state(StreamWriterState::new(config.channels)))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        Processor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(Processor {
             cons: None,
             shared_state: ArcGc::clone(
                 &cx.custom_state::<StreamWriterState>().unwrap().shared_state,
             ),
             check_for_silence: config.check_for_silence,
             pause_declicker: Declicker::SettledAt0,
-        }
+        })
     }
 }
 

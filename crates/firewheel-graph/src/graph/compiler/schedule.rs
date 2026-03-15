@@ -737,9 +737,6 @@ fn flag_mut(buffer_flags: &mut [BufferFlags], buffer_index: usize) -> &mut Buffe
 
 #[cfg(test)]
 mod tests {
-    use bevy_platform::collections::HashSet;
-    use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
-
     use crate::{
         graph::{
             dummy_node::{DummyNode, DummyNodeConfig},
@@ -747,6 +744,9 @@ mod tests {
         },
         FirewheelConfig,
     };
+    use bevy_platform::collections::HashSet;
+    use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
+    use firewheel_core::node::NodeError;
 
     use super::*;
 
@@ -809,11 +809,11 @@ mod tests {
         });
 
         let node0 = graph.graph_in_node();
-        let node1 = add_dummy_node(&mut graph, (1, 2));
-        let node2 = add_dummy_node(&mut graph, (1, 1));
-        let node3 = add_dummy_node(&mut graph, (2, 2));
-        let node4 = add_dummy_node(&mut graph, (2, 2));
-        let node5 = add_dummy_node(&mut graph, (5, 2));
+        let node1 = add_dummy_node(&mut graph, (1, 2)).unwrap();
+        let node2 = add_dummy_node(&mut graph, (1, 1)).unwrap();
+        let node3 = add_dummy_node(&mut graph, (2, 2)).unwrap();
+        let node4 = add_dummy_node(&mut graph, (2, 2)).unwrap();
+        let node5 = add_dummy_node(&mut graph, (5, 2)).unwrap();
         let node6 = graph.graph_out_node();
 
         let edge0 = graph.connect(node0, node1, &[(0, 0)], false).unwrap()[0];
@@ -904,12 +904,12 @@ mod tests {
         });
 
         let node0 = graph.graph_in_node();
-        let node1 = add_dummy_node(&mut graph, (1, 1));
-        let node2 = add_dummy_node(&mut graph, (2, 2));
-        let node3 = add_dummy_node(&mut graph, (2, 2));
-        let node4 = add_dummy_node(&mut graph, (5, 4));
+        let node1 = add_dummy_node(&mut graph, (1, 1)).unwrap();
+        let node2 = add_dummy_node(&mut graph, (2, 2)).unwrap();
+        let node3 = add_dummy_node(&mut graph, (2, 2)).unwrap();
+        let node4 = add_dummy_node(&mut graph, (5, 4)).unwrap();
         let node5 = graph.graph_out_node();
-        let node6 = add_dummy_node(&mut graph, (1, 1));
+        let node6 = add_dummy_node(&mut graph, (1, 1)).unwrap();
 
         let edge0 = graph.connect(node0, node2, &[(0, 0)], false).unwrap()[0];
         let edge1 = graph.connect(node0, node3, &[(0, 1)], false).unwrap()[0];
@@ -967,7 +967,10 @@ mod tests {
         verify_node(node6, &[false], 0, &schedule, &graph);
     }
 
-    fn add_dummy_node(graph: &mut AudioGraph, channel_config: impl Into<ChannelConfig>) -> NodeID {
+    fn add_dummy_node(
+        graph: &mut AudioGraph,
+        channel_config: impl Into<ChannelConfig>,
+    ) -> Result<NodeID, NodeError> {
         graph.add_node(
             DummyNode,
             Some(DummyNodeConfig {
@@ -1083,9 +1086,9 @@ mod tests {
             ..Default::default()
         });
 
-        let node1 = add_dummy_node(&mut graph, (1, 1));
-        let node2 = add_dummy_node(&mut graph, (2, 1));
-        let node3 = add_dummy_node(&mut graph, (1, 1));
+        let node1 = add_dummy_node(&mut graph, (1, 1)).unwrap();
+        let node2 = add_dummy_node(&mut graph, (2, 1)).unwrap();
+        let node3 = add_dummy_node(&mut graph, (1, 1)).unwrap();
 
         // A zero input/output node shouldn't cause a cycle to be detected.
         let _node4 = add_dummy_node(&mut graph, (0, 0));

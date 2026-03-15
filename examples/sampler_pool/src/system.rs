@@ -44,7 +44,8 @@ impl AudioSystem {
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
-        );
+        )
+        .expect("Sampler pool should construct without error");
 
         let sampler_pool_2 = AudioNodePool::new(
             NUM_WORKERS,                 // The number of workers to create in this pool.
@@ -53,7 +54,8 @@ impl AudioSystem {
             graph_out, // The ID of the node that the last effect in each fx chain instance will connect to.
             NonZeroChannelCount::STEREO, // The number of input channels in `graph_out`.
             &mut cx,   // The firewheel context.
-        );
+        )
+        .expect("Sampler pool should construct without error");
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
         let mut loader = SymphoniumLoader::new();
@@ -135,16 +137,20 @@ impl FxChain for MyCustomChain {
         assert_eq!(sampler_num_channels, NonZeroChannelCount::STEREO);
         assert_eq!(dst_num_channels, NonZeroChannelCount::STEREO);
 
-        let stereo_to_mono_node_id = cx.add_node(StereoToMonoNode, None);
+        let stereo_to_mono_node_id = cx
+            .add_node(StereoToMonoNode, None)
+            .expect("Stereo to mono node should construct without error");
 
         let volume_params = VolumeNode::default();
-        let volume_node_id = cx.add_node(
-            volume_params,
-            Some(VolumeNodeConfig {
-                channels: NonZeroChannelCount::MONO,
-                ..Default::default()
-            }),
-        );
+        let volume_node_id = cx
+            .add_node(
+                volume_params,
+                Some(VolumeNodeConfig {
+                    channels: NonZeroChannelCount::MONO,
+                    ..Default::default()
+                }),
+            )
+            .expect("Volume node should construct without error");
 
         // Connect the sampler node to the stereo_to_mono node.
         cx.connect(

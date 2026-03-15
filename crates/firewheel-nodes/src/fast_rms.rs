@@ -13,6 +13,7 @@ use firewheel_core::{
     StreamInfo,
 };
 
+use firewheel_core::node::NodeError;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -90,34 +91,34 @@ impl FastRmsState {
 impl AudioNode for FastRmsNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("fast_rms")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::MONO,
                 num_outputs: ChannelCount::ZERO,
             })
-            .custom_state(FastRmsState::new())
+            .custom_state(FastRmsState::new()))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let window_frames =
             (self.window_size_secs * cx.stream_info.sample_rate.get() as f32).round() as usize;
 
         let custom_state = cx.custom_state::<FastRmsState>().unwrap();
 
-        Processor {
+        Ok(Processor {
             params: self.clone(),
             shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
             last_read_count: 0,
-        }
+        })
     }
 }
 

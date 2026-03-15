@@ -185,7 +185,8 @@ impl AudioSystem {
                 }),
             ),
             NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
-        };
+        }
+        .expect("Failed to add node");
 
         match node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {

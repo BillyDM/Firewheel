@@ -1,3 +1,5 @@
+use super::{MAX_HZ, MIN_HZ};
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -20,8 +22,6 @@ use firewheel_core::{
     param::smoother::{SmoothedParam, SmootherConfig},
     StreamInfo,
 };
-
-use super::{MAX_HZ, MIN_HZ};
 
 pub type FastBandpassMonoNode = FastBandpassNode<1>;
 pub type FastBandpassStereoNode = FastBandpassNode<2>;
@@ -86,25 +86,25 @@ impl<const CHANNELS: usize> FastBandpassNode<CHANNELS> {
 impl<const CHANNELS: usize> AudioNode for FastBandpassNode<CHANNELS> {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("fast_bandpass")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let sample_rate_recip = cx.stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(MIN_HZ, MAX_HZ);
 
-        Processor {
+        Ok(Processor {
             lpf: OnePoleIirLPFSimd::default(),
             lpf_coeff: OnePoleIirLPFCoeffSimd::<CHANNELS>::splat(OnePoleIirLPFCoeff::new(
                 cutoff_hz,
@@ -125,7 +125,7 @@ impl<const CHANNELS: usize> AudioNode for FastBandpassNode<CHANNELS> {
             ),
             enable_declicker: Declicker::from_enabled(self.enabled),
             coeff_update_mask: self.coeff_update_factor.mask(),
-        }
+        })
     }
 }
 

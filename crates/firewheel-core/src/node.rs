@@ -4,14 +4,6 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
-#[cfg(feature = "std")]
-use std::collections::hash_map::{Entry, HashMap};
-
-#[cfg(not(feature = "std"))]
-use bevy_platform::collections::hash_map::{Entry, HashMap};
-#[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{Box, Vec};
-
 use crate::dsp::buffer::ChannelBuffer;
 use crate::dsp::volume::is_buffer_silent;
 use crate::log::RealtimeLogger;
@@ -23,6 +15,14 @@ use crate::{
     event::{NodeEvent, NodeEventType, ProcEvents},
     StreamInfo,
 };
+#[cfg(not(feature = "std"))]
+use bevy_platform::collections::hash_map::{Entry, HashMap};
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+#[cfg(feature = "std")]
+use std::collections::hash_map::{Entry, HashMap};
+use std::error::Error;
+use std::fmt;
 
 #[cfg(feature = "scheduled_events")]
 use crate::clock::EventInstant;
@@ -43,6 +43,25 @@ impl NodeID {
 impl Default for NodeID {
     fn default() -> Self {
         Self::DANGLING
+    }
+}
+
+/// Trait-based catchall error type for node trait methods
+#[derive(Debug)]
+pub struct NodeError(Box<dyn Error>);
+
+impl<E> From<E> for NodeError
+where
+    E: Error + 'static,
+{
+    fn from(err: E) -> Self {
+        NodeError(Box::new(err))
+    }
+}
+
+impl fmt::Display for NodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Node Error: {}", self.0)
     }
 }
 
@@ -219,7 +238,7 @@ pub trait AudioNode {
     /// Get information about this node.
     ///
     /// This method is only called once after the node is added to the audio graph.
-    fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo;
+    fn info(&self, configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError>;
 
     /// Construct a realtime processor for this node.
     ///
@@ -230,7 +249,7 @@ pub trait AudioNode {
         &self,
         configuration: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor;
+    ) -> Result<impl AudioNodeProcessor, NodeError>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
@@ -368,13 +387,16 @@ pub trait DynAudioNode {
     /// Get information about this node.
     ///
     /// This method is only called once after the node is added to the audio graph.
-    fn info(&self) -> AudioNodeInfo;
+    fn info(&self) -> Result<AudioNodeInfo, NodeError>;
 
     /// Construct a realtime processor for this node.
     ///
     /// * `cx` - A context for interacting with the Firewheel context. This context
     ///   also includes information about the audio stream.
-    fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor>;
+    fn construct_processor(
+        &self,
+        cx: ConstructProcessorContext,
+    ) -> Result<Box<dyn AudioNodeProcessor>, NodeError>;
 
     /// If [`AudioNodeInfo::call_update_method`] was set to `true`, then the Firewheel
     /// context will call this method on every update cycle.
@@ -403,15 +425,18 @@ impl<T: AudioNode> Constructor<T, T::Configuration> {
 }
 
 impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
-    fn info(&self) -> AudioNodeInfo {
+    fn info(&self) -> Result<AudioNodeInfo, NodeError> {
         self.constructor.info(&self.configuration)
     }
 
-    fn construct_processor(&self, cx: ConstructProcessorContext) -> Box<dyn AudioNodeProcessor> {
-        Box::new(
+    fn construct_processor(
+        &self,
+        cx: ConstructProcessorContext,
+    ) -> Result<Box<dyn AudioNodeProcessor>, NodeError> {
+        Ok(Box::new(
             self.constructor
-                .construct_processor(&self.configuration, cx),
-        )
+                .construct_processor(&self.configuration, cx)?,
+        ))
     }
 
     fn update(&mut self, cx: UpdateContext) {

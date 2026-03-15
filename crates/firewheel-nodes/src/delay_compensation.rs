@@ -1,4 +1,5 @@
 use bevy_platform::prelude::Vec;
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     event::ProcEvents,
@@ -45,20 +46,20 @@ pub struct DelayCompensationNode;
 impl AudioNode for DelayCompensationNode {
     type Configuration = DelayCompNodeConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("stereo_to_mono")
             .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         _cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let channels = config.channels.get().get() as usize;
         let buffer_len = channels * config.delay_frames;
 
@@ -66,12 +67,12 @@ impl AudioNode for DelayCompensationNode {
         buffer.reserve_exact(buffer_len);
         buffer.resize(buffer_len, 0.0);
 
-        Processor {
+        Ok(Processor {
             buffer,
             delay_frames: config.delay_frames,
             ptr: 0,
             num_silent_frames_per_channel: smallvec![config.delay_frames; channels],
-        }
+        })
     }
 }
 

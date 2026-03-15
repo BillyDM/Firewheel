@@ -1,7 +1,7 @@
-use core::{num::NonZeroU32, time::Duration};
 // The use of `bevy_platform` is optional, but it is recommended for better
 // compatibility with webassembly, no_std, and platforms without 64 bit atomics.
 use bevy_platform::sync::Arc;
+use core::{num::NonZeroU32, time::Duration};
 use firewheel::{
     channel_config::NonZeroChannelCount,
     cpal::CpalStream,
@@ -36,19 +36,24 @@ fn main() {
 
     let graph_out_node_id = cx.graph_out_node_id();
 
-    let stream_writer_id = cx.add_node(
-        StreamWriterNode,
-        Some(StreamWriterConfig {
-            channels: NUM_CHANNELS,
-            ..Default::default()
-        }),
-    );
-    let stream_reader_id = cx.add_node(
-        StreamReaderNode,
-        Some(StreamReaderConfig {
-            channels: NUM_CHANNELS,
-        }),
-    );
+    let stream_writer_id = cx
+        .add_node(
+            StreamWriterNode,
+            Some(StreamWriterConfig {
+                channels: NUM_CHANNELS,
+                ..Default::default()
+            }),
+        )
+        .expect("Stream writer node should construct without error");
+
+    let stream_reader_id = cx
+        .add_node(
+            StreamReaderNode,
+            Some(StreamReaderConfig {
+                channels: NUM_CHANNELS,
+            }),
+        )
+        .expect("Stream reader node should construct without error");
 
     cx.connect(
         stream_writer_id,

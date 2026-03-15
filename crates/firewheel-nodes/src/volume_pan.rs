@@ -1,3 +1,5 @@
+pub use super::volume::VolumeNodeConfig;
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -14,8 +16,6 @@ use firewheel_core::{
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
-
-pub use super::volume::VolumeNodeConfig;
 
 /// A node that applies volume and panning to a stereo signal
 #[derive(Diff, Patch, Debug, Clone, Copy, PartialEq)]
@@ -147,25 +147,25 @@ impl Default for VolumePanNode {
 impl AudioNode for VolumePanNode {
     type Configuration = VolumeNodeConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("volume_pan")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let min_gain = self.min_gain.max(0.0);
 
         let (gain_l, gain_r) = self.compute_gains(self.min_gain);
 
-        Processor {
+        Ok(Processor {
             gain_l: SmoothedParam::new(
                 gain_l,
                 SmootherConfig {
@@ -184,7 +184,7 @@ impl AudioNode for VolumePanNode {
             ),
             params: *self,
             min_gain,
-        }
+        })
     }
 }
 

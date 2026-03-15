@@ -1,6 +1,5 @@
-use firewheel_core::{channel_config::ChannelCount, node::NodeID};
-
 use crate::graph::{Edge, EdgeID, PortIdx};
+use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 
 /// An error occurred while attempting to add an edge to the graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -50,6 +49,9 @@ pub enum CompileGraphError {
         "Failed to compile audio graph: input data contains multiple edges with the same ID {0:?}"
     )]
     EdgeIDNotUnique(EdgeID),
+    /// There was an error constructing the processor
+    #[error("Failed to construct a node's processor")]
+    ProcessorConstructionFailed,
 }
 
 /// An error occurred while attempting to activate a
