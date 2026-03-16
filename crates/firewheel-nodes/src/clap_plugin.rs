@@ -104,7 +104,7 @@ impl AudioNode for ClapPluginNode {
 
     fn construct_processor(
         &self,
-        configuration: &Self::Configuration,
+        _configuration: &Self::Configuration,
         mut cx: ConstructProcessorContext,
     ) -> Result<impl AudioNodeProcessor, NodeError> {
         let audio_config = PluginAudioConfiguration {
@@ -117,11 +117,36 @@ impl AudioNode for ClapPluginNode {
             .custom_state_mut::<PluginInstance<FirewheelClapHost>>()
             .ok_or_else(|| ClapNodeError::PluginInstanceCustomDataMissing)?;
 
+        // TODO: Configuration
+        let input_channel_count = 2;
+        let output_channel_count = 2;
+
         Ok(ClapPluginProcessor {
             enabled: false,
             audio_processor: plugin_instance
                 .activate(|_, _| (), audio_config)?
                 .start_processing()?,
+            input_ports: AudioPorts::with_capacity(
+                // TODO: Configuration
+                input_channel_count,
+                1,
+            ),
+            output_ports: AudioPorts::with_capacity(
+                // TODO: Configuration
+                output_channel_count,
+                1,
+            ),
+            input_port_channels: Box::new([vec![
+                0.0;
+                input_channel_count
+                    * audio_config.max_frames_count as usize
+            ]]),
+            output_port_channels: Box::new([vec![
+                0.0;
+                output_channel_count
+                    * audio_config.max_frames_count as usize
+            ]]),
+            max_frames: audio_config.max_frames_count as usize,
         })
     }
 }
@@ -131,6 +156,23 @@ pub struct ClapPluginProcessor {
 
     /// The started Clap audio processor
     audio_processor: StartedPluginAudioProcessor<FirewheelClapHost>,
+
+    /// Buffers for the plugin's input ports information.
+    input_ports: AudioPorts,
+    /// Buffers for the plugin's output ports information.
+    output_ports: AudioPorts,
+
+    /// List of channel buffers for each input port.
+    ///
+    /// Note that all buffers for each channel are laid out continuously in a single allocation.
+    input_port_channels: Box<[Vec<f32>]>,
+    /// List of channel buffers for each output port.
+    ///
+    /// Note that all buffers for each channel are laid out continuously in a single allocation.
+    output_port_channels: Box<[Vec<f32>]>,
+
+    /// The max frames this processor can be called with
+    max_frames: usize,
 }
 
 impl AudioNodeProcessor for ClapPluginProcessor {
@@ -141,8 +183,89 @@ impl AudioNodeProcessor for ClapPluginProcessor {
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> firewheel_core::node::ProcessStatus {
-        // TODO: Process audio with plugin
-        firewheel_core::node::ProcessStatus::Bypass
+        // Copy buffers host -> plugin
+        let mut current_channel = 0;
+
+        for port_buffer in self.input_port_channels.iter_mut() {
+            // Each logical clap port is composed of a (frame * num_channels) sized buffer continuous in memory
+            // Split it into chunks here.
+            // We split on max_frames since that's how we initialized our clap buffers.
+            for channel_buffer in port_buffer.chunks_exact_mut(self.max_frames) {
+                if let Some(host_input_slice) = buffers.inputs.get(current_channel) {
+                    channel_buffer[..info.frames].copy_from_slice(&host_input_slice);
+                } else {
+                    channel_buffer.fill(0.0);
+                }
+                current_channel += 1;
+            }
+        }
+
+        // Setup input buffers for plugin processing
+        let input = self
+            .input_ports
+            .with_input_buffers(self.input_port_channels.iter_mut().map(|port_buf| {
+                AudioPortBuffer {
+                    channels: AudioPortBufferType::f32_input_only(
+                        port_buf
+                            .chunks_exact_mut(info.frames)
+                            .map(|buffer| InputChannel {
+                                buffer: &mut buffer[..info.frames],
+                                is_constant: true,
+                            }),
+                    ),
+                    latency: 0,
+                }
+            }));
+
+        // Setup output buffers for plugin processing
+        let mut output =
+            self.output_ports
+                .with_output_buffers(self.output_port_channels.iter_mut().map(|port_buf| {
+                    AudioPortBuffer {
+                        latency: 0,
+                        channels: AudioPortBufferType::f32_output_only(
+                            port_buf
+                                .chunks_exact_mut(info.frames)
+                                .map(|buf| &mut buf[..info.frames]),
+                        ),
+                    }
+                }));
+
+        match self.audio_processor.process(
+            &input,
+            &mut output,
+            &InputEvents::empty(),
+            &mut OutputEvents::void(),
+            None,
+            None,
+        ) {
+            Ok(status) => {
+                // Copy buffers plugin -> host
+                let mut current_channel = 0;
+
+                for port_buffer in self.output_port_channels.iter_mut() {
+                    // Each logical clap port is composed of a (frame * num_channels) sized buffer continuous in memory
+                    // Split it into chunks here.
+                    // We split on max_frames since that's how we initialized our clap buffers.
+                    for channel_buffer in port_buffer.chunks_exact_mut(self.max_frames) {
+                        if let Some(host_output_slice) = buffers.outputs.get_mut(current_channel) {
+                            host_output_slice.copy_from_slice(&channel_buffer[..info.frames]);
+                        }
+                        current_channel += 1;
+                    }
+                }
+
+                match status {
+                    ProcessStatus::Continue => firewheel_core::node::ProcessStatus::OutputsModified,
+                    ProcessStatus::ContinueIfNotQuiet => {
+                        firewheel_core::node::ProcessStatus::OutputsModified
+                    }
+                    ProcessStatus::Tail => firewheel_core::node::ProcessStatus::OutputsModified,
+                    ProcessStatus::Sleep => firewheel_core::node::ProcessStatus::ClearAllOutputs,
+                }
+            }
+            Err(_) => firewheel_core::node::ProcessStatus::ClearAllOutputs,
+        }
     }
 }
 
