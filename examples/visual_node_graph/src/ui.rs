@@ -1,6 +1,6 @@
 use crate::system::{AudioSystem, NodeType, SAMPLE_PATHS};
 use eframe::App;
-use egui::{Color32, Id, Ui, UiKind};
+use egui::{Color32, Id, Modal, Pos2, Ui, UiKind};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlPin, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
@@ -215,6 +215,7 @@ impl GuiAudioNode {
 
 struct DemoViewer<'a> {
     audio_system: &'a mut AudioSystem,
+    clap_modal_showing: &'a mut Option<AddClapPluginModalInfo>,
 }
 
 impl<'a> DemoViewer<'a> {
@@ -430,9 +431,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             }
         });
         if ui.button("Clap Plugin").clicked() {
-            let node = self.audio_system.add_node(NodeType::ClapPlugin);
-            snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
+            *self.clap_modal_showing = Some(AddClapPluginModalInfo::default());
         }
     }
 
@@ -912,11 +912,18 @@ fn convolution_ui<const CHANNELS: usize>(
     });
 }
 
+#[derive(Default)]
+struct AddClapPluginModalInfo {
+    path: String,
+    id: String,
+}
+
 pub struct DemoApp {
     snarl: Snarl<GuiAudioNode>,
     style: SnarlStyle,
     snarl_ui_id: Option<Id>,
     audio_system: AudioSystem,
+    clap_modal_showing: Option<AddClapPluginModalInfo>,
 }
 
 impl DemoApp {
@@ -934,6 +941,7 @@ impl DemoApp {
             style,
             snarl_ui_id: None,
             audio_system: AudioSystem::new(),
+            clap_modal_showing: None,
         }
     }
 }
@@ -970,12 +978,42 @@ impl App for DemoApp {
             self.snarl.show(
                 &mut DemoViewer {
                     audio_system: &mut self.audio_system,
+                    clap_modal_showing: &mut self.clap_modal_showing,
                 },
                 &self.style,
                 "snarl",
                 ui,
             );
         });
+
+        if let Some(info) = &mut self.clap_modal_showing {
+            let mut modal_should_close = false;
+
+            let modal = Modal::new("Add Clap Plugin Modal".into()).show(cx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Path");
+                    ui.text_edit_singleline(&mut info.path);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("ID");
+                    ui.text_edit_singleline(&mut info.id);
+                });
+
+                if ui.button("Add").clicked() {
+                    let node = self.audio_system.add_node(NodeType::ClapPlugin {
+                        path: info.path.clone(),
+                        id: info.id.clone(),
+                    });
+                    self.snarl.insert_node(Pos2::default(), node);
+                    modal_should_close = true;
+                }
+            });
+
+            if modal_should_close {
+                self.clap_modal_showing = None;
+            }
+        }
 
         self.audio_system.update();
 

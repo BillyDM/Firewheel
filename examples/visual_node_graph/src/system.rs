@@ -1,5 +1,5 @@
 use crate::ui::GuiAudioNode;
-use firewheel::nodes::clap_plugin::ClapPluginNode;
+use firewheel::nodes::clap_plugin::{ClapPluginNode, ClapPluginNodeConfig};
 use firewheel::{
     channel_config::{ChannelCount, NonZeroChannelCount},
     collector::ArcGc,
@@ -34,7 +34,7 @@ pub const SAMPLE_PATHS: [&'static str; 4] = [
     "assets/test_files/birds_detail_chirp_medium_far.ogg",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeType {
     BeepTest,
     WhiteNoiseGen,
@@ -53,7 +53,7 @@ pub enum NodeType {
     Freeverb,
     ConvolutionMono,
     ConvolutionStereo,
-    ClapPlugin,
+    ClapPlugin { path: String, id: String },
 }
 
 pub struct AudioSystem {
@@ -140,7 +140,7 @@ impl AudioSystem {
     }
 
     pub fn add_node(&mut self, node_type: NodeType) -> GuiAudioNode {
-        let id = match node_type {
+        let id = match &node_type {
             NodeType::BeepTest => self.cx.add_node(BeepTestNode::default(), None),
             NodeType::WhiteNoiseGen => self.cx.add_node(WhiteNoiseGenNode::default(), None),
             NodeType::PinkNoiseGen => self.cx.add_node(PinkNoiseGenNode::default(), None),
@@ -186,14 +186,17 @@ impl AudioSystem {
                 }),
             ),
             NodeType::ConvolutionStereo => self.cx.add_node(ConvolutionNode::<2>::default(), None),
-            NodeType::ClapPlugin => self.cx.add_node(
-                ClapPluginNode::new("assets/".into(), "".to_string()).unwrap(),
-                None,
+            NodeType::ClapPlugin { path, id } => self.cx.add_node(
+                ClapPluginNode::default(),
+                Some(ClapPluginNodeConfig {
+                    path: path.into(),
+                    id: id.clone(),
+                }),
             ),
         }
         .expect("Failed to add node");
 
-        match node_type {
+        match &node_type {
             NodeType::BeepTest => GuiAudioNode::BeepTest {
                 id,
                 params: Default::default(),
@@ -259,7 +262,12 @@ impl AudioSystem {
                 id,
                 params: Default::default(),
             },
-            NodeType::ClapPlugin => todo!(),
+            NodeType::ClapPlugin { path: _, id: _ } => GuiAudioNode::ClapPlugin {
+                id,
+                num_inputs: 2,
+                num_outputs: 2,
+                params: Default::default(),
+            },
         }
     }
 

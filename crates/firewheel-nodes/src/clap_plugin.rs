@@ -48,36 +48,35 @@ pub enum ClapNodeError {
 pub struct ClapPluginNode {
     /// Whether the node is currently enabled.
     pub enabled: bool,
-
-    /// The path of the CLAP plugin
-    path: PathBuf,
-
-    /// The ID of the CLAP plugin
-    id: String,
 }
 
-impl ClapPluginNode {
-    pub fn new(path: PathBuf, id: String) -> Result<Self, ClapNodeError> {
-        Ok(Self {
-            enabled: true,
-            path,
-            id,
-        })
+impl Default for ClapPluginNode {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
+#[derive(Default)]
+pub struct ClapPluginNodeConfig {
+    /// The path of the CLAP plugin
+    pub path: PathBuf,
+
+    /// The ID of the CLAP plugin
+    pub id: String,
+}
+
 impl AudioNode for ClapPluginNode {
-    type Configuration = EmptyConfig;
+    type Configuration = ClapPluginNodeConfig;
 
     fn info(&self, configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         // Safety: Loading an external library object file is inherently unsafe
-        let entry = unsafe { PluginEntry::load(self.path.as_os_str())? };
+        let entry = unsafe { PluginEntry::load(configuration.path.as_os_str())? };
 
         let plugin_factory = entry
             .get_plugin_factory()
             .ok_or_else(|| ClapNodeError::MissingPluginFactory)?;
 
-        let id = CString::new(self.id.as_str())?;
+        let id = CString::new(configuration.id.as_str())?;
 
         let _plugin_descriptor = plugin_factory
             .plugin_descriptors()
@@ -86,8 +85,8 @@ impl AudioNode for ClapPluginNode {
             .ok_or_else(|| ClapNodeError::IDNotFound)?;
 
         let plugin_instance = PluginInstance::<FirewheelClapHost>::new(
-            |_| FirewheelClapShared::default(),
-            |_| FirewheelClapMain::default(),
+            |_| FirewheelClapShared,
+            |_| FirewheelClapMain,
             &entry,
             &id,
             &host_info(),
@@ -142,7 +141,8 @@ impl AudioNodeProcessor for ClapPluginProcessor {
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> firewheel_core::node::ProcessStatus {
-        todo!()
+        // TODO: Process audio with plugin
+        firewheel_core::node::ProcessStatus::Bypass
     }
 }
 
