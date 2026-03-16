@@ -183,6 +183,7 @@ members = [
     "crates/firewheel-pool",
     "crates/firewheel-rtaudio",
     "crates/firewheel-symphonium",
+    "crates/firewheel-c",
     "examples/beep_test",
     "examples/cpal_input",
     "examples/custom_nodes",
