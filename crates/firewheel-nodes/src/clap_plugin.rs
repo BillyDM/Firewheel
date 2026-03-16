@@ -183,6 +183,10 @@ impl AudioNodeProcessor for ClapPluginProcessor {
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> firewheel_core::node::ProcessStatus {
+        if !self.enabled {
+            return firewheel_core::node::ProcessStatus::Bypass;
+        }
+
         // Copy buffers host -> plugin
         let mut current_channel = 0;
 
@@ -191,8 +195,8 @@ impl AudioNodeProcessor for ClapPluginProcessor {
             // Split it into chunks here.
             // We split on max_frames since that's how we initialized our clap buffers.
             for channel_buffer in port_buffer.chunks_exact_mut(self.max_frames) {
-                if let Some(host_input_slice) = buffers.inputs.get(current_channel) {
-                    channel_buffer[..info.frames].copy_from_slice(&host_input_slice);
+                if let Some(&host_input_slice) = buffers.inputs.get(current_channel) {
+                    channel_buffer[..info.frames].copy_from_slice(host_input_slice);
                 } else {
                     channel_buffer.fill(0.0);
                 }
