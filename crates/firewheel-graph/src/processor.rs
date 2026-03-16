@@ -22,7 +22,7 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
-    context::ProcessorChannel,
+    context::{FirewheelFlags, ProcessorChannel},
     graph::ScheduleHeapData,
     processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
 };
@@ -130,7 +130,8 @@ pub(crate) struct FirewheelProcessorInner {
     #[cfg(feature = "musical_transport")]
     proc_transport_state: ProcTransportState,
 
-    hard_clip_outputs: bool,
+    flags: FirewheelFlags,
+    status_flags: Arc<StatusFlags>,
 
     pub(crate) extra: ProcExtra,
 
@@ -138,7 +139,6 @@ pub(crate) struct FirewheelProcessorInner {
     /// main thread know that it shouldn't try spawning a new audio stream
     /// with the shared `Arc<AtomicRefCell<FirewheelProcessorInner>>` object.
     pub(crate) poisoned: bool,
-    debug_force_clear_buffers: bool,
 }
 
 impl FirewheelProcessorInner {
@@ -149,9 +149,9 @@ impl FirewheelProcessorInner {
         #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
         node_event_buffer_capacity: usize,
         stream_info: &StreamInfo,
-        hard_clip_outputs: bool,
+        flags: FirewheelFlags,
+        status_flags: Arc<StatusFlags>,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
-        debug_force_clear_buffers: bool,
     ) -> Self {
         let ProcessorChannel {
             from_context_rx,
@@ -181,7 +181,8 @@ impl FirewheelProcessorInner {
             shared_clock_input,
             #[cfg(feature = "musical_transport")]
             proc_transport_state: ProcTransportState::new(),
-            hard_clip_outputs,
+            flags,
+            status_flags,
             extra: ProcExtra {
                 scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
                 declick_values: DeclickValues::new(stream_info.declick_frames),
@@ -189,7 +190,6 @@ impl FirewheelProcessorInner {
                 store,
             },
             poisoned: false,
-            debug_force_clear_buffers,
         }
     }
 }
@@ -204,7 +204,7 @@ pub(crate) struct NodeEntry {
 pub(crate) enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
-    HardClipOutputs(bool),
+    SetFlags(FirewheelFlags),
     #[cfg(feature = "musical_transport")]
     SetTransportState(Box<TransportState>),
     #[cfg(feature = "scheduled_events")]
@@ -276,4 +276,10 @@ pub enum BufferOutOfSpaceMode {
     ///
     /// (Not generally recommended, but the option is here if you want it.)
     DropEvents,
+}
+
+#[derive(Default)]
+pub(crate) struct StatusFlags {
+    pub clipping_occured: AtomicBool,
+    pub non_finite_number_occured: AtomicBool,
 }

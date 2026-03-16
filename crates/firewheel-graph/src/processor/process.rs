@@ -1,4 +1,5 @@
 use core::{num::NonZeroU32, time::Duration};
+use std::sync::atomic::Ordering;
 
 use arrayvec::ArrayVec;
 use firewheel_core::{
@@ -11,6 +12,7 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
+    context::FirewheelFlags,
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry},
 };
 
@@ -163,9 +165,60 @@ impl FirewheelProcessorInner {
             dropped_frames = 0;
         }
 
-        // --- Hard clip outputs --------------------------------------------------------------
+        self.validate_output(output);
+    }
 
-        if self.hard_clip_outputs {
+    fn validate_output(&mut self, output: &mut [f32]) {
+        if self
+            .flags
+            .contains(FirewheelFlags::VALIDATE_OUTPUT_IS_FINITE)
+        {
+            let mut non_finite_value = 0.0;
+
+            for s in output.iter_mut() {
+                // Try to optimize for auto-vectorization
+                let is_finite = s.is_finite();
+
+                non_finite_value = if is_finite { non_finite_value } else { *s };
+                *s = if is_finite { *s } else { 0.0 };
+            }
+
+            if non_finite_value != 0.0 {
+                let _ = self.extra.logger.try_error_with(|s| {
+                    *s = format!(
+                        "Non-finite number detected on audio output: {}",
+                        non_finite_value
+                    );
+                });
+            }
+        }
+
+        if self
+            .flags
+            .contains(FirewheelFlags::VALIDATE_OUTPUT_DOES_NOT_CLIP)
+        {
+            let mut clipping_occurred = false;
+
+            if self.flags.contains(FirewheelFlags::HARD_CLIP_OUTPUTS) {
+                for s in output.iter_mut() {
+                    // Try to optimize for auto-vectorization
+                    let ss = *s;
+                    *s = s.clamp(-1.0, 1.0);
+
+                    clipping_occurred |= ss != *s;
+                }
+            } else {
+                for s in output.iter() {
+                    clipping_occurred |= *s < -1.0 || *s > 1.0;
+                }
+            }
+
+            if clipping_occurred {
+                self.status_flags
+                    .clipping_occured
+                    .store(true, Ordering::Relaxed);
+            }
+        } else if self.flags.contains(FirewheelFlags::HARD_CLIP_OUTPUTS) {
             for s in output.iter_mut() {
                 *s = s.clamp(-1.0, 1.0);
             }
@@ -246,7 +299,7 @@ impl FirewheelProcessorInner {
 
         schedule_data.schedule.process(
             block_frames,
-            self.debug_force_clear_buffers,
+            self.flags,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,

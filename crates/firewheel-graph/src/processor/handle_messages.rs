@@ -41,8 +41,8 @@ impl FirewheelProcessorInner {
                 ContextToProcessorMsg::NewSchedule(new_schedule_data) => {
                     self.new_schedule(new_schedule_data);
                 }
-                ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs) => {
-                    self.hard_clip_outputs = hard_clip_outputs;
+                ContextToProcessorMsg::SetFlags(flags) => {
+                    self.flags = flags;
                 }
                 #[cfg(feature = "musical_transport")]
                 ContextToProcessorMsg::SetTransportState(new_transport_state) => {
