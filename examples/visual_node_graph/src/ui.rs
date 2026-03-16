@@ -1,9 +1,11 @@
+use crate::system::{AudioSystem, NodeType, SAMPLE_PATHS};
 use eframe::App;
 use egui::{Color32, Id, Ui, UiKind};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlPin, SnarlStyle, SnarlViewer},
     InPin, InPinId, OutPin, OutPinId, Snarl,
 };
+use firewheel::nodes::clap_plugin::ClapPluginNode;
 use firewheel::{
     diff::Memo,
     dsp::{fade::FadeCurve, mix::Mix},
@@ -26,8 +28,6 @@ use firewheel::{
     },
     Volume,
 };
-use firewheel::nodes::clap_plugin::ClapPluginNode;
-use crate::system::{AudioSystem, NodeType, SAMPLE_PATHS};
 
 const CABLE_COLOR: Color32 = Color32::from_rgb(0xb0, 0x00, 0xb0);
 
@@ -107,7 +107,7 @@ pub enum GuiAudioNode {
         num_inputs: usize,
         num_outputs: usize,
         params: Memo<ClapPluginNode>,
-    }
+    },
 }
 
 impl GuiAudioNode {
@@ -430,7 +430,7 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
             }
         });
         if ui.button("Clap Plugin").clicked() {
-            let node = self.audio_system.add_node(NodeType::Clap);
+            let node = self.audio_system.add_node(NodeType::ClapPlugin);
             snarl.insert_node(pos, node);
             ui.close_kind(UiKind::Menu);
         }

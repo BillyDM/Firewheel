@@ -6,10 +6,11 @@ use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::ProcEvents;
 use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
-    ProcBuffers, ProcExtra, ProcInfo,
+    NodeError, ProcBuffers, ProcExtra, ProcInfo,
 };
 use log::{debug, error, info, warn};
 use std::ffi::{CString, NulError};
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Information about this host.
@@ -25,17 +26,19 @@ fn host_info() -> HostInfo {
 
 /// Errors that happened during finder.
 #[derive(Error, Debug)]
-pub enum ClapPluginLoadError {
-    #[error("Failed to load plugin")]
+pub enum ClapNodeError {
+    #[error("Failed to load plugin: {0}")]
     LoadError(#[from] PluginEntryError),
     #[error("Plugin factory missing")]
     MissingPluginFactory,
     #[error("Plugin descriptor with ID not found")]
     IDNotFound,
-    #[error("Failed to instantiate plugin")]
-    InstantiationFailed(#[from] PluginInstanceError),
-    #[error("Failed to parse provided ID")]
+    #[error("Plugin instance error: {0}")]
+    PluginInstanceError(#[from] PluginInstanceError),
+    #[error("Failed to parse provided ID: {0}")]
     ParseIDFailed(#[from] NulError),
+    #[error("PluginInstance not found in custom data")]
+    PluginInstanceCustomDataMissing,
 }
 
 /// A node that hosts a CLAP plugin
@@ -45,27 +48,42 @@ pub enum ClapPluginLoadError {
 pub struct ClapPluginNode {
     /// Whether the node is currently enabled.
     pub enabled: bool,
+
+    /// The path of the CLAP plugin
+    path: PathBuf,
+
+    /// The ID of the CLAP plugin
+    id: String,
 }
 
 impl ClapPluginNode {
-    pub fn new(
-        path: impl AsRef<std::ffi::OsStr>,
-        id: impl AsRef<str>,
-    ) -> Result<Self, ClapPluginLoadError> {
+    pub fn new(path: PathBuf, id: String) -> Result<Self, ClapNodeError> {
+        Ok(Self {
+            enabled: true,
+            path,
+            id,
+        })
+    }
+}
+
+impl AudioNode for ClapPluginNode {
+    type Configuration = EmptyConfig;
+
+    fn info(&self, configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         // Safety: Loading an external library object file is inherently unsafe
-        let entry = unsafe { PluginEntry::load(path)? };
+        let entry = unsafe { PluginEntry::load(self.path.as_os_str())? };
 
         let plugin_factory = entry
             .get_plugin_factory()
-            .ok_or_else(|| ClapPluginLoadError::MissingPluginFactory)?;
+            .ok_or_else(|| ClapNodeError::MissingPluginFactory)?;
 
-        let id = CString::new(id.as_ref())?;
+        let id = CString::new(self.id.as_str())?;
 
         let _plugin_descriptor = plugin_factory
             .plugin_descriptors()
             .filter_map(|x| x.id())
             .find(|&plugin_id| plugin_id.eq(&id))
-            .ok_or_else(|| ClapPluginLoadError::IDNotFound)?;
+            .ok_or_else(|| ClapNodeError::IDNotFound)?;
 
         let plugin_instance = PluginInstance::<FirewheelClapHost>::new(
             |_| FirewheelClapShared::default(),
@@ -75,48 +93,42 @@ impl ClapPluginNode {
             &host_info(),
         )?;
 
-        Ok(Self {
-            enabled: true,
-        })
-    }
-}
-
-impl AudioNode for ClapPluginNode {
-    type Configuration = EmptyConfig;
-
-    fn info(&self, configuration: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+        Ok(AudioNodeInfo::new()
             .debug_name("clap_plugin")
             .channel_config(ChannelConfig {
                 // TODO: Dynamic channel count based on plugin?
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             })
+            .custom_state(plugin_instance))
     }
 
     fn construct_processor(
         &self,
         configuration: &Self::Configuration,
-        cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+        mut cx: ConstructProcessorContext,
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let audio_config = PluginAudioConfiguration {
             sample_rate: f64::from(u32::from(cx.stream_info.sample_rate)),
             min_frames_count: 0,
             max_frames_count: u32::from(cx.stream_info.max_block_frames),
         };
 
-        ClapPluginProcessor {
+        let plugin_instance = cx
+            .custom_state_mut::<PluginInstance<FirewheelClapHost>>()
+            .ok_or_else(|| ClapNodeError::PluginInstanceCustomDataMissing)?;
+
+        Ok(ClapPluginProcessor {
             enabled: false,
-            // audio_processor: self.plugin_instance.activate(|_, _| (), audio_config).unwrap().start_processing().unwrap(),
-        }
+            audio_processor: plugin_instance
+                .activate(|_, _| (), audio_config)?
+                .start_processing()?,
+        })
     }
 }
 
 pub struct ClapPluginProcessor {
     enabled: bool,
-
-    /// The Clap plugin instance
-    plugin_instance: PluginInstance<FirewheelClapHost>,
 
     /// The started Clap audio processor
     audio_processor: StartedPluginAudioProcessor<FirewheelClapHost>,
