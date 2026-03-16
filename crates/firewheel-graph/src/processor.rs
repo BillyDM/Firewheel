@@ -281,5 +281,4 @@ pub enum BufferOutOfSpaceMode {
 #[derive(Default)]
 pub(crate) struct StatusFlags {
     pub clipping_occured: AtomicBool,
-    pub non_finite_number_occured: AtomicBool,
 }

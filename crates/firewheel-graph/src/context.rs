@@ -690,18 +690,6 @@ impl FirewheelContext {
     ///
     /// This must be called reguarly (i.e. once every frame).
     pub fn update(&mut self) -> Result<(), UpdateError> {
-        if self
-            .status_flags
-            .non_finite_number_occured
-            .swap(false, Ordering::Relaxed)
-        {
-            #[cfg(feature = "tracing")]
-            tracing::error!("Non-finite number detected in Firwheel graph output");
-
-            #[cfg(all(feature = "log", not(feature = "tracing")))]
-            log::error!("Non-finite number detected in Firwheel graph output");
-        }
-
         self.logger_rx.flush(
             |msg| {
                 #[cfg(feature = "tracing")]
