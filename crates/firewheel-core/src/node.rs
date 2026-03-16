@@ -1,4 +1,6 @@
 use core::any::TypeId;
+use core::error::Error;
+use core::fmt;
 use core::marker::PhantomData;
 use core::ops::Range;
 use core::time::Duration;
@@ -21,8 +23,6 @@ use bevy_platform::collections::hash_map::{Entry, HashMap};
 use bevy_platform::prelude::{Box, Vec};
 #[cfg(feature = "std")]
 use std::collections::hash_map::{Entry, HashMap};
-use std::error::Error;
-use std::fmt;
 
 #[cfg(feature = "scheduled_events")]
 use crate::clock::EventInstant;
