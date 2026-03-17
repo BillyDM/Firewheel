@@ -1,5 +1,5 @@
 use firewheel_core::{
-    dsp::{buffer::ChannelBuffer, declick::DeclickValues},
+    dsp::{buffer::ConstSequentialBuffer, declick::DeclickValues},
     node::ProcStreamCtx,
     StreamInfo,
 };
@@ -205,7 +205,7 @@ impl FirewheelProcessorInner {
             self.max_block_frames = stream_info.max_block_frames.get() as usize;
 
             self.extra.scratch_buffers =
-                ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
+                ConstSequentialBuffer::new(stream_info.max_block_frames.get() as usize);
         }
     }
 }

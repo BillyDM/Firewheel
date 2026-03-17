@@ -14,7 +14,7 @@ use bevy_platform::time::Instant;
 
 use firewheel_core::{
     clock::InstantSamples,
-    dsp::{buffer::ChannelBuffer, declick::DeclickValues},
+    dsp::{buffer::ConstSequentialBuffer, declick::DeclickValues},
     event::{NodeEvent, ProcEventsIndex},
     node::{AudioNodeProcessor, ProcExtra},
     StreamInfo,
@@ -184,7 +184,9 @@ impl FirewheelProcessorInner {
             flags,
             status_flags,
             extra: ProcExtra {
-                scratch_buffers: ChannelBuffer::new(stream_info.max_block_frames.get() as usize),
+                scratch_buffers: ConstSequentialBuffer::new(
+                    stream_info.max_block_frames.get() as usize
+                ),
                 declick_values: DeclickValues::new(stream_info.declick_frames),
                 logger,
                 store,
