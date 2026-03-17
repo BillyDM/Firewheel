@@ -80,8 +80,12 @@ pub struct FirewheelConfig {
 
     /// Extra configuration flags.
     ///
+    /// TODO: There is currently an orphan rule problem with the `bitflags` crate
+    /// and bevy's `Reflect` macro. As a temporary solution, this uses a plain `u32`
+    /// value instead of [`FirewheelFlags`].
+    ///
     /// By default, no flags are set.
-    pub flags: FirewheelFlags,
+    pub flags: u32,
 
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
@@ -145,7 +149,7 @@ impl Default for FirewheelConfig {
         Self {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
-            flags: FirewheelFlags::empty(),
+            flags: FirewheelFlags::empty().bits(),
             initial_node_capacity: 128,
             initial_edge_capacity: 256,
             declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
@@ -404,7 +408,7 @@ impl FirewheelContext {
                 self.config.scheduled_event_capacity,
                 self.config.event_queue_capacity,
                 &stream_info,
-                self.config.flags,
+                FirewheelFlags::from_bits_truncate(self.config.flags),
                 Arc::clone(&self.status_flags),
                 self.config.buffer_out_of_space_mode,
             )
@@ -655,7 +659,7 @@ impl FirewheelContext {
 
     /// The current configuration flags being used by this context.
     pub fn flags(&self) -> FirewheelFlags {
-        self.config.flags
+        FirewheelFlags::from_bits_truncate(self.config.flags)
     }
 
     /// Set the configuration flags.
@@ -664,10 +668,10 @@ impl FirewheelContext {
     ///
     /// If the message channel is full, then this will return an error.
     pub fn set_flags(&mut self, flags: FirewheelFlags) -> Result<(), UpdateError> {
-        if self.config.flags == flags {
+        if self.config.flags == flags.bits() {
             return Ok(());
         }
-        self.config.flags = flags;
+        self.config.flags = flags.bits();
 
         self.send_message_to_processor(ContextToProcessorMsg::SetFlags(flags))
             .map_err(|(_, e)| e)
