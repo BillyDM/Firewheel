@@ -644,6 +644,13 @@ pub struct ProcInfo {
     /// If an underrun did not occur, then this will be `0`.
     pub dropped_frames: u32,
 
+    /// The estimated time between when this process loop was called and
+    /// when the data will be delivered to the output device for playback.
+    ///
+    /// If the audio backend does not provide this information, then this
+    /// will be `None`.
+    pub playback_delay: Option<Duration>,
+
     /// Information about the musical transport.
     ///
     /// This will be `None` if no musical transport is currently active,

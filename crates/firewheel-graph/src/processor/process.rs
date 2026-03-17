@@ -42,6 +42,7 @@ impl FirewheelProcessorInner {
             input_stream_status,
             mut output_stream_status,
             mut dropped_frames,
+            playback_delay,
         } = info;
 
         #[cfg(feature = "scheduled_events")]
@@ -133,6 +134,7 @@ impl FirewheelProcessorInner {
                 duration_since_stream_start,
                 output_stream_status,
                 dropped_frames,
+                playback_delay,
                 #[cfg(feature = "musical_transport")]
                 &proc_transport_info,
             );
@@ -259,6 +261,7 @@ impl FirewheelProcessorInner {
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
+        playback_delay: Option<Duration>,
         #[cfg(feature = "musical_transport")] proc_transport_info: &ProcTransportInfo,
     ) {
         if self.schedule_data.is_none() {
@@ -288,6 +291,7 @@ impl FirewheelProcessorInner {
             duration_since_stream_start,
             stream_status,
             dropped_frames,
+            playback_delay,
             #[cfg(feature = "musical_transport")]
             transport_info,
         };

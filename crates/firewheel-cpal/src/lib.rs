@@ -780,7 +780,7 @@ impl DataCallback {
         }
     }
 
-    fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
+    fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
         let process_timestamp = bevy_platform::time::Instant::now();
 
         let frames = output.len() / self.num_out_channels;
@@ -899,6 +899,9 @@ impl DataCallback {
             output_stream_status.insert(StreamStatus::OUTPUT_UNDERFLOW);
         }
 
+        let timestamp = info.timestamp();
+        let playback_delay = timestamp.playback.duration_since(&timestamp.callback);
+
         self.processor.process_interleaved(
             &self.input_buffer[..frames * num_in_channels],
             output,
@@ -911,6 +914,7 @@ impl DataCallback {
                 input_stream_status,
                 output_stream_status,
                 dropped_frames,
+                playback_delay,
             },
         );
     }
