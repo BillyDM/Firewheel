@@ -11,6 +11,6 @@ mod ftz;
 
 #[cfg(feature = "scheduled_events")]
 pub use context::ClearScheduledEventsType;
-pub use context::{ActivateInfo, ContextQueue, FirewheelConfig, FirewheelContext};
+pub use context::{ActivateInfo, ContextQueue, FirewheelConfig, FirewheelContext, FirewheelFlags};
 
 extern crate alloc;

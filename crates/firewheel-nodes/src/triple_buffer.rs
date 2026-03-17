@@ -149,7 +149,7 @@ pub struct OutputData<'a> {
     /// from this buffer.
     pub buffer: &'a SequentialBuffer<f32>,
 
-    /// The number of frames of usable data that are in [`OutputData::data`].
+    /// The number of frames of usable data that are in [`OutputData::buffer`].
     pub frames: usize,
 
     /// A value equal to how many times the buffer has been updated since the node

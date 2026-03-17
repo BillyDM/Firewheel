@@ -168,6 +168,7 @@ impl Default for FirewheelConfig {
 
 bitflags::bitflags! {
     /// Configuration flags for a [`FirewheelContext`]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct FirewheelFlags: u32 {
         /// Hard clip all samples in the final output buffer to the range `[-1.0, 1.0]`.
@@ -677,7 +678,7 @@ impl FirewheelContext {
             .map_err(|(_, e)| e)
     }
 
-    /// Returns `true` if both the [`FirewheelFlags::VALIDATE_OUTPUT_DOES_NOT_CLIP`]
+    /// Returns `true` if both the `FirewheelFlags::VALIDATE_OUTPUT_DOES_NOT_CLIP`
     /// flag is set and a sample in the final output buffer fell outside the range
     /// `[-1.0, 1.0]`.
     ///
