@@ -165,8 +165,6 @@ impl Default for FirewheelConfig {
 bitflags::bitflags! {
     /// Configuration flags for a [`FirewheelContext`]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct FirewheelFlags: u32 {
         /// Hard clip all samples in the final output buffer to the range `[-1.0, 1.0]`.
         ///
