@@ -1,5 +1,5 @@
+use bevy_platform::sync::atomic::Ordering;
 use core::{num::NonZeroU32, time::Duration};
-use std::sync::atomic::Ordering;
 
 use arrayvec::ArrayVec;
 use firewheel_core::{
@@ -185,10 +185,20 @@ impl FirewheelProcessorInner {
 
             if non_finite_value != 0.0 {
                 let _ = self.extra.logger.try_error_with(|s| {
-                    *s = format!(
-                        "Non-finite number detected on audio output: {}",
-                        non_finite_value
-                    );
+                    #[cfg(feature = "std")]
+                    {
+                        *s = format!(
+                            "Non-finite number detected on audio output: {}",
+                            non_finite_value
+                        );
+                    }
+
+                    #[cfg(not(feature = "std"))]
+                    {
+                        *s = bevy_platform::prelude::String::from(
+                            "Non-finite number detected on audio output",
+                        );
+                    }
                 });
             }
         }

@@ -13,8 +13,6 @@ use firewheel_core::{
 };
 
 #[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{vec, Vec};
-#[cfg(not(feature = "std"))]
 use num_traits::Float;
 
 /// The configuration of a [`TripleBufferNode`]
