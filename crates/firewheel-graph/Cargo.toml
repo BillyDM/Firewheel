@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-graph"
-version = "0.10.1"
+version = "0.10.2"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
 repository.workspace = true
