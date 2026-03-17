@@ -1,5 +1,6 @@
 use bevy_platform::sync::{Arc, Mutex, MutexGuard};
 use core::num::{NonZeroU32, NonZeroUsize};
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
@@ -11,10 +12,7 @@ use firewheel_core::{
     },
     StreamInfo,
 };
-use firewheel_core::node::NodeError;
 
-#[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{vec, Vec};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 

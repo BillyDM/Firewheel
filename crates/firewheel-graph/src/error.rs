@@ -1,6 +1,9 @@
 use crate::graph::{Edge, EdgeID, PortIdx};
 use firewheel_core::{channel_config::ChannelCount, node::NodeID};
 
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::String;
+
 /// An error occurred while attempting to add an edge to the graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum AddEdgeError {

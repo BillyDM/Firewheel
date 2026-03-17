@@ -3,6 +3,8 @@ use core::fmt::Debug;
 use core::hash::Hash;
 
 #[cfg(not(feature = "std"))]
+use alloc::string::ToString;
+#[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
 use bevy_platform::collections::HashMap;
