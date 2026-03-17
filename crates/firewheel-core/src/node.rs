@@ -649,7 +649,7 @@ pub struct ProcInfo {
     ///
     /// If the audio backend does not provide this information, then this
     /// will be `None`.
-    pub playback_delay: Option<Duration>,
+    pub process_to_playback_delay: Option<Duration>,
 
     /// Information about the musical transport.
     ///

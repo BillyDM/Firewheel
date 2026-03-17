@@ -18,5 +18,5 @@ pub struct BackendProcessInfo {
     ///
     /// If the audio backend does not provide this information, then set
     /// this to `None`.
-    pub playback_delay: Option<Duration>,
+    pub process_to_playback_delay: Option<Duration>,
 }

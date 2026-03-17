@@ -900,7 +900,7 @@ impl DataCallback {
         }
 
         let timestamp = info.timestamp();
-        let playback_delay = timestamp.playback.duration_since(&timestamp.callback);
+        let process_to_playback_delay = timestamp.playback.duration_since(&timestamp.callback);
 
         self.processor.process_interleaved(
             &self.input_buffer[..frames * num_in_channels],
@@ -914,7 +914,7 @@ impl DataCallback {
                 input_stream_status,
                 output_stream_status,
                 dropped_frames,
-                playback_delay,
+                process_to_playback_delay,
             },
         );
     }

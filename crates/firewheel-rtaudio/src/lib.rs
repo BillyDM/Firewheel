@@ -74,7 +74,7 @@ impl RtAudioStream {
         let info = stream_handle.info();
         let success_msg = format!("Successfully started audio stream: {:?}", &info);
 
-        let playback_delay = info.latency.map(|latency_frames| {
+        let process_to_playback_delay = info.latency.map(|latency_frames| {
             Duration::from_secs_f64(latency_frames as f64 / info.sample_rate as f64)
         });
 
@@ -88,7 +88,7 @@ impl RtAudioStream {
 
         let processor = cx.activate(activate_info)?;
 
-        let mut cb = DataCallback::new(processor, info.sample_rate, playback_delay);
+        let mut cb = DataCallback::new(processor, info.sample_rate, process_to_playback_delay);
 
         stream_handle.start(
             move |buffers: rtaudio::Buffers<'_>,
@@ -140,20 +140,20 @@ struct DataCallback {
     processor: FirewheelProcessor,
     next_predicted_stream_time: Option<f64>,
     sample_rate_recip: f64,
-    playback_delay: Option<Duration>,
+    process_to_playback_delay: Option<Duration>,
 }
 
 impl DataCallback {
     fn new(
         processor: FirewheelProcessor,
         sample_rate: u32,
-        playback_delay: Option<Duration>,
+        process_to_playback_delay: Option<Duration>,
     ) -> Self {
         Self {
             processor,
             next_predicted_stream_time: None,
             sample_rate_recip: (sample_rate as f64).recip(),
-            playback_delay,
+            process_to_playback_delay,
         }
     }
 
@@ -208,7 +208,7 @@ impl DataCallback {
                 input_stream_status,
                 output_stream_status,
                 dropped_frames,
-                playback_delay: self.playback_delay,
+                process_to_playback_delay: self.process_to_playback_delay,
             },
         );
     }
