@@ -12,7 +12,6 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
-    context::FirewheelFlags,
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry},
 };
 
@@ -169,10 +168,7 @@ impl FirewheelProcessorInner {
     }
 
     fn validate_output(&mut self, output: &mut [f32]) {
-        if self
-            .flags
-            .contains(FirewheelFlags::VALIDATE_OUTPUT_IS_FINITE)
-        {
+        if self.flags.validate_output_is_finite {
             let mut non_finite_value = 0.0;
 
             for s in output.iter_mut() {
@@ -203,13 +199,10 @@ impl FirewheelProcessorInner {
             }
         }
 
-        if self
-            .flags
-            .contains(FirewheelFlags::VALIDATE_OUTPUT_DOES_NOT_CLIP)
-        {
+        if self.flags.detect_clipping_on_output {
             let mut clipping_occurred = false;
 
-            if self.flags.contains(FirewheelFlags::HARD_CLIP_OUTPUTS) {
+            if self.flags.hard_clip_outputs {
                 for s in output.iter_mut() {
                     // Try to optimize for auto-vectorization
                     let ss = *s;
@@ -228,7 +221,7 @@ impl FirewheelProcessorInner {
                     .clipping_occured
                     .store(true, Ordering::Relaxed);
             }
-        } else if self.flags.contains(FirewheelFlags::HARD_CLIP_OUTPUTS) {
+        } else if self.flags.hard_clip_outputs {
             for s in output.iter_mut() {
                 *s = s.clamp(-1.0, 1.0);
             }

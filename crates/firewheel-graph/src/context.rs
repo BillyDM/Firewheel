@@ -80,12 +80,8 @@ pub struct FirewheelConfig {
 
     /// Extra configuration flags.
     ///
-    /// TODO: There is currently an orphan rule problem with the `bitflags` crate
-    /// and bevy's `Reflect` macro. As a temporary solution, this uses a plain `u32`
-    /// value instead of [`FirewheelFlags`].
-    ///
     /// By default, no flags are set.
-    pub flags: u32,
+    pub flags: FirewheelFlags,
 
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
@@ -149,7 +145,7 @@ impl Default for FirewheelConfig {
         Self {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
-            flags: FirewheelFlags::empty().bits(),
+            flags: FirewheelFlags::default(),
             initial_node_capacity: 128,
             initial_edge_capacity: 256,
             declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
@@ -166,35 +162,47 @@ impl Default for FirewheelConfig {
     }
 }
 
-bitflags::bitflags! {
-    /// Configuration flags for a [`FirewheelContext`]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct FirewheelFlags: u32 {
-        /// Hard clip all samples in the final output buffer to the range `[-1.0, 1.0]`.
-        ///
-        /// This usually isn't necessary since the OS itself generally hard clips the
-        /// output, but it is here if you need it.
-        const HARD_CLIP_OUTPUTS = 1 << 0;
-        /// Validate that all samples in the final output buffer are within the range
-        /// `[-1.0, 1.0]`. If a sample falls outside this range, then
-        /// [`FirewheelContext::clipping_occurred`] will return `true`.
-        ///
-        /// This validation takes place before the hard clipping if the
-        /// [`FirewheelFlags::HARD_CLIP_OUTPUTS`] bit is set.
-        const VALIDATE_OUTPUT_DOES_NOT_CLIP = 1 << 1;
-        /// Validate that all samples in the final output buffer are a valid finite
-        /// number. If a non finite number is detected, then the sample will will be
-        /// set to `0.0` and an error is logged.
-        const VALIDATE_OUTPUT_IS_FINITE = 1 << 2;
-        /// Force all of a node's output buffers to be cleared before processing.
-        /// This shouldn't be necessary, but it can be used to debug nodes that
-        /// are misusing the silence flag feature.
-        const FORCE_CLEAR_BUFFERS = 1 << 3;
+/// Configuration flags for a [`FirewheelContext`]
+///
+/// Unlike [`FirewheelConfig`], these flags can be changed after the context has
+/// been created.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FirewheelFlags {
+    /// Hard clip all samples in the final output buffer to the range `[-1.0, 1.0]`.
+    ///
+    /// This usually isn't necessary since the OS itself generally hard clips the
+    /// output, but it is here if you need it.
+    ///
+    /// By default this is set to `false`.
+    pub hard_clip_outputs: bool,
 
-        // TODO: Add a flag to profile the performance of nodes and a flag to profile
-        // the performance of the entire graph.
-    }
+    /// Detect when a sample in the final output buffer falls outside the range
+    /// `[-1.0, 1.0]`. If a sample falls outside this range, then
+    /// [`FirewheelContext::clipping_occurred`] will return `true`.
+    ///
+    /// This check takes place before hard clipping if the
+    /// [`FirewheelFlags::hard_clip_outputs`] is set to `true`.
+    ///
+    /// By default this is set to `false`.
+    pub detect_clipping_on_output: bool,
+
+    /// Validate that all samples in the final output buffer are a valid finite
+    /// number. If a non finite number is detected, then the sample will will be
+    /// set to `0.0` and an error is logged.
+    ///
+    /// By default this is set to `false`.
+    pub validate_output_is_finite: bool,
+
+    /// Force all of a node's output buffers to be cleared before processing.
+    /// This shouldn't be necessary, but it can be used to debug nodes that
+    /// are misusing the silence flag feature.
+    ///
+    /// By default this is set to `false`.
+    pub force_clear_buffers: bool,
+    // TODO: Add a flag to profile the performance of nodes and a flag to profile
+    // the performance of the entire graph.
 }
 
 pub(crate) struct ProcessorChannel {
@@ -409,7 +417,7 @@ impl FirewheelContext {
                 self.config.scheduled_event_capacity,
                 self.config.event_queue_capacity,
                 &stream_info,
-                FirewheelFlags::from_bits_truncate(self.config.flags),
+                self.config.flags,
                 Arc::clone(&self.status_flags),
                 self.config.buffer_out_of_space_mode,
             )
@@ -659,8 +667,8 @@ impl FirewheelContext {
     }
 
     /// The current configuration flags being used by this context.
-    pub fn flags(&self) -> FirewheelFlags {
-        FirewheelFlags::from_bits_truncate(self.config.flags)
+    pub fn flags(&self) -> &FirewheelFlags {
+        &self.config.flags
     }
 
     /// Set the configuration flags.
@@ -669,10 +677,10 @@ impl FirewheelContext {
     ///
     /// If the message channel is full, then this will return an error.
     pub fn set_flags(&mut self, flags: FirewheelFlags) -> Result<(), UpdateError> {
-        if self.config.flags == flags.bits() {
+        if self.config.flags == flags {
             return Ok(());
         }
-        self.config.flags = flags.bits();
+        self.config.flags = flags;
 
         self.send_message_to_processor(ContextToProcessorMsg::SetFlags(flags))
             .map_err(|(_, e)| e)
