@@ -12,7 +12,7 @@ use bevy_platform::collections::hash_map::{Entry, HashMap};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
-use crate::dsp::buffer::ChannelBuffer;
+use crate::dsp::buffer::ConstSequentialBuffer;
 use crate::dsp::volume::is_buffer_silent;
 use crate::log::RealtimeLogger;
 use crate::mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask};
@@ -541,7 +541,7 @@ pub struct ProcExtra {
     /// Each buffer has a length of [`StreamInfo::max_block_frames`]. These
     /// buffers are shared across all nodes, so assume that they contain junk
     /// data.
-    pub scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
+    pub scratch_buffers: ConstSequentialBuffer<f32, NUM_SCRATCH_BUFFERS>,
 
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when

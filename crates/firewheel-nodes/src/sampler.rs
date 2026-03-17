@@ -575,7 +575,7 @@ impl AudioNode for SamplerNode {
         let stop_declicker_buffers = if config.num_declickers == 0 {
             None
         } else {
-            Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
+            Some(InstanceBuffer::<f32>::new(
                 config.num_declickers as usize,
                 NonZeroUsize::new(config.channels.get().get() as usize).unwrap(),
                 cx.stream_info.declick_frames.get() as usize,
@@ -616,7 +616,7 @@ struct SamplerProcessor {
     playing: bool,
     paused: bool,
 
-    stop_declicker_buffers: Option<InstanceBuffer<f32, MAX_OUT_CHANNELS>>,
+    stop_declicker_buffers: Option<InstanceBuffer<f32>>,
     stop_declickers: SmallVec<[StopDeclickerState; DEFAULT_NUM_DECLICKERS]>,
     num_active_stop_declickers: usize,
 
@@ -802,7 +802,7 @@ impl SamplerProcessor {
                     self.stop_declickers[declicker_i].channels = n_channels;
 
                     let mut tmp_buffers = stop_declicker_buffers
-                        .instance_mut(declicker_i, n_channels, fade_out_frames)
+                        .instance_mut::<MAX_OUT_CHANNELS>(declicker_i, n_channels, fade_out_frames)
                         .unwrap();
 
                     self.process_internal(&mut tmp_buffers, fade_out_frames, false, extra);
@@ -1155,7 +1155,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 }
 
                 let tmp_buffers = tmp_buffers
-                    .instance(declicker_i, declicker.channels, fade_out_frames)
+                    .instance::<MAX_OUT_CHANNELS>(declicker_i, declicker.channels, fade_out_frames)
                     .unwrap();
 
                 let copy_frames = info.frames.min(declicker.frames_left);
@@ -1197,7 +1197,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.stop_declicker_buffers = if self.config.num_declickers == 0 {
                 None
             } else {
-                Some(InstanceBuffer::<f32, MAX_OUT_CHANNELS>::new(
+                Some(InstanceBuffer::<f32>::new(
                     self.config.num_declickers as usize,
                     NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
                     stream_info.declick_frames.get() as usize,

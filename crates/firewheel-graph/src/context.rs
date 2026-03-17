@@ -32,8 +32,11 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::error::{ActivateError, RemoveNodeError};
 use crate::processor::BufferOutOfSpaceMode;
+use crate::{
+    error::{ActivateError, RemoveNodeError},
+    processor::StatusFlags,
+};
 use crate::{
     error::{AddEdgeError, UpdateError},
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
@@ -74,15 +77,12 @@ pub struct FirewheelConfig {
     pub num_graph_inputs: ChannelCount,
     /// The number of output channels in the audio graph.
     pub num_graph_outputs: ChannelCount,
-    /// If `true`, then all outputs will be hard clipped at 0db to help
-    /// protect the system's speakers.
+
+    /// Extra configuration flags.
     ///
-    /// Note that most operating systems already hard clip the output,
-    /// so this is usually not needed (TODO: Do research to see if this
-    /// assumption is true.)
-    ///
-    /// By default this is set to `false`.
-    pub hard_clip_outputs: bool,
+    /// By default, no flags are set.
+    pub flags: FirewheelFlags,
+
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
     /// By default this is set to `64`.
@@ -134,17 +134,6 @@ pub struct FirewheelConfig {
     /// The configuration of the realtime safe logger.
     pub logger_config: RealtimeLoggerConfig,
 
-    /// Force all buffers in the audio graph to be cleared when processing.
-    ///
-    /// This is only meant to be used when diagnosing a misbehaving audio node.
-    /// Enabling this significantly increases processing overhead.
-    ///
-    /// If enabling this fixes audio glitching issues, then notify the node
-    /// author of the misbehavior.
-    ///
-    /// By default this is set to `false`.
-    pub debug_force_clear_buffers: bool,
-
     /// The initial number of slots to allocate for the [`ProcStore`].
     ///
     /// By default this is set to `8`.
@@ -156,7 +145,7 @@ impl Default for FirewheelConfig {
         Self {
             num_graph_inputs: ChannelCount::ZERO,
             num_graph_outputs: ChannelCount::STEREO,
-            hard_clip_outputs: false,
+            flags: FirewheelFlags::default(),
             initial_node_capacity: 128,
             initial_edge_capacity: 256,
             declick_seconds: DeclickValues::DEFAULT_FADE_SECONDS,
@@ -168,10 +157,52 @@ impl Default for FirewheelConfig {
             scheduled_event_capacity: 512,
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
-            debug_force_clear_buffers: false,
             proc_store_capacity: 8,
         }
     }
+}
+
+/// Configuration flags for a [`FirewheelContext`]
+///
+/// Unlike [`FirewheelConfig`], these flags can be changed after the context has
+/// been created.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FirewheelFlags {
+    /// Hard clip all samples in the final output buffer to the range `[-1.0, 1.0]`.
+    ///
+    /// This usually isn't necessary since the OS itself generally hard clips the
+    /// output, but it is here if you need it.
+    ///
+    /// By default this is set to `false`.
+    pub hard_clip_outputs: bool,
+
+    /// Detect when a sample in the final output buffer falls outside the range
+    /// `[-1.0, 1.0]`. If a sample falls outside this range, then
+    /// [`FirewheelContext::clipping_occurred`] will return `true`.
+    ///
+    /// This check takes place before hard clipping if the
+    /// [`FirewheelFlags::hard_clip_outputs`] is set to `true`.
+    ///
+    /// By default this is set to `false`.
+    pub detect_clipping_on_output: bool,
+
+    /// Validate that all samples in the final output buffer are a valid finite
+    /// number. If a non finite number is detected, then the sample will will be
+    /// set to `0.0` and an error is logged.
+    ///
+    /// By default this is set to `false`.
+    pub validate_output_is_finite: bool,
+
+    /// Force all of a node's output buffers to be cleared before processing.
+    /// This shouldn't be necessary, but it can be used to debug nodes that
+    /// are misusing the silence flag feature.
+    ///
+    /// By default this is set to `false`.
+    pub force_clear_buffers: bool,
+    // TODO: Add a flag to profile the performance of nodes and a flag to profile
+    // the performance of the entire graph.
 }
 
 pub(crate) struct ProcessorChannel {
@@ -201,6 +232,7 @@ pub struct FirewheelContext {
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
     stream_info: Option<StreamInfo>,
+    status_flags: Arc<StatusFlags>,
 
     #[cfg(feature = "musical_transport")]
     transport_state: Box<TransportState>,
@@ -261,6 +293,7 @@ impl FirewheelContext {
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
             stream_info: None,
+            status_flags: Arc::new(StatusFlags::default()),
             #[cfg(feature = "musical_transport")]
             transport_state: Box::new(TransportState::default()),
             #[cfg(feature = "musical_transport")]
@@ -384,9 +417,9 @@ impl FirewheelContext {
                 self.config.scheduled_event_capacity,
                 self.config.event_queue_capacity,
                 &stream_info,
-                self.config.hard_clip_outputs,
+                self.config.flags,
+                Arc::clone(&self.status_flags),
                 self.config.buffer_out_of_space_mode,
-                self.config.debug_force_clear_buffers,
             )
         } else {
             let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
@@ -633,27 +666,35 @@ impl FirewheelContext {
         &self.transport_state
     }
 
-    /// Whether or not outputs are being hard clipped at 0dB.
-    pub fn hard_clip_outputs(&self) -> bool {
-        self.config.hard_clip_outputs
+    /// The current configuration flags being used by this context.
+    pub fn flags(&self) -> &FirewheelFlags {
+        &self.config.flags
     }
 
-    /// Set whether or not outputs should be hard clipped at 0dB to
-    /// help protect the system's speakers.
+    /// Set the configuration flags.
     ///
-    /// Note that most operating systems already hard clip the output,
-    /// so this is usually not needed (TODO: Do research to see if this
-    /// assumption is true.)
+    /// This can be set while the context is active or inactive.
     ///
     /// If the message channel is full, then this will return an error.
-    pub fn set_hard_clip_outputs(&mut self, hard_clip_outputs: bool) -> Result<(), UpdateError> {
-        if self.config.hard_clip_outputs == hard_clip_outputs {
+    pub fn set_flags(&mut self, flags: FirewheelFlags) -> Result<(), UpdateError> {
+        if self.config.flags == flags {
             return Ok(());
         }
-        self.config.hard_clip_outputs = hard_clip_outputs;
+        self.config.flags = flags;
 
-        self.send_message_to_processor(ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs))
+        self.send_message_to_processor(ContextToProcessorMsg::SetFlags(flags))
             .map_err(|(_, e)| e)
+    }
+
+    /// Returns `true` if both the `FirewheelFlags::VALIDATE_OUTPUT_DOES_NOT_CLIP`
+    /// flag is set and a sample in the final output buffer fell outside the range
+    /// `[-1.0, 1.0]`.
+    ///
+    /// Calling this method resets the internal flag.
+    pub fn clipping_occurred(&self) -> bool {
+        self.status_flags
+            .clipping_occured
+            .swap(false, Ordering::Relaxed)
     }
 
     /// Update the firewheel context.
@@ -670,7 +711,6 @@ impl FirewheelContext {
 
                 let _ = msg;
             },
-            #[cfg(debug_assertions)]
             |msg| {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("{}", msg);

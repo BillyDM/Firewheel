@@ -25,7 +25,7 @@ std = [
     "thunderdome/std",
     "thiserror/std",
     "bevy_reflect?/std",
-    "num-traits/std",
+    "num-traits/std"
 ]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["dep:triple_buffer", "firewheel-core/scheduled_events"]

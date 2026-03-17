@@ -1,5 +1,5 @@
 use firewheel_core::{
-    dsp::{buffer::ChannelBuffer, declick::DeclickValues},
+    dsp::{buffer::ConstSequentialBuffer, declick::DeclickValues},
     node::ProcStreamCtx,
     StreamInfo,
 };
@@ -41,8 +41,8 @@ impl FirewheelProcessorInner {
                 ContextToProcessorMsg::NewSchedule(new_schedule_data) => {
                     self.new_schedule(new_schedule_data);
                 }
-                ContextToProcessorMsg::HardClipOutputs(hard_clip_outputs) => {
-                    self.hard_clip_outputs = hard_clip_outputs;
+                ContextToProcessorMsg::SetFlags(flags) => {
+                    self.flags = flags;
                 }
                 #[cfg(feature = "musical_transport")]
                 ContextToProcessorMsg::SetTransportState(new_transport_state) => {
@@ -205,7 +205,7 @@ impl FirewheelProcessorInner {
             self.max_block_frames = stream_info.max_block_frames.get() as usize;
 
             self.extra.scratch_buffers =
-                ChannelBuffer::new(stream_info.max_block_frames.get() as usize);
+                ConstSequentialBuffer::new(stream_info.max_block_frames.get() as usize);
         }
     }
 }

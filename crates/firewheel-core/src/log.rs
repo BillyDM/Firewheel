@@ -254,7 +254,7 @@ impl RealtimeLoggerMainThread {
     pub fn flush(
         &mut self,
         mut log_error: impl FnMut(&str),
-        #[cfg(debug_assertions)] mut log_debug: impl FnMut(&str),
+        #[allow(unused)] mut log_debug: impl FnMut(&str),
     ) {
         if self
             .shared_state
