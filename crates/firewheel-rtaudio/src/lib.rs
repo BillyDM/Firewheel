@@ -399,6 +399,7 @@ impl DataCallback {
                     input_stream_status,
                     output_stream_status,
                     dropped_frames,
+                    playback_delay: None,
                 },
             );
         } else {

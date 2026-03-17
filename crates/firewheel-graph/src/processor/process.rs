@@ -36,6 +36,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             input_stream_status,
             mut output_stream_status,
             mut dropped_frames,
+            playback_delay,
         } = info;
 
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
@@ -121,6 +122,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
                 duration_since_stream_start,
                 output_stream_status,
                 dropped_frames,
+                playback_delay,
                 #[cfg(feature = "musical_transport")]
                 &proc_transport_info,
             );
@@ -192,6 +194,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
+        playback_delay: Option<Duration>,
         #[cfg(feature = "musical_transport")] proc_transport_info: &ProcTransportInfo,
     ) {
         if self.schedule_data.is_none() {
@@ -221,6 +224,7 @@ impl<B: AudioBackend> FirewheelProcessorInner<B> {
             duration_since_stream_start,
             stream_status,
             dropped_frames,
+            playback_delay,
             #[cfg(feature = "musical_transport")]
             transport_info,
         };

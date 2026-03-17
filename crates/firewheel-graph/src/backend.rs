@@ -74,7 +74,7 @@ pub trait AudioBackend: Sized {
     fn delay_from_last_process(&self, process_timestamp: Self::Instant) -> Option<Duration>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackendProcessInfo<B: AudioBackend> {
     pub num_in_channels: usize,
     pub num_out_channels: usize,
@@ -84,6 +84,13 @@ pub struct BackendProcessInfo<B: AudioBackend> {
     pub input_stream_status: StreamStatus,
     pub output_stream_status: StreamStatus,
     pub dropped_frames: u32,
+
+    /// The estimated time between when this process loop was called and
+    /// when the data will be delivered to the output device for playback.
+    ///
+    /// If the audio backend does not provide this information, then set
+    /// this to `None`.
+    pub playback_delay: Option<Duration>,
 }
 
 /// Basic information about an audio device. It contains the name of the

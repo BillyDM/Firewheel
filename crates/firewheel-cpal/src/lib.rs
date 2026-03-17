@@ -865,7 +865,7 @@ impl DataCallback {
         }
     }
 
-    fn callback(&mut self, output: &mut [f32], _info: &cpal::OutputCallbackInfo) {
+    fn callback(&mut self, output: &mut [f32], info: &cpal::OutputCallbackInfo) {
         let process_timestamp = bevy_platform::time::Instant::now();
 
         for msg in self.from_cx_rx.pop_iter() {
@@ -984,6 +984,9 @@ impl DataCallback {
             (0, StreamStatus::empty())
         };
 
+        let timestamp = info.timestamp();
+        let playback_delay = timestamp.playback.duration_since(&timestamp.callback);
+
         if let Some(processor) = &mut self.processor {
             let mut output_stream_status = StreamStatus::empty();
 
@@ -1003,6 +1006,7 @@ impl DataCallback {
                     input_stream_status,
                     output_stream_status,
                     dropped_frames,
+                    playback_delay,
                 },
             );
         } else {
