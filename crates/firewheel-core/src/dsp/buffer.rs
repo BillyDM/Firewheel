@@ -285,6 +285,18 @@ impl<T: Clone + Copy + Default, const CHANNELS: usize> ConstSequentialBuffer<T, 
             })
         }
     }
+
+    /// Iterate over all the channels immutably. Each channel slice will have a length
+    /// of `self.frames()`.
+    pub fn iter_channels(&self) -> impl Iterator<Item = &[T]> {
+        self.buffer.chunks_exact(self.num_frames)
+    }
+
+    /// Iterate over all the channels mutably. Each channel slice will have a length
+    /// of `self.frames()`.
+    pub fn iter_channels_mut(&mut self) -> impl Iterator<Item = &mut [T]> {
+        self.buffer.chunks_exact_mut(self.num_frames)
+    }
 }
 
 impl<T: Clone + Copy + Default, const CHANNELS: usize> Clone
@@ -498,6 +510,18 @@ impl<T: Clone + Copy + Default> SequentialBuffer<T> {
         }
 
         res
+    }
+
+    /// Iterate over all the channels immutably. Each channel slice will have a length
+    /// of `self.frames()`.
+    pub fn iter_channels(&self) -> impl Iterator<Item = &[T]> {
+        self.buffer.chunks_exact(self.num_frames)
+    }
+
+    /// Iterate over all the channels mutably. Each channel slice will have a length
+    /// of `self.frames()`.
+    pub fn iter_channels_mut(&mut self) -> impl Iterator<Item = &mut [T]> {
+        self.buffer.chunks_exact_mut(self.num_frames)
     }
 }
 

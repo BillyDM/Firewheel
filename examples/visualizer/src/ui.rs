@@ -31,10 +31,10 @@ impl DemoApp {
         let (_id, rect) = ui.allocate_space(size);
 
         let mut output = self.audio_system.triple_buffer_state.output();
-        let Some(audio_data) = output.channels() else {
+        let Some(data) = output.data() else {
             return;
         };
-        let frames = audio_data[0].len();
+        let frames = data.frames;
 
         let mut left_rect = rect.clone();
         left_rect.set_height(left_rect.height() / 2.0);
@@ -69,8 +69,8 @@ impl DemoApp {
                 .collect()
         };
 
-        let left_points = build_points(&audio_data[0], to_left_rect);
-        let right_points = build_points(&audio_data[1], to_right_rect);
+        let left_points = build_points(data.buffer.channel_slice(0).unwrap(), to_left_rect);
+        let right_points = build_points(data.buffer.channel_slice(1).unwrap(), to_right_rect);
 
         let color = if ui.style().visuals.dark_mode {
             egui::Color32::GREEN

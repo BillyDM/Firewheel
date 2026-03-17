@@ -1,8 +1,9 @@
 use bevy_platform::sync::{Arc, Mutex, MutexGuard};
-use core::num::NonZeroU32;
+use core::num::{NonZeroU32, NonZeroUsize};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
+    dsp::buffer::SequentialBuffer,
     event::{ParamData, ProcEvents},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -130,8 +131,8 @@ impl TripleBufferState {
     }
 
     /// Get the latest audio data in the triple buffer.
-    pub fn output<'a>(&'a mut self) -> OutputAudioData<'a> {
-        OutputAudioData {
+    pub fn output<'a>(&'a mut self) -> OutputDataGuard<'a> {
+        OutputDataGuard {
             guarded_state: self.active_state.lock().unwrap(),
         }
     }
@@ -142,11 +143,28 @@ struct ActiveState {
     sample_rate: NonZeroU32,
 }
 
-pub struct OutputAudioData<'a> {
+pub struct OutputData<'a> {
+    /// The samples of data.
+    ///
+    /// Note, the length of this buffer may be longer than the actual number of
+    /// frames that are currently written to. Only read up to [`OutputData::frames`]
+    /// from this buffer.
+    pub buffer: &'a SequentialBuffer<f32>,
+
+    /// The number of frames of usable data that are in [`OutputData::data`].
+    pub frames: usize,
+
+    /// A value equal to how many times the buffer has been updated since the node
+    /// was first created. This can be used to quickly check if the buffer differs
+    /// from the previous read.
+    pub generation: u64,
+}
+
+pub struct OutputDataGuard<'a> {
     guarded_state: MutexGuard<'a, Option<ActiveState>>,
 }
 
-impl<'a> OutputAudioData<'a> {
+impl<'a> OutputDataGuard<'a> {
     /// Returns `true` if the node is currently active.
     pub fn is_active(&self) -> bool {
         self.guarded_state.is_some()
@@ -159,49 +177,33 @@ impl<'a> OutputAudioData<'a> {
         self.guarded_state.as_ref().map(|s| s.sample_rate)
     }
 
-    /// Get the latest channels of audio data.
-    ///
-    /// The samples are in de-interleaved format (one `Vec` for each channel). The
-    /// length of each `Vec` will be equal to the `window_size` parameter at the
-    /// time the buffer was last updated.
+    /// Get the latest audio data.
     ///
     /// If the node is not currently active, then this will return `None`.
-    pub fn channels<'b>(&'b mut self) -> Option<&'b [Vec<f32>]> {
-        self.guarded_state
-            .as_mut()
-            .map(|s| s.consumer.read().buffers.as_slice())
-    }
-
-    /// Get the latest channels of audio data, along with a "generation" value.
-    ///
-    /// The generation value is equal to how many times the buffer has been updated
-    /// since the node was first created. This can be used to quickly check if the
-    /// buffer differs from the previous read.
-    ///
-    /// The samples are in de-interleaved format (one `Vec` for each channel). The
-    /// length of each `Vec` will be equal to the `window_size` parameter at the
-    /// time the buffer was last updated.
-    ///
-    /// If the node is not currently active, then this will return `None`.
-    pub fn channels_with_generation<'b>(&'b mut self) -> Option<(&'b [Vec<f32>], u64)> {
+    pub fn data<'b>(&'b mut self) -> Option<OutputData<'b>> {
         self.guarded_state.as_mut().map(|s| {
-            let data = s.consumer.read();
-            (data.buffers.as_slice(), data.generation)
+            let c = s.consumer.read();
+            OutputData {
+                buffer: &c.buffer,
+                frames: c.frames,
+                generation: c.generation,
+            }
         })
     }
 
-    /// Peek the audio data that is currently in the buffer without checking if
+    /// Peek the data that is currently in the buffer without checking if
     /// there is new data.
     ///
-    /// The samples are in de-interleaved format (one `Vec` for each channel). The
-    /// length of each `Vec` will be equal to the `window_size` parameter at the
-    /// time the buffer was last updated.
-    ///
     /// If the node is not currently active, then this will return `None`.
-    pub fn peek_channels<'b>(&'b self) -> Option<&'b [Vec<f32>]> {
-        self.guarded_state
-            .as_ref()
-            .map(|s| s.consumer.peek_output_buffer().buffers.as_slice())
+    pub fn peek_data<'b>(&'b self) -> Option<OutputData<'b>> {
+        self.guarded_state.as_ref().map(|s| {
+            let c = s.consumer.peek_output_buffer();
+            OutputData {
+                buffer: &c.buffer,
+                frames: c.frames,
+                generation: c.generation,
+            }
+        })
     }
 }
 
@@ -231,7 +233,7 @@ impl AudioNode for TripleBufferNode {
 
         let (producer, consumer) =
             triple_buffer::triple_buffer::<TripleBufferData>(&TripleBufferData::new(
-                config.channels.get().get() as usize,
+                NonZeroUsize::new(config.channels.get().get() as usize).unwrap(),
                 max_window_size_frames,
                 0,
             ));
@@ -247,17 +249,16 @@ impl AudioNode for TripleBufferNode {
         let window_size_frames =
             (self.window_size.as_frames(sample_rate) as usize).min(max_window_size_frames);
 
-        let tmp_ring_buffer = (0..config.channels.get().get() as usize)
-            .map(|_| vec![0.0; max_window_size_frames])
-            .collect();
-
         Processor {
             producer: Some(producer),
             config: *config,
             max_window_size_frames,
             params: *self,
             window_size_frames,
-            tmp_ring_buffer,
+            tmp_ring_buffer: SequentialBuffer::new(
+                NonZeroUsize::new(config.channels.get().get() as usize).unwrap(),
+                max_window_size_frames,
+            ),
             ring_buf_ptr: 0,
             active_state,
             generation: 0,
@@ -276,7 +277,7 @@ struct Processor {
     params: TripleBufferNode,
     window_size_frames: usize,
 
-    tmp_ring_buffer: Vec<Vec<f32>>,
+    tmp_ring_buffer: SequentialBuffer<f32>,
     ring_buf_ptr: usize,
 
     // The processor only uses this when a new stream has started.
@@ -316,20 +317,20 @@ impl AudioNodeProcessor for Processor {
         if !self.params.enabled {
             if was_enabled {
                 {
-                    let buffer = producer.input_buffer_mut();
+                    let data = producer.input_buffer_mut();
 
-                    for buf_ch in buffer.buffers.iter_mut() {
-                        buf_ch.truncate(new_window_size_frames);
-                        buf_ch.fill(0.0);
+                    for buf_ch in data.buffer.iter_channels_mut() {
+                        buf_ch[..new_window_size_frames].fill(0.0);
                     }
 
                     self.generation += 1;
-                    buffer.generation = self.generation;
+                    data.generation = self.generation;
+                    data.frames = new_window_size_frames;
                 }
 
                 producer.publish();
 
-                for tmp_ch in self.tmp_ring_buffer.iter_mut() {
+                for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
                     tmp_ch[..new_window_size_frames].fill(0.0);
                 }
 
@@ -348,16 +349,18 @@ impl AudioNodeProcessor for Processor {
             let prev = self.window_size_frames;
 
             // Use the data in the triple buffer as a temporary scratch buffer.
-            let buffer = producer.input_buffer_mut();
+            let data = producer.input_buffer_mut();
 
-            for (buf_ch, tmp_ch) in buffer
-                .buffers
-                .iter_mut()
-                .zip(self.tmp_ring_buffer.iter_mut())
+            for (buf_ch, tmp_ch) in data
+                .buffer
+                .iter_channels_mut()
+                .zip(self.tmp_ring_buffer.iter_channels_mut())
             {
                 let (head, tail) = tmp_ch[..prev].split_at(self.ring_buf_ptr);
                 buf_ch[..tail.len()].copy_from_slice(tail);
-                buf_ch[tail.len()..prev].copy_from_slice(head);
+                if tail.len() < prev {
+                    buf_ch[tail.len()..prev].copy_from_slice(head);
+                }
 
                 // Rebuild tmp_ch at the new window size.
                 if prev >= new_window_size_frames {
@@ -397,7 +400,11 @@ impl AudioNodeProcessor for Processor {
 
         if info.frames >= self.window_size_frames {
             // Just copy all the new data.
-            for (tmp_ch, in_ch) in self.tmp_ring_buffer.iter_mut().zip(buffers.inputs.iter()) {
+            for (tmp_ch, in_ch) in self
+                .tmp_ring_buffer
+                .iter_channels_mut()
+                .zip(buffers.inputs.iter())
+            {
                 tmp_ch[..self.window_size_frames]
                     .copy_from_slice(&in_ch[info.frames - self.window_size_frames..info.frames]);
             }
@@ -407,7 +414,7 @@ impl AudioNodeProcessor for Processor {
             if self.tmp_buffer_needs_cleared {
                 self.tmp_buffer_needs_cleared = false;
 
-                for tmp_ch in self.tmp_ring_buffer.iter_mut() {
+                for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
                     tmp_ch[..self.window_size_frames].fill(0.0);
                 }
                 self.ring_buf_ptr = 0;
@@ -416,7 +423,11 @@ impl AudioNodeProcessor for Processor {
             let first_copy_frames = info.frames.min(self.window_size_frames - self.ring_buf_ptr);
             let second_copy_frames = info.frames - first_copy_frames;
 
-            for (tmp_ch, in_ch) in self.tmp_ring_buffer.iter_mut().zip(buffers.inputs.iter()) {
+            for (tmp_ch, in_ch) in self
+                .tmp_ring_buffer
+                .iter_channels_mut()
+                .zip(buffers.inputs.iter())
+            {
                 if first_copy_frames > 0 {
                     tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
                         .copy_from_slice(&in_ch[..first_copy_frames]);
@@ -438,16 +449,19 @@ impl AudioNodeProcessor for Processor {
         {
             let buffer = producer.input_buffer_mut();
 
-            for (buf_ch, tmp_ch) in buffer.buffers.iter_mut().zip(self.tmp_ring_buffer.iter()) {
+            for (buf_ch, tmp_ch) in buffer
+                .buffer
+                .iter_channels_mut()
+                .zip(self.tmp_ring_buffer.iter_channels())
+            {
                 let (head, tail) = tmp_ch[..self.window_size_frames].split_at(self.ring_buf_ptr);
                 buf_ch[..tail.len()].copy_from_slice(tail);
                 buf_ch[tail.len()..self.window_size_frames].copy_from_slice(head);
-                // Set consumer-visible length to window_size_frames.
-                buf_ch.truncate(self.window_size_frames);
             }
 
             self.generation += 1;
             buffer.generation = self.generation;
+            buffer.frames = self.window_size_frames;
         }
 
         producer.publish();
@@ -472,9 +486,11 @@ impl AudioNodeProcessor for Processor {
             as usize)
             .min(self.max_window_size_frames);
 
-        self.tmp_ring_buffer = (0..self.config.channels.get().get() as usize)
-            .map(|_| vec![0.0; self.max_window_size_frames])
-            .collect();
+        self.tmp_ring_buffer = SequentialBuffer::new(
+            NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
+            self.max_window_size_frames,
+        );
+
         self.ring_buf_ptr = 0;
         self.num_silent_frames_in_tmp = self.window_size_frames;
         self.tmp_buffer_needs_cleared = false;
@@ -484,7 +500,7 @@ impl AudioNodeProcessor for Processor {
 
         let (producer, consumer) =
             triple_buffer::triple_buffer::<TripleBufferData>(&TripleBufferData::new(
-                self.config.channels.get().get() as usize,
+                NonZeroUsize::new(self.config.channels.get().get() as usize).unwrap(),
                 self.max_window_size_frames,
                 self.generation,
             ));
@@ -501,28 +517,18 @@ impl AudioNodeProcessor for Processor {
 // A wrapper to ensure that the triple buffer uses `reserve_exact` when cloning
 // the initial buffers.
 struct TripleBufferData {
-    buffers: Vec<Vec<f32>>,
+    buffer: SequentialBuffer<f32>,
     max_frames: usize,
+    frames: usize,
     generation: u64,
 }
 
 impl TripleBufferData {
-    fn new(num_channels: usize, max_frames: usize, generation: u64) -> Self {
-        let mut buffers = Vec::new();
-        buffers.reserve_exact(num_channels);
-
-        buffers = (0..num_channels)
-            .map(|_| {
-                let mut v = Vec::new();
-                v.reserve_exact(max_frames);
-                v.resize(max_frames, 0.0);
-                v
-            })
-            .collect();
-
+    fn new(num_channels: NonZeroUsize, max_frames: usize, generation: u64) -> Self {
         Self {
-            buffers,
+            buffer: SequentialBuffer::new(num_channels, max_frames),
             max_frames,
+            frames: 0,
             generation,
         }
     }
@@ -530,6 +536,6 @@ impl TripleBufferData {
 
 impl Clone for TripleBufferData {
     fn clone(&self) -> Self {
-        Self::new(self.buffers.len(), self.max_frames, self.generation)
+        Self::new(self.buffer.num_channels(), self.max_frames, self.generation)
     }
 }

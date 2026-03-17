@@ -251,7 +251,11 @@ pub struct RealtimeLoggerMainThread {
 
 impl RealtimeLoggerMainThread {
     /// Flush the queued log messages.
-    pub fn flush(&mut self, mut log_error: impl FnMut(&str), mut log_debug: impl FnMut(&str)) {
+    pub fn flush(
+        &mut self,
+        mut log_error: impl FnMut(&str),
+        #[allow(unused)] mut log_debug: impl FnMut(&str),
+    ) {
         if self
             .shared_state
             .message_too_long_occured
@@ -277,9 +281,6 @@ impl RealtimeLoggerMainThread {
             (log_error)(&slot);
             self.error_prod.try_push(slot).unwrap();
         }
-
-        #[cfg(not(debug_assertions))]
-        let _ = log_debug;
     }
 }
 

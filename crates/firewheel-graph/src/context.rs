@@ -700,7 +700,6 @@ impl FirewheelContext {
 
                 let _ = msg;
             },
-            #[cfg(debug_assertions)]
             |msg| {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("{}", msg);
