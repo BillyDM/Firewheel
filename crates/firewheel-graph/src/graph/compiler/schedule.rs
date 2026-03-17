@@ -9,6 +9,8 @@ use firewheel_core::{
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus},
 };
 
+use crate::context::FirewheelFlags;
+
 use super::{InsertedSum, NodeID};
 
 #[cfg(not(feature = "std"))]
@@ -418,7 +420,7 @@ impl CompiledSchedule {
     pub fn process(
         &mut self,
         frames: usize,
-        debug_force_clear_buffers: bool,
+        flags: FirewheelFlags,
         mut process: impl FnMut(
             NodeID,
             SilenceMask,
@@ -434,6 +436,7 @@ impl CompiledSchedule {
         let frames_u16 = frames as u16;
         let buffers_ptr = self.buffers.as_mut_ptr();
         let max_block_frames = self.max_block_frames;
+        let debug_force_clear_buffers = flags.force_clear_buffers;
 
         let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();

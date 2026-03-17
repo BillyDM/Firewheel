@@ -1,3 +1,4 @@
+use bevy_platform::sync::atomic::Ordering;
 use core::{num::NonZeroU32, time::Duration};
 
 use arrayvec::ArrayVec;
@@ -41,6 +42,7 @@ impl FirewheelProcessorInner {
             input_stream_status,
             mut output_stream_status,
             mut dropped_frames,
+            playback_delay,
         } = info;
 
         #[cfg(feature = "scheduled_events")]
@@ -132,6 +134,7 @@ impl FirewheelProcessorInner {
                 duration_since_stream_start,
                 output_stream_status,
                 dropped_frames,
+                playback_delay,
                 #[cfg(feature = "musical_transport")]
                 &proc_transport_info,
             );
@@ -163,9 +166,64 @@ impl FirewheelProcessorInner {
             dropped_frames = 0;
         }
 
-        // --- Hard clip outputs --------------------------------------------------------------
+        self.validate_output(output);
+    }
 
-        if self.hard_clip_outputs {
+    fn validate_output(&mut self, output: &mut [f32]) {
+        if self.flags.validate_output_is_finite {
+            let mut non_finite_value = 0.0;
+
+            for s in output.iter_mut() {
+                // Try to optimize for auto-vectorization
+                let is_finite = s.is_finite();
+
+                non_finite_value = if is_finite { non_finite_value } else { *s };
+                *s = if is_finite { *s } else { 0.0 };
+            }
+
+            if non_finite_value != 0.0 {
+                let _ = self.extra.logger.try_error_with(|s| {
+                    #[cfg(feature = "std")]
+                    {
+                        *s = format!(
+                            "Non-finite number detected on audio output: {}",
+                            non_finite_value
+                        );
+                    }
+
+                    #[cfg(not(feature = "std"))]
+                    {
+                        *s = bevy_platform::prelude::String::from(
+                            "Non-finite number detected on audio output",
+                        );
+                    }
+                });
+            }
+        }
+
+        if self.flags.detect_clipping_on_output {
+            let mut clipping_occurred = false;
+
+            if self.flags.hard_clip_outputs {
+                for s in output.iter_mut() {
+                    // Try to optimize for auto-vectorization
+                    let ss = *s;
+                    *s = s.clamp(-1.0, 1.0);
+
+                    clipping_occurred |= ss != *s;
+                }
+            } else {
+                for s in output.iter() {
+                    clipping_occurred |= *s < -1.0 || *s > 1.0;
+                }
+            }
+
+            if clipping_occurred {
+                self.status_flags
+                    .clipping_occured
+                    .store(true, Ordering::Relaxed);
+            }
+        } else if self.flags.hard_clip_outputs {
             for s in output.iter_mut() {
                 *s = s.clamp(-1.0, 1.0);
             }
@@ -203,6 +261,7 @@ impl FirewheelProcessorInner {
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
+        playback_delay: Option<Duration>,
         #[cfg(feature = "musical_transport")] proc_transport_info: &ProcTransportInfo,
     ) {
         if self.schedule_data.is_none() {
@@ -232,6 +291,7 @@ impl FirewheelProcessorInner {
             duration_since_stream_start,
             stream_status,
             dropped_frames,
+            playback_delay,
             #[cfg(feature = "musical_transport")]
             transport_info,
         };
@@ -246,7 +306,7 @@ impl FirewheelProcessorInner {
 
         schedule_data.schedule.process(
             block_frames,
-            self.debug_force_clear_buffers,
+            self.flags,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,

@@ -6,7 +6,15 @@ use core::ops::Range;
 use core::time::Duration;
 use core::{any::Any, fmt::Debug, hash::Hash, num::NonZeroU32};
 
-use crate::dsp::buffer::ChannelBuffer;
+#[cfg(feature = "std")]
+use std::collections::hash_map::{Entry, HashMap};
+
+#[cfg(not(feature = "std"))]
+use bevy_platform::collections::hash_map::{Entry, HashMap};
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::{Box, Vec};
+
+use crate::dsp::buffer::ConstSequentialBuffer;
 use crate::dsp::volume::is_buffer_silent;
 use crate::log::RealtimeLogger;
 use crate::mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask};
@@ -17,12 +25,6 @@ use crate::{
     event::{NodeEvent, NodeEventType, ProcEvents},
     StreamInfo,
 };
-#[cfg(not(feature = "std"))]
-use bevy_platform::collections::hash_map::{Entry, HashMap};
-#[cfg(not(feature = "std"))]
-use bevy_platform::prelude::{Box, Vec};
-#[cfg(feature = "std")]
-use std::collections::hash_map::{Entry, HashMap};
 
 #[cfg(feature = "scheduled_events")]
 use crate::clock::EventInstant;
@@ -566,7 +568,7 @@ pub struct ProcExtra {
     /// Each buffer has a length of [`StreamInfo::max_block_frames`]. These
     /// buffers are shared across all nodes, so assume that they contain junk
     /// data.
-    pub scratch_buffers: ChannelBuffer<f32, NUM_SCRATCH_BUFFERS>,
+    pub scratch_buffers: ConstSequentialBuffer<f32, NUM_SCRATCH_BUFFERS>,
 
     /// A buffer of values that linearly ramp up/down between `0.0` and `1.0`
     /// which can be used to implement efficient declicking when
@@ -668,6 +670,13 @@ pub struct ProcInfo {
     ///
     /// If an underrun did not occur, then this will be `0`.
     pub dropped_frames: u32,
+
+    /// The estimated time between when this process loop was called and
+    /// when the data will be delivered to the output device for playback.
+    ///
+    /// If the audio backend does not provide this information, then this
+    /// will be `None`.
+    pub playback_delay: Option<Duration>,
 
     /// Information about the musical transport.
     ///
