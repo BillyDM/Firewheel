@@ -23,10 +23,8 @@ use firewheel_core::{
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ConvolutionNodeError {
-    #[error("ConvolutionNode::CHANNELS cannot be greater than 2, got {0}")]
-    InvalidChannelCount(usize),
-}
+#[error("ConvolutionNode::CHANNELS cannot be greater than 2, got {0}")]
+pub struct ConvolutionInvalidChannelCount(usize);
 
 pub type ConvolutionMonoNode = ConvolutionNode<1>;
 pub type ConvolutionStereoNode = ConvolutionNode<2>;
@@ -157,7 +155,7 @@ impl<const CHANNELS: usize> AudioNode for ConvolutionNode<CHANNELS> {
 
     fn info(&self, _configuration: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         if CHANNELS > 2 {
-            return Err(ConvolutionNodeError::InvalidChannelCount(CHANNELS).into());
+            return Err(ConvolutionInvalidChannelCount(CHANNELS).into());
         }
 
         Ok(AudioNodeInfo::new()
