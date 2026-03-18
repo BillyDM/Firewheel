@@ -24,7 +24,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 #[error("ConvolutionNode::CHANNELS cannot be greater than 2, got {0}")]
-pub struct ConvolutionInvalidChannelCount(usize);
+pub struct ConvolutionInvalidChannelCount(pub usize);
 
 pub type ConvolutionMonoNode = ConvolutionNode<1>;
 pub type ConvolutionStereoNode = ConvolutionNode<2>;
