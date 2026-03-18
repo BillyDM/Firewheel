@@ -42,6 +42,9 @@ pub mod fast_rms;
 #[cfg(feature = "triple_buffer")]
 pub mod triple_buffer;
 
+#[cfg(feature = "echo")]
+pub mod echo;
+
 mod stereo_to_mono;
 
 pub use stereo_to_mono::StereoToMonoNode;
