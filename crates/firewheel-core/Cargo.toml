@@ -53,7 +53,6 @@ std = [
     "thunderdome/std",
     "ringbuf/std",
     "wmidi?/std",
-    "rtgc/std",
 ]
 # Enable this if "std" is disabled.
 libm = [
@@ -119,4 +118,3 @@ portable-atomic = { version = "1", default-features = false, features = [
 ] }
 wmidi = { version = "4", default-features = false, optional = true }
 serde = { workspace = true, optional = true }
-rtgc = { version = "0.3.0", default-features = false, features = ["bevy_platform"] }
