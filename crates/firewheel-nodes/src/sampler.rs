@@ -1,5 +1,12 @@
-// TODO: The logic in this has become increadibly complex and error-prone. I plan
-// on rewriting the sampler engine using a state machine.
+// TODO: The logic in this has become increadibly complex and error-prone. The
+// sampler engine should probably be rewritten using a state machine.
+//
+// Some features that are currently missing include:
+// * Ability to set loop start/end points
+// * Better quality time/pitch shifting algorithms (and possibly an API where
+//   users can implement their own resampling alogorithms)
+// * Ability to stream samples from a network/disk (this could be done using
+//   a custom `SampleResource`).
 
 use firewheel_core::clock::{DurationSamples, DurationSeconds};
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcStreamCtx};
