@@ -1,3 +1,8 @@
+// TODO: Rework stream nodes
+
+pub fn main() {}
+
+/*
 // The use of `bevy_platform` is optional, but it is recommended for better
 // compatibility with webassembly, no_std, and platforms without 64 bit atomics.
 use bevy_platform::sync::Arc;
@@ -320,3 +325,4 @@ fn main() {
 
     println!("finished");
 }
+*/

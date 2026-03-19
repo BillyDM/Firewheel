@@ -31,7 +31,6 @@ all_nodes = [
     "peak_meter",
     "sampler",
     "spatial_basic",
-    "stream",
     "fast_filters",
     "svf",
     "noise_generators",
@@ -41,6 +40,7 @@ all_nodes = [
     "convolution",
     "fast_rms",
     "triple_buffer",
+    #"stream",
 ]
 # All nodes which are no_std compatible
 all_nodes_no_std = [
@@ -73,9 +73,6 @@ fast_filters = []
 svf = []
 # Enables WhiteNoiseGenNode and PinkNoiseGenNode
 noise_generators = []
-# Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread. (requires std)
-stream = ["std", "dep:fixed-resample"]
 # Enables the triple buffer node for sending raw audio data from the
 # audio graph to another thread. Useful for cases where you only care
 # about the latest data in the buffer, such as for creating visualizers.
@@ -96,6 +93,10 @@ bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 bevy_reflect = ["dep:bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables serde derives for types
 serde = ["dep:serde"]
+# TODO: Rework stream nodes
+# Enables the stream writer/reader nodes for sending/receiving audio
+# directly to/from the audio graph from another thread. (requires std)
+# stream = ["std", "dep:fixed-resample"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false }

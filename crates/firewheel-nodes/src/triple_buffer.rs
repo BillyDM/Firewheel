@@ -196,7 +196,7 @@ impl<'a> OutputDataGuard<'a> {
     /// If the node is not currently active, then this will return `None`.
     pub fn peek_data<'b>(&'b self) -> Option<OutputData<'b>> {
         self.guarded_state.as_ref().map(|s| {
-            let c = s.consumer.peek_output_buffer();
+            let c = s.consumer.output_buffer();
             OutputData {
                 buffer: &c.buffer,
                 frames: c.frames,

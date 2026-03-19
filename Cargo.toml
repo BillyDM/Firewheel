@@ -104,9 +104,6 @@ spatial_basic_node = [
     "firewheel-nodes/spatial_basic",
     "firewheel-pool?/spatial_basic",
 ]
-# Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread. (requires std)
-stream_nodes = ["firewheel-nodes/stream"]
 # Enables the triple buffer node for sending raw audio data from the
 # audio graph to another thread. Useful for cases where you only care
 # about the latest data in the buffer, such as for creating visualizers.
@@ -172,6 +169,10 @@ serde = [
 unsafe_flush_denormals_to_zero = [
     "firewheel-graph/unsafe_flush_denormals_to_zero",
 ]
+# TODO: Rework stream nodes
+# Enables the stream writer/reader nodes for sending/receiving audio
+# directly to/from the audio graph from another thread. (requires std)
+# stream_nodes = ["firewheel-nodes/stream"]
 
 [workspace]
 members = [
