@@ -205,7 +205,7 @@ ringbuf = { version = "0.4", default-features = false, features = [
     "portable-atomic",
     "alloc",
 ] }
-triple_buffer = "8"
+triple_buffer = "9"
 thiserror = { version = "2", default-features = false }
 smallvec = "1"
 arrayvec = { version = "0.7", default-features = false }
@@ -218,7 +218,8 @@ bevy_platform = { version = "0.18", default-features = false, features = [
 ] }
 bevy_ecs = { version = "0.18", default-features = false }
 bevy_reflect = { version = "0.18", default-features = false }
-fixed-resample = { version = "0.9.2", default-features = false }
+fixed-resample = { version = "0.10", default-features = false }
+symphonium = { version = "0.8", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 egui = "0.33.3"

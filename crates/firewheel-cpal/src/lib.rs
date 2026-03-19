@@ -1,8 +1,4 @@
-use core::{
-    fmt::Debug,
-    num::{NonZeroU32, NonZeroUsize},
-    time::Duration,
-};
+use core::{fmt::Debug, num::NonZeroU32, time::Duration};
 use std::sync::mpsc;
 
 pub use cpal;
@@ -29,7 +25,6 @@ use tracing::{error, info, warn};
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const INPUT_ALLOC_BLOCK_FRAMES: usize = 4096;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_INPUT_CHANNELS: usize = 16;
 
 /// The configuration of an output audio stream in the CPAL backend.
 #[derive(Debug, Clone, PartialEq)]
@@ -671,10 +666,11 @@ fn start_input_stream(
         buffer_size: desired_buffer_size,
     };
 
-    let (mut prod, cons) = fixed_resample::resampling_channel::<f32, MAX_INPUT_CHANNELS>(
-        NonZeroUsize::new(num_in_channels).unwrap(),
+    let (mut prod, cons) = fixed_resample::resampling_channel::<f32>(
+        num_in_channels,
         sample_rate,
         output_sample_rate,
+        true,
         config.channel_config,
     );
 
@@ -760,8 +756,8 @@ impl DataCallback {
 
         let input_buffer = if let Some(cons) = &input_stream_cons {
             let mut v = Vec::new();
-            v.reserve_exact(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels().get());
-            v.resize(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels().get(), 0.0);
+            v.reserve_exact(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels());
+            v.resize(INPUT_ALLOC_BLOCK_FRAMES * cons.num_channels(), 0.0);
             v
         } else {
             Vec::new()
@@ -867,7 +863,7 @@ impl DataCallback {
 
         let (num_in_channels, input_stream_status) = if let Some(cons) = &mut self.input_stream_cons
         {
-            let num_in_channels = cons.num_channels().get();
+            let num_in_channels = cons.num_channels();
 
             let num_input_samples = frames * num_in_channels;
             // Some platforms like wasapi might occasionally send a really large number of frames
@@ -877,7 +873,7 @@ impl DataCallback {
                 self.input_buffer.resize(num_input_samples, 0.0);
             }
 
-            let status = cons.read_interleaved(&mut self.input_buffer[..num_input_samples]);
+            let status = cons.read_interleaved(&mut self.input_buffer[..num_input_samples], false);
 
             let status = match status {
                 ReadStatus::UnderflowOccurred { num_frames_read: _ } => {

@@ -30,7 +30,7 @@ log = ["symphonium/log"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-features = false, features = ["std"] }
-symphonium = { version = "0.7.0", default-features = false }
+symphonium.workspace = true
 fixed-resample = { workspace = true, features = [
     "resampler",
     "fft-resampler",

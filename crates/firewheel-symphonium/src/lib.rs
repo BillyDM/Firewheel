@@ -162,9 +162,10 @@ pub fn load_audio_file<P: AsRef<std::path::Path>>(
     #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
     #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    let probed = loader.probe_from_file(path)?;
     loader
-        .load(
-            path,
+        .decode(
+            probed,
             #[cfg(feature = "resample")]
             target_sample_rate,
             #[cfg(feature = "resample")]
@@ -195,10 +196,10 @@ pub fn load_audio_file_from_source(
     #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
     #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    let probed = loader.probe_from_source(source, hint)?;
     loader
-        .load_from_source(
-            source,
-            hint,
+        .decode(
+            probed,
             #[cfg(feature = "resample")]
             target_sample_rate,
             #[cfg(feature = "resample")]
@@ -220,15 +221,18 @@ pub fn load_audio_file_from_source(
 /// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
 /// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
 /// is given, then the final amount will automatically be adjusted to account for that.
+/// * `config` - Extra configuration such as resample quality.
 #[cfg(feature = "stretch")]
 pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
     loader: &mut symphonium::SymphoniumLoader,
     path: P,
     target_sample_rate: Option<core::num::NonZeroU32>,
     stretch: f64,
+    config: &symphonium::DecodeStretchedConfig,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    let probed = loader.probe_from_file(path)?;
     loader
-        .load_stretched(path, stretch, target_sample_rate, None)
+        .decode_stretched(probed, stretch, target_sample_rate, config)
         .map(|d| DecodedAudio(d.into()))
 }
 
@@ -246,6 +250,7 @@ pub fn load_audio_file_stretched<P: AsRef<std::path::Path>>(
 /// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
 /// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
 /// is given, then the final amount will automatically be adjusted to account for that.
+/// * `config` - Extra configuration such as resample quality.
 #[cfg(feature = "stretch")]
 pub fn load_audio_file_from_source_stretched(
     loader: &mut symphonium::SymphoniumLoader,
@@ -253,9 +258,11 @@ pub fn load_audio_file_from_source_stretched(
     hint: Option<symphonium::symphonia::core::probe::Hint>,
     target_sample_rate: Option<core::num::NonZeroU32>,
     stretch: f64,
+    config: &symphonium::DecodeStretchedConfig,
 ) -> Result<DecodedAudio, symphonium::error::LoadError> {
+    let probed = loader.probe_from_source(source, hint)?;
     loader
-        .load_from_source_stretched(source, hint, stretch, target_sample_rate, None)
+        .decode_stretched(probed, stretch, target_sample_rate, config)
         .map(|d| DecodedAudio(d.into()))
 }
 
