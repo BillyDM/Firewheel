@@ -1,5 +1,6 @@
 use core::ops::Range;
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -480,20 +481,20 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
 impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
     type Configuration = SvfNodeConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("svf")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let cutoff_hz = self
             .cutoff_hz
             .clamp(config.freq_range.start, config.freq_range.end);
@@ -553,7 +554,7 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
             cx.stream_info.sample_rate_recip as f32,
         );
 
-        new_self
+        Ok(new_self)
     }
 }
 

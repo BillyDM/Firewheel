@@ -1,6 +1,7 @@
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -49,27 +50,27 @@ impl Default for BeepTestNode {
 impl AudioNode for BeepTestNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("beep_test")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        Processor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(Processor {
             phasor: 0.0,
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0)
                 * cx.stream_info.sample_rate_recip as f32,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
             enabled: self.enabled,
-        }
+        })
     }
 }
 

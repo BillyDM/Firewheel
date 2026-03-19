@@ -6,6 +6,7 @@
 
 use std::f32::consts::PI;
 
+use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -59,17 +60,17 @@ impl AudioNode for FilterNode {
 
     // Return information about your node. This method is only ever called
     // once.
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         // The builder pattern is used for future-proofness as it is likely that
         // more fields will be added in the future.
-        AudioNodeInfo::new()
+        Ok(AudioNodeInfo::new()
             // A static name used for debugging purposes.
             .debug_name("example_filter")
             // The configuration of the input/output ports.
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            })
+            }))
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -81,14 +82,14 @@ impl AudioNode for FilterNode {
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         // The reciprocal of the sample rate.
         let sample_rate_recip = cx.stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(20.0, 20_000.0);
         let gain = self.volume.amp_clamped(DEFAULT_AMP_EPSILON);
 
-        Processor {
+        Ok(Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             filter_r: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             cutoff_hz: SmoothedParam::new(
@@ -98,7 +99,7 @@ impl AudioNode for FilterNode {
             ),
             gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
             enable_declicker: Declicker::from_enabled(self.enabled),
-        }
+        })
     }
 }
 

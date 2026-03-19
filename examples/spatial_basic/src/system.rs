@@ -45,10 +45,14 @@ impl AudioSystem {
         sampler_node.repeat_mode = RepeatMode::RepeatEndlessly;
         sampler_node.start_or_restart();
 
-        let sampler_node_id = cx.add_node(sampler_node.clone(), None);
+        let sampler_node_id = cx
+            .add_node(sampler_node.clone(), None)
+            .expect("Sampler node should construct without error");
 
         let spatial_basic_node = SpatialBasicNode::default();
-        let spatial_basic_node_id = cx.add_node(spatial_basic_node, None);
+        let spatial_basic_node_id = cx
+            .add_node(spatial_basic_node, None)
+            .expect("Spatial basic node should construct without error");
 
         cx.connect(
             sampler_node_id,

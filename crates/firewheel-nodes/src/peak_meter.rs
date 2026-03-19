@@ -2,6 +2,7 @@
 use num_traits::Float;
 
 use bevy_platform::sync::atomic::Ordering;
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
@@ -218,29 +219,29 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
 impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("peak_meter")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(NUM_CHANNELS as u32).unwrap(),
             })
-            .custom_state(PeakMeterState::<NUM_CHANNELS>::new())
+            .custom_state(PeakMeterState::<NUM_CHANNELS>::new()))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        Processor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(Processor {
             params: self.clone(),
             shared_state: ArcGc::clone(
                 &cx.custom_state::<PeakMeterState<NUM_CHANNELS>>()
                     .unwrap()
                     .shared_state,
             ),
-        }
+        })
     }
 }
 

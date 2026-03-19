@@ -2,6 +2,7 @@
 //!
 //! Base on the algorithm from <https://www.musicdsp.org/en/latest/Synthesis/244-direct-pink-noise-synthesis-with-auto-correlated-generator.html>
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -68,24 +69,24 @@ impl Default for PinkNoiseGenConfig {
 impl AudioNode for PinkNoiseGenNode {
     type Configuration = PinkNoiseGenConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("pink_noise_gen")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         // Seed cannot be zero.
         let seed = if config.seed == 0 { 17 } else { config.seed };
 
-        Processor {
+        Ok(Processor {
             gain: SmoothedParam::new(
                 self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
                 SmootherConfig {
@@ -98,7 +99,7 @@ impl AudioNode for PinkNoiseGenNode {
             fpd: seed,
             contrib: [0; 5],
             accum: 0,
-        }
+        })
     }
 }
 

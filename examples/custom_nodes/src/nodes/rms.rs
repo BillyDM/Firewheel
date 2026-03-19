@@ -1,6 +1,10 @@
 //! A simple node that demonstrates having a handle with shared state for
 //! sending data back to the user.
 
+// The use of `bevy_platform` is optional, but it is recommended for better
+// compatibility with webassembly, no_std, and platforms without 64 bit atomics.
+use bevy_platform::sync::atomic::{AtomicU32, Ordering};
+use firewheel::node::NodeError;
 use firewheel::{
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
@@ -13,9 +17,6 @@ use firewheel::{
     },
     StreamInfo,
 };
-// The use of `bevy_platform` is optional, but it is recommended for better
-// compatibility with webassembly, no_std, and platforms without 64 bit atomics.
-use bevy_platform::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Debug)]
 struct SharedState {
@@ -105,10 +106,10 @@ impl AudioNode for FastRmsNode {
 
     // Return information about your node. This method is only ever called
     // once.
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         // The builder pattern is used for future-proofness as it is likely that
         // more fields will be added in the future.
-        AudioNodeInfo::new()
+        Ok(AudioNodeInfo::new()
             // A static name used for debugging purposes.
             .debug_name("example_fast_rms")
             // The configuration of the input/output ports.
@@ -121,7 +122,7 @@ impl AudioNode for FastRmsNode {
             //
             // The user accesses this state via `FirewheelCtx::node_state` and
             // `FirewheelCtx::node_state_mut`.
-            .custom_state(FastRmsState::new())
+            .custom_state(FastRmsState::new()))
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -133,21 +134,21 @@ impl AudioNode for FastRmsNode {
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let window_frames =
             (self.window_size_secs * cx.stream_info.sample_rate.get() as f32).round() as usize;
 
         // Extract the custom state so we can get a reference to the shared state.
         let custom_state = cx.custom_state::<FastRmsState>().unwrap();
 
-        Processor {
+        Ok(Processor {
             params: self.clone(),
             shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
             last_read_count: 0,
-        }
+        })
     }
 }
 

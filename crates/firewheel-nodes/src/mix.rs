@@ -1,3 +1,4 @@
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, Patch},
@@ -158,10 +159,10 @@ impl Default for MixNode {
 impl AudioNode for MixNode {
     type Configuration = MixNodeConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
         let num_channels = config.channels.get().get();
 
-        AudioNodeInfo::new()
+        Ok(AudioNodeInfo::new()
             .debug_name("mix")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::new(num_channels * 2).unwrap_or_else(|| {
@@ -171,19 +172,19 @@ impl AudioNode for MixNode {
                     )
                 }),
                 num_outputs: config.channels.get(),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let min_gain = self.min_gain.max(0.0);
 
         let (gain_0, gain_1) = self.compute_gains(self.min_gain);
 
-        Processor {
+        Ok(Processor {
             gain_0: SmoothedParam::new(
                 gain_0,
                 SmootherConfig {
@@ -202,7 +203,7 @@ impl AudioNode for MixNode {
             ),
             params: *self,
             min_gain,
-        }
+        })
     }
 }
 

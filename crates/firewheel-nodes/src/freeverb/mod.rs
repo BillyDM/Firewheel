@@ -4,6 +4,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::module_inception)]
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Notify, Patch},
@@ -80,20 +81,20 @@ impl Default for FreeverbNode {
 impl AudioNode for FreeverbNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("freeverb")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let freeverb = freeverb::Freeverb::new(cx.stream_info.sample_rate.get() as usize);
         let smoother_config = SmootherConfig {
             smooth_seconds: self.smooth_seconds,
@@ -128,7 +129,7 @@ impl AudioNode for FreeverbNode {
 
         processor.apply_parameters();
 
-        processor
+        Ok(processor)
     }
 }
 

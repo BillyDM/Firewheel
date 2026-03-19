@@ -1,3 +1,4 @@
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     event::ProcEvents,
@@ -17,21 +18,21 @@ pub struct StereoToMonoNode;
 impl AudioNode for StereoToMonoNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("stereo_to_mono")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::MONO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         _cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
-        StereoToMonoProcessor
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
+        Ok(StereoToMonoProcessor)
     }
 }
 

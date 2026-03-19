@@ -24,9 +24,15 @@ impl AudioSystem {
         let filter_node = FilterNode::default();
         let rms_node = FastRmsNode::default();
 
-        let noise_gen_node_id = cx.add_node(noise_gen_node, None);
-        let filter_node_id = cx.add_node(filter_node, None);
-        let rms_node_id = cx.add_node(rms_node.clone(), None);
+        let noise_gen_node_id = cx
+            .add_node(noise_gen_node, None)
+            .expect("Noise gen node should construct without error");
+        let filter_node_id = cx
+            .add_node(filter_node, None)
+            .expect("Filter node should construct without error");
+        let rms_node_id = cx
+            .add_node(rms_node, None)
+            .expect("RMS node should construct without error");
 
         let graph_out_node_id = cx.graph_out_node_id();
 

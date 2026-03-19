@@ -2,7 +2,7 @@
 // on rewriting the sampler engine using a state machine.
 
 use firewheel_core::clock::{DurationSamples, DurationSeconds};
-use firewheel_core::node::{ProcBuffers, ProcExtra, ProcStreamCtx};
+use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcStreamCtx};
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -557,21 +557,21 @@ impl RepeatMode {
 impl AudioNode for SamplerNode {
     type Configuration = SamplerConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("sampler")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: config.channels.get(),
             })
-            .custom_state(SamplerState::new())
+            .custom_state(SamplerState::new()))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let stop_declicker_buffers = if config.num_declickers == 0 {
             None
         } else {
@@ -582,7 +582,7 @@ impl AudioNode for SamplerNode {
             ))
         };
 
-        SamplerProcessor {
+        Ok(SamplerProcessor {
             config: *config,
             params: self.clone(),
             shared_state: ArcGc::clone(&cx.custom_state::<SamplerState>().unwrap().shared_state),
@@ -600,7 +600,7 @@ impl AudioNode for SamplerNode {
             min_gain: self.min_gain.max(0.0),
             is_first_process: true,
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
-        }
+        })
     }
 }
 

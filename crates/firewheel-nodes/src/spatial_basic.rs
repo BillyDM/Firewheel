@@ -5,6 +5,7 @@
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -202,23 +203,23 @@ struct ComputedValues {
 impl AudioNode for SpatialBasicNode {
     type Configuration = EmptyConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("spatial_basic")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         _config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let computed_values = self.compute_values();
 
-        Processor {
+        Ok(Processor {
             gain_l: SmoothedParam::new(
                 computed_values.gain_l,
                 SmootherConfig {
@@ -244,7 +245,7 @@ impl AudioNode for SpatialBasicNode {
                 self.coeff_update_factor,
             ),
             params: *self,
-        }
+        })
     }
 }
 

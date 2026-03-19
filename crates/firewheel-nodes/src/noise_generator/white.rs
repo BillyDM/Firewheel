@@ -1,5 +1,6 @@
 //! A simple node that generates white noise.
 
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -63,24 +64,24 @@ impl Default for WhiteNoiseGenConfig {
 impl AudioNode for WhiteNoiseGenNode {
     type Configuration = WhiteNoiseGenConfig;
 
-    fn info(&self, _config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("white_noise_gen")
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::ZERO,
                 num_outputs: ChannelCount::MONO,
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         // Seed cannot be zero.
         let seed = if config.seed == 0 { 17 } else { config.seed };
 
-        Processor {
+        Ok(Processor {
             fpd: seed,
             gain: SmoothedParam::new(
                 self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
@@ -91,7 +92,7 @@ impl AudioNode for WhiteNoiseGenNode {
                 cx.stream_info.sample_rate,
             ),
             params: *self,
-        }
+        })
     }
 }
 

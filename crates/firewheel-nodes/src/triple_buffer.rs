@@ -1,5 +1,6 @@
 use bevy_platform::sync::{Arc, Mutex, MutexGuard};
 use core::num::{NonZeroU32, NonZeroUsize};
+use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
@@ -208,8 +209,8 @@ impl<'a> OutputDataGuard<'a> {
 impl AudioNode for TripleBufferNode {
     type Configuration = TripleBufferConfig;
 
-    fn info(&self, config: &Self::Configuration) -> AudioNodeInfo {
-        AudioNodeInfo::new()
+    fn info(&self, config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
+        Ok(AudioNodeInfo::new()
             .debug_name("triple_buffer")
             .channel_config(ChannelConfig {
                 num_inputs: config.channels.get(),
@@ -218,14 +219,14 @@ impl AudioNode for TripleBufferNode {
             .custom_state(TripleBufferState {
                 num_channels: config.channels,
                 active_state: Arc::new(Mutex::new(None)),
-            })
+            }))
     }
 
     fn construct_processor(
         &self,
         config: &Self::Configuration,
         mut cx: ConstructProcessorContext,
-    ) -> impl AudioNodeProcessor {
+    ) -> Result<impl AudioNodeProcessor, NodeError> {
         let sample_rate = cx.stream_info.sample_rate;
         let max_window_size_frames = config.max_window_size.as_frames(sample_rate) as usize;
 
@@ -247,7 +248,7 @@ impl AudioNode for TripleBufferNode {
         let window_size_frames =
             (self.window_size.as_frames(sample_rate) as usize).min(max_window_size_frames);
 
-        Processor {
+        Ok(Processor {
             producer: Some(producer),
             config: *config,
             max_window_size_frames,
@@ -263,7 +264,7 @@ impl AudioNode for TripleBufferNode {
             prev_publish_was_silent: true,
             num_silent_frames_in_tmp: window_size_frames,
             tmp_buffer_needs_cleared: false,
-        }
+        })
     }
 }
 

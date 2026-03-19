@@ -13,6 +13,7 @@ use thunderdome::Arena;
 
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
+use firewheel_core::node::NodeError;
 
 #[cfg(feature = "sampler")]
 mod sampler;
@@ -159,42 +160,44 @@ where
         dst_node_id: NodeID,
         dst_num_channels: NonZeroChannelCount,
         cx: &mut FirewheelContext,
-    ) -> Self {
+    ) -> Result<Self, NodeError> {
         assert_ne!(num_workers, 0);
 
         let first_node_num_out_channels = N::num_output_channels(first_node_config.as_ref());
 
-        Self {
-            workers: (0..num_workers)
-                .map(|_| {
-                    let first_node_id = cx.add_node(first_node.clone(), first_node_config.clone());
+        let workers: Result<Vec<Worker<N, FX>>, NodeError> = (0..num_workers)
+            .map(|_| {
+                let first_node_id = cx.add_node(first_node.clone(), first_node_config.clone())?;
 
-                    let mut fx_chain = FX::default();
+                let mut fx_chain = FX::default();
 
-                    let fx_ids = fx_chain.construct_and_connect(
-                        first_node_id,
-                        first_node_num_out_channels,
-                        dst_node_id,
-                        dst_num_channels,
-                        cx,
-                    );
+                let fx_ids = fx_chain.construct_and_connect(
+                    first_node_id,
+                    first_node_num_out_channels,
+                    dst_node_id,
+                    dst_num_channels,
+                    cx,
+                );
 
-                    Worker {
-                        first_node_params: first_node.clone(),
-                        first_node_id,
+                Ok(Worker {
+                    first_node_params: first_node.clone(),
+                    first_node_id,
 
-                        fx_state: FxChainState {
-                            fx_chain,
-                            node_ids: fx_ids,
-                        },
+                    fx_state: FxChainState {
+                        fx_chain,
+                        node_ids: fx_ids,
+                    },
 
-                        assigned_worker_id: None,
-                    }
+                    assigned_worker_id: None,
                 })
-                .collect(),
+            })
+            .collect();
+
+        Ok(Self {
+            workers: workers?,
             worker_ids: Arena::with_capacity(num_workers),
             num_active_workers: 0,
-        }
+        })
     }
 
     pub fn num_workers(&self) -> usize {

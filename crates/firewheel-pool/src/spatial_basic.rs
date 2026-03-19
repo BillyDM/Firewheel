@@ -57,7 +57,9 @@ impl FxChain for SpatialBasicChain {
     ) -> Vec<NodeID> {
         let spatial_basic_params = firewheel_nodes::spatial_basic::SpatialBasicNode::default();
 
-        let spatial_basic_node_id = cx.add_node(spatial_basic_params, None);
+        let spatial_basic_node_id = cx
+            .add_node(spatial_basic_params, None)
+            .expect("Spatial basic node should construct without error");
 
         cx.connect(
             first_node_id,

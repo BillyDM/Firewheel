@@ -28,7 +28,10 @@ fn main() {
         enabled: true,
     };
 
-    let beep_test_id = cx.add_node(beep_test_node, None);
+    let beep_test_id = cx
+        .add_node(beep_test_node, None)
+        .expect("Volume pan node should construct without error");
+
     let graph_out_id = cx.graph_out_node_id();
 
     cx.connect(beep_test_id, graph_out_id, &[(0, 0), (0, 1)], false)

@@ -3,12 +3,14 @@ use core::fmt::Debug;
 use core::hash::Hash;
 
 #[cfg(not(feature = "std"))]
+use alloc::string::ToString;
+#[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
 use bevy_platform::collections::HashMap;
 use firewheel_core::channel_config::{ChannelConfig, ChannelCount};
 use firewheel_core::event::NodeEvent;
-use firewheel_core::node::{ConstructProcessorContext, UpdateContext};
+use firewheel_core::node::{ConstructProcessorContext, NodeError, UpdateContext};
 use firewheel_core::StreamInfo;
 use smallvec::SmallVec;
 use thunderdome::Arena;
@@ -122,9 +124,9 @@ impl AudioGraph {
         &mut self,
         node: T,
         config: Option<T::Configuration>,
-    ) -> NodeID {
+    ) -> Result<NodeID, NodeError> {
         let constructor = Constructor::new(node, config);
-        let info: AudioNodeInfoInner = constructor.info().into();
+        let info: AudioNodeInfoInner = constructor.info()?.into();
         let call_update_method = info.call_update_method;
 
         let new_id = NodeID(
@@ -139,12 +141,15 @@ impl AudioGraph {
 
         self.needs_compile = true;
 
-        new_id
+        Ok(new_id)
     }
 
     /// Add a node to the audio graph which implements the type-erased [`DynAudioNode`] trait.
-    pub fn add_dyn_node<T: DynAudioNode + 'static>(&mut self, node: T) -> NodeID {
-        let info: AudioNodeInfoInner = node.info().into();
+    pub fn add_dyn_node<T: DynAudioNode + 'static>(
+        &mut self,
+        node: T,
+    ) -> Result<NodeID, NodeError> {
+        let info: AudioNodeInfoInner = node.info()?.into();
         let call_update_method = info.call_update_method;
 
         let new_id = NodeID(self.nodes.insert(NodeEntry::new(info, Box::new(node))));
@@ -156,7 +161,7 @@ impl AudioGraph {
 
         self.needs_compile = true;
 
-        new_id
+        Ok(new_id)
     }
 
     /// Remove the given node from the audio graph.
@@ -559,7 +564,12 @@ impl AudioGraph {
 
                 new_node_processors.push(NodeHeapData {
                     id: entry.id,
-                    processor: entry.dyn_node.construct_processor(cx),
+                    processor: entry
+                        .dyn_node
+                        .construct_processor(cx)
+                        .map_err(|node_error| {
+                            CompileGraphError::ProcessorConstructionFailed(node_error.to_string())
+                        })?,
                     is_pre_process: entry.info.channel_config.is_empty(),
                 });
             }

@@ -45,19 +45,23 @@ impl AudioSystem {
 
         let mut sampler_params = SamplerNode::default();
         sampler_params.set_sample(sample);
-        let sampler_node_id = cx.add_node(sampler_params.clone(), None);
+        let sampler_node_id = cx
+            .add_node(sampler_params.clone(), None)
+            .expect("Sampler node should construct without error");
 
         let triple_buffer_params = TripleBufferNode {
             window_size: WindowSize::Samples(window_size),
             enabled: true,
         };
-        let triple_buffer_node_id = cx.add_node(
-            triple_buffer_params.clone(),
-            Some(TripleBufferConfig {
-                max_window_size: WindowSize::Samples(2048),
-                channels: NonZeroChannelCount::STEREO,
-            }),
-        );
+        let triple_buffer_node_id = cx
+            .add_node(
+                triple_buffer_params.clone(),
+                Some(TripleBufferConfig {
+                    max_window_size: WindowSize::Samples(2048),
+                    channels: NonZeroChannelCount::STEREO,
+                }),
+            )
+            .expect("Triple buffer node should construct without error");
 
         cx.connect(sampler_node_id, graph_out, &[(0, 0), (1, 1)], false)
             .unwrap();
