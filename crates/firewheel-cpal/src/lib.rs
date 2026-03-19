@@ -1,6 +1,7 @@
 use core::{fmt::Debug, num::NonZeroU32, time::Duration};
 use std::sync::mpsc;
 
+use audioadapter_buffers::direct::InterleavedSlice;
 pub use cpal;
 
 use bevy_platform::time::Instant;
@@ -898,12 +899,15 @@ impl DataCallback {
         let timestamp = info.timestamp();
         let process_to_playback_delay = timestamp.playback.duration_since(&timestamp.callback);
 
-        self.processor.process_interleaved(
-            &self.input_buffer[..frames * num_in_channels],
-            output,
-            BackendProcessInfo {
+        self.processor.process(
+            &InterleavedSlice::new(
+                &self.input_buffer[..frames * num_in_channels],
                 num_in_channels,
-                num_out_channels: self.num_out_channels,
+                frames,
+            )
+            .unwrap(),
+            &mut InterleavedSlice::new_mut(output, self.num_out_channels, frames).unwrap(),
+            BackendProcessInfo {
                 frames,
                 process_timestamp: Some(process_timestamp),
                 duration_since_stream_start,

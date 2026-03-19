@@ -25,7 +25,7 @@ std = [
     "thunderdome/std",
     "thiserror/std",
     "bevy_reflect?/std",
-    "num-traits/std"
+    "num-traits/std",
 ]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["dep:triple_buffer", "firewheel-core/scheduled_events"]
@@ -71,5 +71,6 @@ thunderdome.workspace = true
 thiserror.workspace = true
 bevy_platform.workspace = true
 num-traits.workspace = true
+audioadapter.workspace = true
 serde = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
