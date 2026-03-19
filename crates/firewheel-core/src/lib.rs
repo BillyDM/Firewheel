@@ -3,6 +3,7 @@
 pub mod atomic_float;
 pub mod channel_config;
 pub mod clock;
+pub mod collector;
 pub mod diff;
 pub mod dsp;
 pub mod event;
@@ -12,8 +13,6 @@ pub mod node;
 pub mod param;
 pub mod sample_resource;
 pub mod vector;
-
-pub use rtgc as collector;
 
 use core::num::NonZeroU32;
 
