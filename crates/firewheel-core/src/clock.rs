@@ -17,8 +17,7 @@ mod transport;
 #[cfg(feature = "musical_transport")]
 pub use transport::*;
 
-/// When a particular audio event should occur, in units of absolute
-/// audio clock time.
+/// When a particular audio event should occur.
 #[cfg(feature = "scheduled_events")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -28,34 +27,41 @@ pub enum EventInstant {
     /// seconds.
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// `FirewheelCtx::audio_clock` to get the current time of the clock.
-    Seconds(InstantSeconds),
+    /// `FirewheelContext::audio_clock` to get the current time of the clock.
+    AtClockSeconds(InstantSeconds),
 
     /// The event should happen when the clock reaches the given time in
     /// samples (of a single channel of audio).
     ///
     /// The value is an absolute time, *NOT* a delta time. Use
-    /// `FirewheelCtx::audio_clock` to get the current time of the clock.
-    Samples(InstantSamples),
+    /// `FirewheelContext::audio_clock` to get the current time of the clock.
+    AtClockSamples(InstantSamples),
+
+    /// The event should happen the given number of seconds after the
+    /// Firewheel processor receives this event.
+    ///
+    /// This can be useful for creating a sequence of events that can be
+    /// triggered at the lowest latency possible.
+    DelaySeconds(DurationSeconds),
+
+    /// The event should happen the given number of samples (of a single channel
+    /// of audio) after the Firewheel processor receives this event.
+    ///
+    /// This can be useful for creating a sequence of events that can be
+    /// triggered at the lowest latency possible.
+    DelaySamples(DurationSamples),
 
     /// The event should happen when the musical clock reaches the given
     /// musical time.
     #[cfg(feature = "musical_transport")]
-    Musical(InstantMusical),
-    // TODO: It would make sense to add "OffsetSeconds" and "OffsetSamples"
-    // variants, where the event happens after the given amount of delay from
-    // the instant the Firewheel processor receives the event.
-    //
-    // This would be useful, for example, ensuring that a sequence of sampler
-    // events are triggered with the lowest latency possible without potentially
-    // cutting off the beginning of the first sample event.
+    AtClockMusical(InstantMusical),
 }
 
 #[cfg(feature = "scheduled_events")]
 impl EventInstant {
     pub fn is_musical(&self) -> bool {
         #[cfg(feature = "musical_transport")]
-        if let EventInstant::Musical(_) = self {
+        if let EventInstant::AtClockMusical(_) = self {
             return true;
         } else {
             return false;
@@ -67,15 +73,21 @@ impl EventInstant {
 
     /// Convert the instant to the given time in samples.
     ///
-    /// If this instant is of type [`EventInstant::Musical`] and either
+    /// If this instant is of type [`EventInstant::AtClockMusical`] and either
     /// there is no musical transport or the musical transport is not
     /// currently playing, then this will return `None`.
     pub fn to_samples(&self, proc_info: &ProcInfo) -> Option<InstantSamples> {
         match self {
-            EventInstant::Samples(samples) => Some(*samples),
-            EventInstant::Seconds(seconds) => Some(seconds.to_samples(proc_info.sample_rate)),
+            EventInstant::AtClockSamples(samples) => Some(*samples),
+            EventInstant::AtClockSeconds(seconds) => {
+                Some(seconds.to_samples(proc_info.sample_rate))
+            }
+            EventInstant::DelaySamples(samples) => Some(proc_info.clock_samples + *samples),
+            EventInstant::DelaySeconds(seconds) => {
+                Some(proc_info.clock_samples + seconds.to_samples(proc_info.sample_rate))
+            }
             #[cfg(feature = "musical_transport")]
-            EventInstant::Musical(musical) => proc_info.musical_to_samples(*musical),
+            EventInstant::AtClockMusical(musical) => proc_info.musical_to_samples(*musical),
         }
     }
 }
@@ -83,21 +95,35 @@ impl EventInstant {
 #[cfg(feature = "scheduled_events")]
 impl From<InstantSeconds> for EventInstant {
     fn from(value: InstantSeconds) -> Self {
-        Self::Seconds(value)
+        Self::AtClockSeconds(value)
     }
 }
 
 #[cfg(feature = "scheduled_events")]
 impl From<InstantSamples> for EventInstant {
     fn from(value: InstantSamples) -> Self {
-        Self::Samples(value)
+        Self::AtClockSamples(value)
+    }
+}
+
+#[cfg(feature = "scheduled_events")]
+impl From<DurationSeconds> for EventInstant {
+    fn from(value: DurationSeconds) -> Self {
+        Self::DelaySeconds(value)
+    }
+}
+
+#[cfg(feature = "scheduled_events")]
+impl From<DurationSamples> for EventInstant {
+    fn from(value: DurationSamples) -> Self {
+        Self::DelaySamples(value)
     }
 }
 
 #[cfg(feature = "musical_transport")]
 impl From<InstantMusical> for EventInstant {
     fn from(value: InstantMusical) -> Self {
-        Self::Musical(value)
+        Self::AtClockMusical(value)
     }
 }
 
@@ -111,10 +137,12 @@ impl Diff for EventInstant {
     ) {
         if self != baseline {
             match self {
-                EventInstant::Seconds(s) => event_queue.push_param(*s, path),
-                EventInstant::Samples(s) => event_queue.push_param(*s, path),
+                EventInstant::AtClockSeconds(s) => event_queue.push_param(*s, path),
+                EventInstant::AtClockSamples(s) => event_queue.push_param(*s, path),
+                EventInstant::DelaySeconds(s) => event_queue.push_param(*s, path),
+                EventInstant::DelaySamples(s) => event_queue.push_param(*s, path),
                 #[cfg(feature = "musical_transport")]
-                EventInstant::Musical(m) => event_queue.push_param(*m, path),
+                EventInstant::AtClockMusical(m) => event_queue.push_param(*m, path),
             }
         }
     }
@@ -126,10 +154,12 @@ impl Patch for EventInstant {
 
     fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
         match data {
-            ParamData::InstantSeconds(s) => Ok(EventInstant::Seconds(*s)),
-            ParamData::InstantSamples(s) => Ok(EventInstant::Samples(*s)),
+            ParamData::InstantSeconds(s) => Ok(EventInstant::AtClockSeconds(*s)),
+            ParamData::InstantSamples(s) => Ok(EventInstant::AtClockSamples(*s)),
+            ParamData::DurationSeconds(s) => Ok(EventInstant::DelaySeconds(*s)),
+            ParamData::DurationSamples(s) => Ok(EventInstant::DelaySamples(*s)),
             #[cfg(feature = "musical_transport")]
-            ParamData::InstantMusical(s) => Ok(EventInstant::Musical(*s)),
+            ParamData::InstantMusical(s) => Ok(EventInstant::AtClockMusical(*s)),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
     }
@@ -149,10 +179,12 @@ impl Diff for Option<EventInstant> {
     ) {
         if self != baseline {
             match self {
-                Some(EventInstant::Seconds(s)) => event_queue.push_param(*s, path),
-                Some(EventInstant::Samples(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::AtClockSeconds(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::AtClockSamples(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::DelaySeconds(s)) => event_queue.push_param(*s, path),
+                Some(EventInstant::DelaySamples(s)) => event_queue.push_param(*s, path),
                 #[cfg(feature = "musical_transport")]
-                Some(EventInstant::Musical(m)) => event_queue.push_param(*m, path),
+                Some(EventInstant::AtClockMusical(m)) => event_queue.push_param(*m, path),
                 None => event_queue.push_param(ParamData::None, path),
             }
         }
@@ -165,10 +197,12 @@ impl Patch for Option<EventInstant> {
 
     fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
         match data {
-            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::Seconds(*s))),
-            ParamData::InstantSamples(s) => Ok(Some(EventInstant::Samples(*s))),
+            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::AtClockSeconds(*s))),
+            ParamData::InstantSamples(s) => Ok(Some(EventInstant::AtClockSamples(*s))),
+            ParamData::DurationSeconds(s) => Ok(Some(EventInstant::DelaySeconds(*s))),
+            ParamData::DurationSamples(s) => Ok(Some(EventInstant::DelaySamples(*s))),
             #[cfg(feature = "musical_transport")]
-            ParamData::InstantMusical(s) => Ok(Some(EventInstant::Musical(*s))),
+            ParamData::InstantMusical(s) => Ok(Some(EventInstant::AtClockMusical(*s))),
             _ => Err(crate::diff::PatchError::InvalidData),
         }
     }
@@ -837,7 +871,7 @@ pub struct AudioClock {
     ///
     /// If the audio thread is not currently running, then this will be `None`.
     ///
-    /// Note, if this was returned via `FirewheelCtx::audio_clock_corrected()`, then
+    /// Note, if this was returned via `FirewheelContext::audio_clock_corrected()`, then
     /// `samples`, `seconds`, and `musical` have already taken this delay into
     /// account.
     pub update_instant: Option<Instant>,

@@ -36,7 +36,7 @@ jobs:
         run: |
           cargo test --locked --workspace --all-features --all-targets
 
-      - name: Test realtime garbage collector
+      - name: Test realtime audio garbage collector
         run: |
           cd crates/firewheel-core && cargo test --locked -- --ignored && cd ../../
 

@@ -99,6 +99,7 @@ impl EventScheduler {
         nodes: &mut Arena<NodeEntry>,
         logger: &mut RealtimeLogger,
         #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
+        #[cfg(feature = "scheduled_events")] clock_samples: InstantSamples,
         #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
         #[cfg(feature = "scheduled_events")]
@@ -112,6 +113,8 @@ impl EventScheduler {
                     logger,
                     #[cfg(feature = "scheduled_events")]
                     sample_rate,
+                    #[cfg(feature = "scheduled_events")]
+                    clock_samples,
                     #[cfg(feature = "musical_transport")]
                     proc_transport_state,
                 );
@@ -125,6 +128,7 @@ impl EventScheduler {
         node_data: &mut NodeEventSchedulerData,
         logger: &mut RealtimeLogger,
         #[cfg(feature = "scheduled_events")] sample_rate: NonZeroU32,
+        #[cfg(feature = "scheduled_events")] clock_samples: InstantSamples,
         #[cfg(feature = "musical_transport")] proc_transport_state: &ProcTransportState,
     ) {
         #[cfg(feature = "scheduled_events")]
@@ -141,20 +145,32 @@ impl EventScheduler {
             };
 
             let time_samples = match event_instant {
-                EventInstant::Samples(samples) => {
+                EventInstant::AtClockSamples(samples) => {
                     self.num_scheduled_non_musical_events += 1;
                     node_data.num_scheduled_non_musical_events += 1;
 
                     samples
                 }
-                EventInstant::Seconds(seconds) => {
+                EventInstant::AtClockSeconds(seconds) => {
                     self.num_scheduled_non_musical_events += 1;
                     node_data.num_scheduled_non_musical_events += 1;
 
                     seconds.to_samples(sample_rate)
                 }
+                EventInstant::DelaySamples(samples) => {
+                    self.num_scheduled_non_musical_events += 1;
+                    node_data.num_scheduled_non_musical_events += 1;
+
+                    clock_samples + samples
+                }
+                EventInstant::DelaySeconds(seconds) => {
+                    self.num_scheduled_non_musical_events += 1;
+                    node_data.num_scheduled_non_musical_events += 1;
+
+                    clock_samples + seconds.to_samples(sample_rate)
+                }
                 #[cfg(feature = "musical_transport")]
-                EventInstant::Musical(musical) => {
+                EventInstant::AtClockMusical(musical) => {
                     self.num_scheduled_musical_events += 1;
                     node_data.num_scheduled_musical_events += 1;
 
@@ -279,7 +295,7 @@ impl EventScheduler {
             for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-                if let Some(EventInstant::Musical(musical)) = event.event.time {
+                if let Some(EventInstant::AtClockMusical(musical)) = event.event.time {
                     *time_samples = sync_info.transport.musical_to_samples(
                         musical,
                         sync_info.transport_start,
@@ -292,7 +308,7 @@ impl EventScheduler {
             for (slot, time_samples) in self.sorted_event_buffer_indices.iter_mut() {
                 let event = self.scheduled_event_arena[*slot as usize].as_ref().unwrap();
 
-                if let Some(EventInstant::Musical(_)) = event.event.time {
+                if let Some(EventInstant::AtClockMusical(_)) = event.event.time {
                     // Set to `MAX` to effectively de-schedule the event.
                     *time_samples = InstantSamples::MAX;
                 }

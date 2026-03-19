@@ -230,9 +230,15 @@ impl ProcTransportState {
                     if let Some(next_keyframe) = keyframes.get(automation_state.keyframe_index + 1)
                     {
                         let keyframe_start_samples = match next_keyframe.instant {
-                            EventInstant::Seconds(seconds) => seconds.to_samples(sample_rate),
-                            EventInstant::Samples(samples) => samples,
-                            EventInstant::Musical(musical) => transport.musical_to_samples(
+                            EventInstant::AtClockSeconds(seconds) => {
+                                seconds.to_samples(sample_rate)
+                            }
+                            EventInstant::AtClockSamples(samples) => samples,
+                            EventInstant::DelaySeconds(seconds) => {
+                                clock_samples + seconds.to_samples(sample_rate)
+                            }
+                            EventInstant::DelaySamples(samples) => clock_samples + samples,
+                            EventInstant::AtClockMusical(musical) => transport.musical_to_samples(
                                 musical,
                                 self.transport_start_samples,
                                 self.current_speed_multiplier,

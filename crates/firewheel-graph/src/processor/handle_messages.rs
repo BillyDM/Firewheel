@@ -30,6 +30,8 @@ impl FirewheelProcessorInner {
                         &mut self.extra.logger,
                         #[cfg(feature = "scheduled_events")]
                         self.sample_rate,
+                        #[cfg(feature = "scheduled_events")]
+                        self.clock_samples,
                         #[cfg(feature = "musical_transport")]
                         &self.proc_transport_state,
                     );
