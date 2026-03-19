@@ -42,7 +42,6 @@ pub enum EventInstant {
     /// musical time.
     #[cfg(feature = "musical_transport")]
     Musical(InstantMusical),
-
     // TODO: It would make sense to add "OffsetSeconds" and "OffsetSamples"
     // variants, where the event happens after the given amount of delay from
     // the instant the Firewheel processor receives the event.
