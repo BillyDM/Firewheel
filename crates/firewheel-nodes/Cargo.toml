@@ -110,6 +110,6 @@ fixed-resample = { workspace = true, features = [
 bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-fft-convolver = { version = "0.2.0", optional = true }
+fft-convolver = { version = "0.3.0", optional = true }
 triple_buffer = { workspace = true, optional = true }
 thiserror.workspace = true

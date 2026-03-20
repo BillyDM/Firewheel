@@ -1,11 +1,11 @@
-use std::{
+use core::{
     num::{NonZeroU32, NonZeroUsize},
-    ops::Range,
+    ops::{Index, IndexMut, Range},
 };
 
 use firewheel_core::{
     collector::ArcGc,
-    sample_resource::{SampleResource, SampleResourceInfo},
+    sample_resource::{SampleResource, SampleResourceF32, SampleResourceInfo},
 };
 
 /// A wrapper around [`symphonium::DecodedAudio`] which implements the
@@ -32,12 +32,6 @@ impl DecodedAudio {
     /// The sample rate of the audio resource before it was resampled (if it was resampled).
     pub fn original_sample_rate(&self) -> NonZeroU32 {
         self.0.original_sample_rate()
-    }
-}
-
-impl From<DecodedAudio> for ArcGc<dyn SampleResource> {
-    fn from(value: DecodedAudio) -> Self {
-        value.into_dyn_resource()
     }
 }
 
@@ -98,6 +92,12 @@ impl DecodedAudioF32 {
         self.0.frames() as f64 / sample_rate.get() as f64
     }
 
+    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResourceF32> {
+        ArcGc::new_unsized(|| {
+            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResourceF32>
+        })
+    }
+
     /// The sample rate of this resource.
     pub fn sample_rate(&self) -> NonZeroU32 {
         self.0.sample_rate
@@ -106,6 +106,20 @@ impl DecodedAudioF32 {
     /// The sample rate of the audio resource before it was resampled (if it was resampled).
     pub fn original_sample_rate(&self) -> NonZeroU32 {
         self.0.original_sample_rate
+    }
+}
+
+impl Index<usize> for DecodedAudioF32 {
+    type Output = Vec<f32>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0.data[index]
+    }
+}
+
+impl IndexMut<usize> for DecodedAudioF32 {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0.data[index]
     }
 }
 
@@ -136,6 +150,12 @@ impl SampleResource for DecodedAudioF32 {
             start_frame as usize,
             &self.0.data,
         );
+    }
+}
+
+impl SampleResourceF32 for DecodedAudioF32 {
+    fn channel(&self, i: usize) -> Option<&[f32]> {
+        self.0.data.get(i).map(|ch| ch.as_slice())
     }
 }
 
@@ -264,6 +284,129 @@ pub fn load_audio_file_from_source_stretched(
     loader
         .decode_stretched(probed, stretch, target_sample_rate, config)
         .map(|d| DecodedAudio(d.into()))
+}
+
+/// A helper method to load an audio file into an `f32` sample format from a path using
+/// Symphonium.
+///
+/// * `loader` - The symphonium loader.
+/// * `path`` - The path to the audio file stored on disk.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+///   the given target sample rate. (No resampling will occur if the audio file's sample rate
+///   is already the target sample rate). If this is `None`, then the file will not be
+///   resampled and stay its original sample rate.
+/// * `resample_quality` - The quality of the resampler to use if the sample rate of the
+///   audio file doesn't match the `target_sample_rate`. This has no effect if
+///   `target_sample_rate` is `None`.
+pub fn load_audio_file_f32<P: AsRef<std::path::Path>>(
+    loader: &mut symphonium::SymphoniumLoader,
+    path: P,
+    #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
+    #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
+) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
+    let probed = loader.probe_from_file(path)?;
+    loader
+        .decode_f32(
+            probed,
+            #[cfg(feature = "resample")]
+            target_sample_rate,
+            #[cfg(feature = "resample")]
+            resample_quality,
+            None,
+        )
+        .map(DecodedAudioF32)
+}
+
+/// A helper method to load an audio file into an `f32` sample format from a custom source using
+/// Symphonium.
+///
+/// * `loader` - The symphonium loader.
+/// * `source` - The audio source which implements the [`MediaSource`] trait.
+/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+///   the given target sample rate. (No resampling will occur if the audio file's sample rate
+///   is already the target sample rate). If this is `None`, then the file will not be
+///   resampled and stay its original sample rate.
+/// * `resample_quality` - The quality of the resampler to use if the sample rate of the
+///   audio file doesn't match the `target_sample_rate`. This has no effect if
+///   `target_sample_rate` is `None`.
+///
+/// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
+pub fn load_audio_file_from_source_f32(
+    loader: &mut symphonium::SymphoniumLoader,
+    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
+    hint: Option<symphonium::symphonia::core::probe::Hint>,
+    #[cfg(feature = "resample")] target_sample_rate: Option<core::num::NonZeroU32>,
+    #[cfg(feature = "resample")] resample_quality: symphonium::ResampleQuality,
+) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
+    let probed = loader.probe_from_source(source, hint)?;
+    loader
+        .decode_f32(
+            probed,
+            #[cfg(feature = "resample")]
+            target_sample_rate,
+            #[cfg(feature = "resample")]
+            resample_quality,
+            None,
+        )
+        .map(DecodedAudioF32)
+}
+
+/// A helper method to load an audio file into an `f32` sample format rom a path using Symphonium.
+/// This also stretches (pitch shifts) the sample by the given amount.
+///
+/// * `loader` - The symphonium loader.
+/// * `path`` - The path to the audio file stored on disk.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. If this is `None`, then the file will stay its original sample
+/// rate.
+/// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
+/// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
+/// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
+/// is given, then the final amount will automatically be adjusted to account for that.
+/// * `config` - Extra configuration such as resample quality.
+#[cfg(feature = "stretch")]
+pub fn load_audio_file_stretched_f32<P: AsRef<std::path::Path>>(
+    loader: &mut symphonium::SymphoniumLoader,
+    path: P,
+    target_sample_rate: Option<core::num::NonZeroU32>,
+    stretch: f64,
+    config: &symphonium::DecodeStretchedConfig,
+) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
+    let probed = loader.probe_from_file(path)?;
+    loader
+        .decode_stretched(probed, stretch, target_sample_rate, config)
+        .map(|d| DecodedAudioF32(d.into()))
+}
+
+/// A helper method to load an audio file into an `f32` sample format from a custom source using
+/// Symphonium. This also stretches (pitch shifts) the sample by the given amount.
+///
+/// * `loader` - The symphonium loader.
+/// * `source` - The audio source which implements the [`symphonium::symphonia::core::io::MediaSource`]
+/// trait.
+/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
+/// * `target_sample_rate` - If this is `Some`, then the file will be resampled to match
+/// the given target sample rate. If this is `None`, then the file will stay its original sample
+/// rate.
+/// * `stretch` - The amount of stretching (`new_length / old_length`). A value of `1.0` is no
+/// change, a value less than `1.0` will increase the pitch & decrease the length, and a value
+/// greater than `1.0` will decrease the pitch & increase the length. If a `target_sample_rate`
+/// is given, then the final amount will automatically be adjusted to account for that.
+/// * `config` - Extra configuration such as resample quality.
+#[cfg(feature = "stretch")]
+pub fn load_audio_file_from_source_stretched_f32(
+    loader: &mut symphonium::SymphoniumLoader,
+    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
+    hint: Option<symphonium::symphonia::core::probe::Hint>,
+    target_sample_rate: Option<core::num::NonZeroU32>,
+    stretch: f64,
+    config: &symphonium::DecodeStretchedConfig,
+) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
+    let probed = loader.probe_from_source(source, hint)?;
+    loader
+        .decode_stretched(probed, stretch, target_sample_rate, config)
+        .map(|d| DecodedAudioF32(d.into()))
 }
 
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into

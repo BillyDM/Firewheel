@@ -551,7 +551,11 @@ impl CpalStream {
     /// This must be called periodically (i.e. once every frame).
     pub fn poll_status(&mut self) -> Result<(), StreamError> {
         if let Ok(e) = self.from_err_rx.try_recv() {
-            Err(e)
+            if let StreamError::BufferUnderrun = e {
+                Ok(())
+            } else {
+                Err(e)
+            }
         } else {
             Ok(())
         }

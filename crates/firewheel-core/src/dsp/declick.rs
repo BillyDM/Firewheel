@@ -200,6 +200,67 @@ impl Declicker {
         }
     }
 
+    /// Fill the buffer with raw gain values ranging from `[0.0, 1.0]`.
+    pub fn process_into_gain_buffer(
+        &mut self,
+        buffer: &mut [f32],
+        buffer_already_cleared: bool,
+        declick_values: &DeclickValues,
+        fade_curve: DeclickFadeCurve,
+    ) {
+        let fade_buffer = |buffer: &mut [f32],
+                           declick_frames_left: &mut usize,
+                           values: &[f32],
+                           fill_rest_with: f32| {
+            let process_frames = buffer.len().min(*declick_frames_left);
+            let start_frame = values.len() - *declick_frames_left;
+
+            buffer[..process_frames]
+                .copy_from_slice(&values[start_frame..start_frame + process_frames]);
+
+            if process_frames < buffer.len() {
+                buffer[process_frames..].fill(fill_rest_with);
+            }
+
+            *declick_frames_left -= process_frames;
+        };
+
+        match self {
+            Self::SettledAt0 => {
+                if !buffer_already_cleared {
+                    buffer.fill(0.0);
+                }
+            }
+            Self::SettledAt1 => {
+                buffer.fill(1.0);
+            }
+            Self::FadingTo0 { frames_left } => {
+                let values = match fade_curve {
+                    DeclickFadeCurve::Linear => &declick_values.linear_1_to_0_values,
+                    DeclickFadeCurve::EqualPower3dB => &declick_values.circular_1_to_0_values,
+                };
+
+                fade_buffer(buffer, frames_left, values, 0.0);
+
+                if *frames_left == 0 {
+                    *self = Self::SettledAt0;
+                }
+            }
+            Self::FadingTo1 { frames_left } => {
+                let values = match fade_curve {
+                    DeclickFadeCurve::Linear => &declick_values.linear_0_to_1_values,
+                    DeclickFadeCurve::EqualPower3dB => &declick_values.circular_0_to_1_values,
+                };
+
+                fade_buffer(buffer, frames_left, values, 1.0);
+
+                if *frames_left == 0 {
+                    *self = Self::SettledAt1;
+                }
+            }
+        }
+    }
+
     pub fn process<V: AsMut<[f32]>>(
         &mut self,
         buffers: &mut [V],

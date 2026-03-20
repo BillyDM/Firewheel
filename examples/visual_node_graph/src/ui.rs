@@ -7,11 +7,9 @@ use egui_snarl::{
 use firewheel::{
     diff::Memo,
     dsp::{fade::FadeCurve, mix::Mix},
-    event::NodeEventType,
-    node::NodeID,
     nodes::{
         beep_test::BeepTestNode,
-        convolution::{ConvolutionNode, ImpulseResponse},
+        convolution::ConvolutionNode,
         fast_filters::{
             bandpass::FastBandpassNode, highpass::FastHighpassNode, lowpass::FastLowpassNode,
             MAX_HZ, MIN_HZ,
@@ -96,11 +94,11 @@ pub enum GuiAudioNode {
     },
     ConvolutionMono {
         id: firewheel::node::NodeID,
-        params: Memo<ConvolutionNode<1>>,
+        params: Memo<ConvolutionNode>,
     },
     ConvolutionStereo {
         id: firewheel::node::NodeID,
-        params: Memo<ConvolutionNode<2>>,
+        params: Memo<ConvolutionNode>,
     },
 }
 
@@ -789,11 +787,11 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             GuiAudioNode::ConvolutionMono { id, params } => {
-                convolution_ui(ui, params, self.audio_system, *id);
+                convolution_ui(ui, params, self.audio_system);
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             GuiAudioNode::ConvolutionStereo { id, params } => {
-                convolution_ui(ui, params, self.audio_system, *id);
+                convolution_ui(ui, params, self.audio_system);
                 params.update_memo(&mut self.audio_system.event_queue(*id));
             }
             _ => {}
@@ -819,12 +817,7 @@ fn fade_curve_ui(ui: &mut Ui, curve: &mut FadeCurve) {
 }
 
 // Channel-independent UI for convolution
-fn convolution_ui<const CHANNELS: usize>(
-    ui: &mut Ui,
-    params: &mut Memo<ConvolutionNode<CHANNELS>>,
-    audio_system: &mut AudioSystem,
-    node_id: NodeID,
-) {
+fn convolution_ui(ui: &mut Ui, params: &mut Memo<ConvolutionNode>, audio_system: &mut AudioSystem) {
     ui.vertical(|ui| {
         ui.add(
             egui::Slider::from_get_set(0.0..=1.0, |val: Option<f64>| {
@@ -851,23 +844,16 @@ fn convolution_ui<const CHANNELS: usize>(
                 None => "None",
             })
             .show_ui(ui, |ui| {
-                let mut temp_current_ir = current_ir_sample_index.clone();
-                let events = audio_system
-                    .ir_samples
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(sample_index, (name, sample))| {
-                        ui.selectable_value(&mut temp_current_ir, Some(sample_index), *name)
-                            .clicked()
-                            .then_some(|| {
-                                let ir = ImpulseResponse::new(sample.clone());
-                                NodeEventType::custom(Some(ir))
-                            })
-                    })
-                    .next();
+                let mut temp_current_ir = current_ir_sample_index;
 
-                if let Some(event) = events {
-                    audio_system.queue_event(node_id, event());
+                ui.selectable_value(&mut temp_current_ir, None, "None");
+                for (sample_index, (name, _sample)) in audio_system.ir_samples.iter().enumerate() {
+                    ui.selectable_value(&mut temp_current_ir, Some(sample_index), *name);
+                }
+
+                if temp_current_ir != current_ir_sample_index {
+                    params.impulse = temp_current_ir.map(|i| audio_system.ir_samples[i].1.clone());
+
                     ui.memory_mut(|mem| {
                         mem.data
                             .insert_temp(ir_sample_id.clone().into(), temp_current_ir);
