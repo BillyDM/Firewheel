@@ -116,11 +116,24 @@ impl FirewheelProcessorInner {
                         let mut silence_mask = SilenceMask::NONE_SILENT;
 
                         for (ch_i, ch) in channels.iter_mut().enumerate().take(num_in_channels) {
-                            input.copy_from_channel_to_slice(
-                                ch_i,
-                                frames_processed,
-                                &mut ch[..block_frames],
-                            );
+                            let mut input_is_silent = true;
+                            for s in ch[..block_frames].iter() {
+                                if *s != 0.0 {
+                                    input_is_silent = false;
+                                    break;
+                                }
+                            }
+                            silence_mask.set_channel(ch_i, input_is_silent);
+
+                            if input_is_silent {
+                                ch[..block_frames].fill(0.0);
+                            } else {
+                                input.copy_from_channel_to_slice(
+                                    ch_i,
+                                    frames_processed,
+                                    &mut ch[..block_frames],
+                                );
+                            }
                         }
 
                         for (ch_i, ch) in channels.iter_mut().enumerate().skip(num_in_channels) {
