@@ -57,6 +57,8 @@ pub const MIN_PLAYBACK_SPEED: f64 = 0.0000001;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SamplerConfig {
     /// The number of channels in this node.
+    ///
+    /// By default this is set to [`NonZeroChannelCount::STEREO`].
     pub channels: NonZeroChannelCount,
     /// The maximum number of "declickers" present on this node.
     /// The more declickers there are, the more samples that can be declicked

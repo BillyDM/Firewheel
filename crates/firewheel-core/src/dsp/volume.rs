@@ -1,8 +1,8 @@
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-pub const DEFAULT_AMP_EPSILON: f32 = 0.00001;
-pub const DEFAULT_DB_EPSILON: f32 = -100.0;
+pub const DEFAULT_AMP_EPSILON: f32 = 0.0001;
+pub const DEFAULT_DB_EPSILON: f32 = -80.0;
 
 /// A value representing a volume (gain) applied to an audio signal
 #[derive(Debug, Clone, Copy, PartialEq)]

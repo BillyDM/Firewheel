@@ -165,6 +165,14 @@ impl MixDSP {
         self.mix_first_into_second_mono(dry, wet, frames);
     }
 
+    pub fn first_gain_target(&self) -> f32 {
+        self.gain_0.target_value()
+    }
+
+    pub fn second_gain_target(&self) -> f32 {
+        self.gain_1.target_value()
+    }
+
     pub fn mix_dry_into_wet_stereo(
         &mut self,
         dry_l: &[f32],
