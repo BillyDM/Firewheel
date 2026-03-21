@@ -852,7 +852,8 @@ fn convolution_ui(ui: &mut Ui, params: &mut Memo<ConvolutionNode>, audio_system:
                 }
 
                 if temp_current_ir != current_ir_sample_index {
-                    params.impulse = temp_current_ir.map(|i| audio_system.ir_samples[i].1.clone());
+                    params.impulse_response =
+                        temp_current_ir.map(|i| audio_system.ir_samples[i].1.clone());
 
                     ui.memory_mut(|mem| {
                         mem.data

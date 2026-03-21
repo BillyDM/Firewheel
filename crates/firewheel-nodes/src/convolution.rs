@@ -60,7 +60,7 @@ impl Default for ConvolutionNodeConfig {
     }
 }
 
-/// Imparts characteristics of an [`ImpulseResponse`] to the input signal.
+/// Imparts characteristics of an impulse response to the input signal.
 ///
 /// Convolution is often used to achieve reverb effects, but is more
 /// computationally expensive than algorithmic reverb.
@@ -72,7 +72,7 @@ pub struct ConvolutionNode {
     /// The impulse response to use.
     #[cfg_attr(feature = "bevy_reflect", reflect(ignore))]
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub impulse: Option<ArcGc<dyn SampleResourceF32>>,
+    pub impulse_response: Option<ArcGc<dyn SampleResourceF32>>,
 
     /// Pause the convolution processing.
     ///
@@ -86,7 +86,10 @@ pub struct ConvolutionNode {
     /// fully the first signal, `1.0` is fully the second signal, and `0.5` is
     /// an equal mix of both.
     ///
-    /// By default this is set to [`Mix::CENTER`].
+    /// If this node is being used as a send effect, then the mix should be set
+    /// to `1.0`
+    ///
+    /// By default this is set to `0.25`.
     pub mix: Mix,
 
     /// The algorithm used to map the normalized mix value in the range `[0.0,
@@ -111,8 +114,8 @@ pub struct ConvolutionNode {
 impl Default for ConvolutionNode {
     fn default() -> Self {
         Self {
-            impulse: None,
-            mix: Mix::CENTER,
+            impulse_response: None,
+            mix: Mix::new(0.25),
             fade_curve: FadeCurve::default(),
             wet_gain: Volume::Decibels(-20.0),
             pause: false,
@@ -126,7 +129,7 @@ impl core::fmt::Debug for ConvolutionNode {
         let mut f = f.debug_struct("SamplerNode");
         f.field(
             "impulse_len_frames",
-            &self.impulse.as_ref().map(|i| i.len_frames()),
+            &self.impulse_response.as_ref().map(|i| i.len_frames()),
         );
         f.field("pause", &self.pause);
         f.field("mix", &self.mix);
@@ -176,7 +179,7 @@ impl AudioNode for ConvolutionNode {
             })
             .collect();
 
-        let did_init_first_impulse = if let Some(s) = &self.impulse {
+        let did_init_first_impulse = if let Some(s) = &self.impulse_response {
             if s.len_frames() > max_frames as u64 {
                 return Err(ImpulseTooLongError {
                     got_len_seconds: s.len_frames() as f64 / cx.stream_info.sample_rate_recip,
@@ -243,7 +246,7 @@ impl AudioNodeProcessor for ConvolutionProcessor {
 
         for patch in events.drain_patches::<ConvolutionNode>() {
             match patch {
-                ConvolutionNodePatch::Impulse(_) => {
+                ConvolutionNodePatch::ImpulseResponse(_) => {
                     got_new_impulse = true;
                 }
                 ConvolutionNodePatch::Mix(mix) => {
@@ -280,7 +283,7 @@ impl AudioNodeProcessor for ConvolutionProcessor {
         }
 
         if got_new_impulse {
-            if let Some(s) = &self.params.impulse {
+            if let Some(s) = &self.params.impulse_response {
                 let sample_len = s.len_frames();
                 if sample_len > self.max_frames as u64 {
                     let _ = extra.logger.try_error("Impulse is too long, please increase ConvolutionNodeConfig::max_impulse_len_seconds");
@@ -316,7 +319,7 @@ impl AudioNodeProcessor for ConvolutionProcessor {
             if self.wet_declick == Declicker::SettledAt0 {
                 // Finished fading out old impulse, replace with new one
 
-                if let Some(s) = &self.params.impulse {
+                if let Some(s) = &self.params.impulse_response {
                     if s.num_channels().get() < self.convolver.len() {
                         // Assume a mono impulse response and set it to all channels.
                         let impulse_slice = s.channel(0).unwrap();
