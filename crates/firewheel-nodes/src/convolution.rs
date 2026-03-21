@@ -1,4 +1,5 @@
 use core::f32;
+use core::ops::Range;
 
 use fft_convolver::FFTConvolver;
 use firewheel_core::channel_config::NonZeroChannelCount;
@@ -213,6 +214,7 @@ impl AudioNode for ConvolutionNode {
             max_frames,
             did_init_first_impulse,
             has_impulse: did_init_first_impulse,
+            new_impulse_queued: false,
         })
     }
 }
@@ -226,13 +228,14 @@ struct ConvolutionProcessor {
     max_frames: usize,
     did_init_first_impulse: bool,
     has_impulse: bool,
+    new_impulse_queued: bool,
 }
 
 impl AudioNodeProcessor for ConvolutionProcessor {
     fn process(
         &mut self,
         info: &firewheel_core::node::ProcInfo,
-        buffers: firewheel_core::node::ProcBuffers,
+        mut buffers: firewheel_core::node::ProcBuffers,
         events: &mut firewheel_core::event::ProcEvents,
         extra: &mut firewheel_core::node::ProcExtra,
     ) -> ProcessStatus {
@@ -282,6 +285,38 @@ impl AudioNodeProcessor for ConvolutionProcessor {
                 if sample_len > self.max_frames as u64 {
                     let _ = extra.logger.try_error("Impulse is too long, please increase ConvolutionNodeConfig::max_impulse_len_seconds");
                 } else {
+                    self.new_impulse_queued = true;
+                    // Fade out the previous impulse
+                    self.wet_declick.fade_to_0(&extra.declick_values);
+                }
+            } else {
+                self.wet_declick.fade_to_0(&extra.declick_values);
+                self.has_impulse = false;
+                self.new_impulse_queued = false;
+            }
+        }
+
+        let mut wet_frames_processed = 0;
+        let mut wet_output_silent = true;
+
+        if self.new_impulse_queued {
+            if self.wet_declick != Declicker::SettledAt0 {
+                // Sanity check
+                assert!(self.wet_declick.trending_towards_zero());
+
+                // Fade out the previous impulse
+                let proc_frames = self.wet_declick.frames_left().min(info.frames);
+
+                self.convolve_block(&mut buffers, 0..proc_frames, extra);
+
+                wet_frames_processed = proc_frames;
+                wet_output_silent = false;
+            }
+
+            if self.wet_declick == Declicker::SettledAt0 {
+                // Finished fading out old impulse, replace with new one
+
+                if let Some(s) = &self.params.impulse {
                     if s.num_channels().get() < self.convolver.len() {
                         // Assume a mono impulse response and set it to all channels.
                         let impulse_slice = s.channel(0).unwrap();
@@ -310,53 +345,27 @@ impl AudioNodeProcessor for ConvolutionProcessor {
                         self.wet_declick.fade_to_1(&extra.declick_values);
                     }
                 }
-            } else {
-                self.wet_declick.fade_to_0(&extra.declick_values);
-                self.has_impulse = false;
+
+                self.new_impulse_queued = false;
             }
         }
 
-        let wet_output_silent = if self.wet_declick != Declicker::SettledAt0 {
-            let mut scratch_buffers = extra.scratch_buffers.all_mut();
-            let (wet_gain_buffer, wet_declick_buffer) = scratch_buffers.split_first_mut().unwrap();
-            let wet_declick_buffer = &mut wet_declick_buffer[0];
-
-            self.wet_gain_smoothed
-                .process_into_buffer(&mut wet_gain_buffer[0..info.frames]);
-            self.wet_declick.process_into_gain_buffer(
-                &mut wet_declick_buffer[0..info.frames],
-                false,
-                &extra.declick_values,
-                DeclickFadeCurve::EqualPower3dB,
-            );
-
-            for ((conv, input), output) in self
-                .convolver
-                .iter_mut()
-                .zip(buffers.inputs.iter())
-                .zip(buffers.outputs.iter_mut())
-            {
-                conv.process(input, output).unwrap();
-
-                for ((out_s, &g1), &g2) in output
-                    .iter_mut()
-                    .zip(wet_gain_buffer.iter())
-                    .zip(wet_declick_buffer.iter())
-                {
-                    *out_s *= g1 * g2;
-                }
-            }
-
-            self.wet_gain_smoothed.settle();
-
-            false
+        if self.wet_declick != Declicker::SettledAt0 {
+            self.convolve_block(&mut buffers, wet_frames_processed..info.frames, extra);
+            wet_output_silent = false;
         } else {
+            // wet output is silent
+
             self.wet_gain_smoothed.reset_to_target();
 
-            if self.mix.has_settled() {
+            if self.mix.has_settled() && wet_frames_processed == 0 {
+                // The mix parameter isn't smoothing, so we can optimize by just pushing the
+                // dry input into the output.
                 let gain = self.mix.first_gain_target();
 
-                if (gain - 1.0).abs() <= DEFAULT_AMP_EPSILON {
+                if gain.abs() <= DEFAULT_AMP_EPSILON {
+                    return ProcessStatus::ClearAllOutputs;
+                } else if (gain - 1.0).abs() <= DEFAULT_AMP_EPSILON {
                     return ProcessStatus::Bypass;
                 }
 
@@ -368,10 +377,13 @@ impl AudioNodeProcessor for ConvolutionProcessor {
                 {
                     if info.in_silence_mask.is_channel_silent(ch_i) {
                         if !info.out_silence_mask.is_channel_silent(ch_i) {
-                            out_ch.fill(0.0);
+                            out_ch[wet_frames_processed..].fill(0.0);
                         }
                     } else {
-                        for (in_s, out_s) in in_ch.iter().zip(out_ch.iter_mut()) {
+                        for (in_s, out_s) in in_ch[wet_frames_processed..]
+                            .iter()
+                            .zip(out_ch[wet_frames_processed..].iter_mut())
+                        {
                             *out_s = *in_s * gain;
                         }
                     }
@@ -382,13 +394,11 @@ impl AudioNodeProcessor for ConvolutionProcessor {
                 // Clear the wet output to zeros.
                 for (ch_i, ch) in buffers.outputs.iter_mut().enumerate() {
                     if !info.out_silence_mask.is_channel_silent(ch_i) {
-                        ch.fill(0.0);
+                        ch[wet_frames_processed..].fill(0.0);
                     }
                 }
             }
-
-            true
-        };
+        }
 
         let mut scratch_buffers = extra.scratch_buffers.all_mut();
         let (scratch_buffer_0, scratch_buffer_1) = scratch_buffers.split_first_mut().unwrap();
@@ -407,6 +417,50 @@ impl AudioNodeProcessor for ConvolutionProcessor {
         } else {
             buffers.check_for_silence_on_outputs(DEFAULT_AMP_EPSILON)
         }
+    }
+}
+
+impl ConvolutionProcessor {
+    fn convolve_block(
+        &mut self,
+        buffers: &mut firewheel_core::node::ProcBuffers,
+        range: Range<usize>,
+        extra: &mut firewheel_core::node::ProcExtra,
+    ) {
+        let frames = range.end - range.start;
+
+        let mut scratch_buffers = extra.scratch_buffers.all_mut();
+        let (wet_gain_buffer, wet_declick_buffer) = scratch_buffers.split_first_mut().unwrap();
+        let wet_declick_buffer = &mut wet_declick_buffer[0];
+
+        self.wet_gain_smoothed
+            .process_into_buffer(&mut wet_gain_buffer[0..frames]);
+        self.wet_declick.process_into_gain_buffer(
+            &mut wet_declick_buffer[0..frames],
+            false,
+            &extra.declick_values,
+            DeclickFadeCurve::EqualPower3dB,
+        );
+
+        for ((conv, input), output) in self
+            .convolver
+            .iter_mut()
+            .zip(buffers.inputs.iter())
+            .zip(buffers.outputs.iter_mut())
+        {
+            conv.process(&input[range.clone()], &mut output[range.clone()])
+                .unwrap();
+
+            for ((out_s, &g1), &g2) in output[range.clone()]
+                .iter_mut()
+                .zip(wet_gain_buffer.iter())
+                .zip(wet_declick_buffer.iter())
+            {
+                *out_s *= g1 * g2;
+            }
+        }
+
+        self.wet_gain_smoothed.settle();
     }
 }
 
