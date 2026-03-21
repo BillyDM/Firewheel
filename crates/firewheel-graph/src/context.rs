@@ -1076,6 +1076,12 @@ impl Drop for FirewheelContext {
         #[cfg(target_family = "wasm")]
         self.request_deactivate();
 
+        // Make sure node processors are dropped before node states in order
+        // to be compatible with CLAP plugin hosting.
+        if let Some(p) = &mut self.processor_drop_rx {
+            p.clear();
+        }
+
         firewheel_core::collector::GlobalRtGc::collect();
     }
 }

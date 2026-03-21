@@ -16,6 +16,8 @@ use schedule::{InBufferAssignment, OutBufferAssignment, PreProcNode, ScheduledNo
 pub struct NodeEntry {
     pub id: NodeID,
     pub info: AudioNodeInfoInner,
+    /// In order to be compatible with nodes hosting CLAP plugins,
+    /// this field must remain !Send
     pub dyn_node: Box<dyn DynAudioNode>,
     pub processor_constructed: bool,
     /// The edges connected to this node's input ports.
