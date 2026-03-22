@@ -469,11 +469,6 @@ pub trait AudioNodeProcessor: 'static + Send {
         extra: &mut ProcExtra,
     ) -> ProcessStatus;
 
-    /// Called when the node has been bypassed/un-bypassed.
-    fn bypassed(&mut self, bypassed: bool) {
-        let _ = bypassed;
-    }
-
     /// Called when the audio stream has been stopped.
     fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
         let _ = context;

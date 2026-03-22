@@ -371,10 +371,6 @@ impl FirewheelProcessorInner {
                                 } // else already bypassed
                             } else {
                                 if node_entry.bypass_declick != Declicker::SettledAt1 {
-                                    if node_entry.bypass_declick == Declicker::SettledAt0 {
-                                        node_entry.processor.bypassed(false);
-                                    }
-
                                     node_entry.bypass_declick.fade_to_1(&extra.declick_values);
                                     is_bypassed = false;
                                     is_bypass_declicking = true;
@@ -610,12 +606,6 @@ impl FirewheelProcessorInner {
                 );
 
                 // -- Done processing in sub-chunks. Return the final process status. ---------
-
-                if is_bypass_declicking {
-                    if node_entry.bypass_declick == Declicker::SettledAt0 {
-                        node_entry.processor.bypassed(true);
-                    }
-                }
 
                 let status = if let Some(final_mask) = final_mask {
                     // If we manually handled process statuses, return the calculated silence
