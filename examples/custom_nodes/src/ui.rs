@@ -6,12 +6,14 @@ use crate::{nodes::rms::FastRmsState, system::AudioSystem};
 
 pub struct DemoApp {
     audio_system: AudioSystem,
+    rms_bypassed: bool,
 }
 
 impl DemoApp {
     pub fn new() -> Self {
         Self {
             audio_system: AudioSystem::new(),
+            rms_bypassed: false,
         }
     }
 }
@@ -86,16 +88,10 @@ impl App for DemoApp {
             ui.separator();
             ui.label("RMS meter");
 
-            if ui
-                .checkbox(&mut self.audio_system.rms_node.enabled, "enabled")
-                .changed()
-            {
-                self.audio_system.rms_node.update_memo(
-                    &mut self
-                        .audio_system
-                        .cx
-                        .event_queue(self.audio_system.rms_node_id),
-                );
+            if ui.checkbox(&mut self.rms_bypassed, "bypassed").changed() {
+                self.audio_system
+                    .cx
+                    .queue_node_bypassed(self.audio_system.rms_node_id, self.rms_bypassed);
             }
 
             ui.add(

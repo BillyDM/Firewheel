@@ -111,7 +111,8 @@ impl AudioNodeProcessor for Processor {
         // Information about the process block.
         _info: &ProcInfo,
         // The buffers of data to process.
-        buffers: ProcBuffers,
+        // If the node is currently bypassed, then this will be `None`.
+        buffers: Option<ProcBuffers>,
         // The list of events for our node to process.
         events: &mut ProcEvents,
         // Extra buffers and utilities.
@@ -128,7 +129,7 @@ impl AudioNodeProcessor for Processor {
             self.params.apply(patch);
         }
 
-        if !self.params.enabled || self.gain == 0.0 {
+        if !self.params.enabled || self.gain == 0.0 || buffers.is_none() {
             // Tell the engine to automatically and efficiently clear the output buffers
             // for us. This is equivalent to doing:
             // ```
@@ -143,7 +144,7 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in buffers.outputs[0].iter_mut() {
+        for s in buffers.unwrap().outputs[0].iter_mut() {
             // Tick the random number generator.
             self.fpd ^= self.fpd << 13;
             self.fpd ^= self.fpd >> 17;

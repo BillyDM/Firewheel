@@ -85,14 +85,10 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        let Some(out) = buffers.outputs.first_mut() else {
-            return ProcessStatus::ClearAllOutputs;
-        };
-
         for patch in events.drain_patches::<BeepTestNode>() {
             match patch {
                 BeepTestNodePatch::FreqHz(f) => {
@@ -105,11 +101,11 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        if !self.enabled {
+        if !self.enabled || buffers.is_none() || buffers.as_ref().unwrap().outputs.is_empty() {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in out.iter_mut() {
+        for s in buffers.unwrap().outputs[0].iter_mut() {
             *s = (self.phasor * core::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }

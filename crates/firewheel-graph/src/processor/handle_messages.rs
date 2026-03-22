@@ -1,5 +1,8 @@
 use firewheel_core::{
-    dsp::{buffer::ConstSequentialBuffer, declick::DeclickValues},
+    dsp::{
+        buffer::ConstSequentialBuffer,
+        declick::{DeclickValues, Declicker},
+    },
     node::ProcStreamCtx,
     StreamInfo,
 };
@@ -119,6 +122,8 @@ impl FirewheelProcessorInner {
                         processor: n.processor,
                         prev_output_was_silent: true,
                         event_data: NodeEventSchedulerData::new(n.is_pre_process),
+                        bypass_declick: Declicker::SettledAt1,
+                        is_bypassed: false,
                     }
                 )
                 .is_none());

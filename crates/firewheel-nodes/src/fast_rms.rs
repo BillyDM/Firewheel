@@ -135,7 +135,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -158,7 +158,7 @@ impl AudioNodeProcessor for Processor {
             self.params.apply(patch);
         }
 
-        if !self.params.enabled {
+        if !self.params.enabled || buffers.is_none() {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
 
             self.squares = 0.0;
@@ -166,6 +166,8 @@ impl AudioNodeProcessor for Processor {
 
             return ProcessStatus::Bypass;
         }
+
+        let buffers = buffers.unwrap();
 
         let mut frames_processed = 0;
         while frames_processed < info.frames {

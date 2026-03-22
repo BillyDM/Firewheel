@@ -220,7 +220,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -259,6 +259,12 @@ impl AudioNodeProcessor for Processor {
                 self.gain_1.reset_to_target();
             }
         }
+
+        let Some(buffers) = buffers else {
+            self.gain_0.reset_to_target();
+            self.gain_1.reset_to_target();
+            return ProcessStatus::Bypass;
+        };
 
         let channels = buffers.outputs.len();
 

@@ -262,7 +262,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -317,7 +317,7 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        if info.in_silence_mask.all_channels_silent(2) {
+        if info.in_silence_mask.all_channels_silent(2) || buffers.is_none() {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
             self.distance_attenuator.reset();
@@ -325,6 +325,7 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
+        let buffers = buffers.unwrap();
         let scratch_buffer = extra.scratch_buffers.first_mut();
 
         let (in1, in2) = if info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {

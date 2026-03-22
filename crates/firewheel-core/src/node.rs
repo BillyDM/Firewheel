@@ -453,7 +453,8 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// buffers up to `samples`.
     ///
     /// * `info` - Information about this processing block.
-    /// * `buffers` - The buffers of data to process.
+    /// * `buffers` - The buffers of data to process. If the node is
+    ///   currently bypassed, then this will be `None`.
     /// * `events` - A list of events for this node to process.
     /// * `extra` - Additional buffers and utilities.
     ///
@@ -463,10 +464,15 @@ pub trait AudioNodeProcessor: 'static + Send {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus;
+
+    /// Called when the node has been bypassed/un-bypassed.
+    fn bypassed(&mut self, bypassed: bool) {
+        let _ = bypassed;
+    }
 
     /// Called when the audio stream has been stopped.
     fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
@@ -491,7 +497,7 @@ impl AudioNodeProcessor for Box<dyn AudioNodeProcessor> {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -677,6 +683,9 @@ pub struct ProcInfo {
     /// If the audio backend does not provide this information, then this
     /// will be `None`.
     pub process_to_playback_delay: Option<Duration>,
+
+    /// If the node has just been bypassed, then this will be `true`.
+    pub did_just_bypass: bool,
 
     /// Information about the musical transport.
     ///

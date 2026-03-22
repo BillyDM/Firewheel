@@ -609,6 +609,7 @@ impl AudioNode for SamplerNode {
             min_gain: self.min_gain.max(0.0),
             is_first_process: true,
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
+            num_out_channels: config.channels.get().get() as usize,
         })
     }
 }
@@ -639,6 +640,7 @@ struct SamplerProcessor {
 
     is_first_process: bool,
     max_block_frames: usize,
+    num_out_channels: usize,
 }
 
 impl SamplerProcessor {
@@ -774,19 +776,19 @@ impl SamplerProcessor {
         }
     }
 
-    fn num_channels_filled(&self, num_out_channels: usize) -> usize {
+    fn num_channels_filled(&self) -> usize {
         if let Some(state) = &self.loaded_sample_state {
             if state.sample_mono_to_stereo {
                 2
             } else {
-                state.sample_num_channels.get().min(num_out_channels)
+                state.sample_num_channels.get().min(self.num_out_channels)
             }
         } else {
             0
         }
     }
 
-    fn stop(&mut self, num_out_channels: usize, extra: &mut ProcExtra) {
+    fn stop(&mut self, extra: &mut ProcExtra) {
         if self.currently_processing_sample() {
             // Fade out the sample into a temporary look-ahead
             // buffer to declick.
@@ -803,7 +805,7 @@ impl SamplerProcessor {
                         .find_map(|(i, d)| if d.frames_left == 0 { Some(i) } else { None })
                         .unwrap();
 
-                    let n_channels = self.num_channels_filled(num_out_channels);
+                    let n_channels = self.num_channels_filled();
 
                     let fade_out_frames = stop_declicker_buffers.frames();
 
@@ -835,7 +837,7 @@ impl SamplerProcessor {
         }
     }
 
-    fn load_sample(&mut self, sample: ArcGc<dyn SampleResource>, num_out_channels: usize) {
+    fn load_sample(&mut self, sample: ArcGc<dyn SampleResource>) {
         let mut gain = self.params.volume.amp_clamped(self.min_gain);
         if gain > 0.99999 && gain < 1.00001 {
             gain = 1.0;
@@ -844,8 +846,9 @@ impl SamplerProcessor {
         let sample_len_frames = sample.len_frames();
         let sample_num_channels = sample.num_channels();
 
-        let sample_mono_to_stereo =
-            self.params.mono_to_stereo && num_out_channels > 1 && sample_num_channels.get() == 1;
+        let sample_mono_to_stereo = self.params.mono_to_stereo
+            && self.num_out_channels > 1
+            && sample_num_channels.get() == 1;
 
         self.loaded_sample_state = Some(LoadedSampleState {
             sample,
@@ -863,7 +866,7 @@ impl AudioNodeProcessor for SamplerProcessor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -943,7 +946,7 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if sample_changed {
-            self.stop(buffers.outputs.len(), extra);
+            self.stop(extra);
 
             #[cfg(feature = "scheduled_events")]
             if new_playing == Some(true) && playback_instant.is_none() {
@@ -957,7 +960,7 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.loaded_sample_state = None;
 
             if let Some(sample) = &self.params.sample {
-                self.load_sample(ArcGc::clone(sample), buffers.outputs.len());
+                self.load_sample(ArcGc::clone(sample));
             }
         }
 
@@ -1045,7 +1048,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                     }
 
                     if prev_playhead_frames != new_playhead_frames {
-                        self.stop(buffers.outputs.len(), extra);
+                        self.stop(extra);
 
                         self.loaded_sample_state.as_mut().unwrap().playhead_frames =
                             new_playhead_frames;
@@ -1083,7 +1086,7 @@ impl AudioNodeProcessor for SamplerProcessor {
                 self.paused = true;
             } else {
                 // Stop
-                self.stop(buffers.outputs.len(), extra);
+                self.stop(extra);
                 self.shared_state
                     .finished
                     .store(self.params.play.id(), Ordering::Relaxed);
@@ -1107,9 +1110,13 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         let currently_processing_sample = self.currently_processing_sample();
 
-        if !currently_processing_sample && self.num_active_stop_declickers == 0 {
+        if (!currently_processing_sample && self.num_active_stop_declickers == 0)
+            || buffers.is_none()
+        {
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         let mut num_filled_channels = 0;
 
@@ -1188,10 +1195,10 @@ impl AudioNodeProcessor for SamplerProcessor {
             }
         }
 
-        let out_silence_mask = if num_filled_channels >= buffers.outputs.len() {
+        let out_silence_mask = if num_filled_channels >= self.num_out_channels {
             SilenceMask::NONE_SILENT
         } else {
-            let mut mask = SilenceMask::new_all_silent(buffers.outputs.len());
+            let mut mask = SilenceMask::new_all_silent(self.num_out_channels);
             for i in 0..num_filled_channels {
                 mask.set_channel(i, false);
             }
@@ -1331,7 +1338,7 @@ impl Resampler {
                 in_frame_start + (out_frame * start_speed) + (out_frame * out_frame * half_accel)
             };
 
-        let num_channels = processor.num_channels_filled(out_buffers.len());
+        let num_channels = processor.num_channels_filled();
         let copy_start = if self.is_first_process { 0 } else { 2 };
         let mut finished_playing = false;
 

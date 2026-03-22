@@ -147,7 +147,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
     fn process(
         &mut self,
         proc_info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -184,6 +184,18 @@ impl AudioNodeProcessor for FreeverbProcessor {
                 }
             }
         }
+
+        let Some(buffers) = buffers else {
+            if proc_info.did_just_bypass {
+                self.declicker.reset_to_target();
+                self.damping.reset_to_target();
+                self.room_size.reset_to_target();
+                self.width.reset_to_target();
+                self.freeverb.reset();
+            }
+
+            return ProcessStatus::Bypass;
+        };
 
         if self.paused && self.declicker.has_settled() {
             self.damping.reset_to_target();

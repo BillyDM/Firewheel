@@ -123,7 +123,8 @@ impl AudioNodeProcessor for Processor {
         // Information about the process block.
         info: &ProcInfo,
         // The buffers of data to process.
-        buffers: ProcBuffers,
+        // If the node is currently bypassed, then this will be `None`.
+        buffers: Option<ProcBuffers>,
         // The list of events for our node to process.
         events: &mut ProcEvents,
         // Extra buffers and utilities.
@@ -158,8 +159,9 @@ impl AudioNodeProcessor for Processor {
         // there is no need to process.
         let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON);
 
-        if (info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
-            && self.enable_declicker.has_settled()
+        if ((info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
+            && self.enable_declicker.has_settled())
+            || buffers.is_none()
         {
             // Outputs will be silent, so no need to process.
 
@@ -173,6 +175,8 @@ impl AudioNodeProcessor for Processor {
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         // Get slices of the input and output buffers.
         //

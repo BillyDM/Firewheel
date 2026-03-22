@@ -47,8 +47,6 @@ struct SharedState {
 /// expensive algorithm using a sliding window.)
 #[derive(Debug, Diff, Patch, Clone, Copy)]
 pub struct FastRmsNode {
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
     /// The size of the window used to measure the RMS value.
     ///
     /// Smaller values are better at detecting short bursts of loundess (transients),
@@ -61,7 +59,6 @@ pub struct FastRmsNode {
 impl Default for FastRmsNode {
     fn default() -> Self {
         Self {
-            enabled: true,
             window_size_secs: 50.0 / 1_000.0,
         }
     }
@@ -169,7 +166,8 @@ impl AudioNodeProcessor for Processor {
         // Information about the process block.
         info: &ProcInfo,
         // The buffers of data to process.
-        buffers: ProcBuffers,
+        // If the node is currently bypassed, then this will be `None`.
+        buffers: Option<ProcBuffers>,
         // The list of events for our node to process.
         events: &mut ProcEvents,
         // Extra buffers and utilities.
@@ -188,13 +186,12 @@ impl AudioNodeProcessor for Processor {
                         self.num_squared_values = 0;
                     }
                 }
-                _ => {}
             }
 
             self.params.apply(patch);
         }
 
-        if !self.params.enabled {
+        if buffers.is_none() {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
 
             self.squares = 0.0;
@@ -202,6 +199,8 @@ impl AudioNodeProcessor for Processor {
 
             return ProcessStatus::Bypass;
         }
+
+        let buffers = buffers.unwrap();
 
         let mut frames_processed = 0;
         while frames_processed < info.frames {

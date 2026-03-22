@@ -120,7 +120,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -138,12 +138,15 @@ impl AudioNodeProcessor for Processor {
             self.params.apply(patch);
         }
 
-        if !self.params.enabled || self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
+        if !self.params.enabled
+            || self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON)
+            || buffers.is_none()
+        {
             self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in buffers.outputs[0].iter_mut() {
+        for s in buffers.unwrap().outputs[0].iter_mut() {
             // i16[0,32767]
             let randu: i16 = (rng(&mut self.fpd) & 0x7fff) as i16;
 

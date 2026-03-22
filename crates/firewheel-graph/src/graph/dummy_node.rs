@@ -42,7 +42,7 @@ impl AudioNodeProcessor for DummyProcessor {
     fn process(
         &mut self,
         _info: &ProcInfo,
-        _buffers: ProcBuffers,
+        _buffers: Option<ProcBuffers>,
         _events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {

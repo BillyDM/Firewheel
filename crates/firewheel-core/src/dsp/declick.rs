@@ -261,6 +261,85 @@ impl Declicker {
         }
     }
 
+    pub fn process_into_mix_buffer(
+        &mut self,
+        wet_buffer: &mut [f32],
+        dry_buffer: &mut [f32],
+        buffer_already_cleared: bool,
+        declick_values: &DeclickValues,
+        fade_curve: DeclickFadeCurve,
+    ) {
+        let fade_buffer = |buffer: &mut [f32],
+                           declick_frames_left: &mut usize,
+                           values: &[f32],
+                           fill_rest_with: f32| {
+            let process_frames = buffer.len().min(*declick_frames_left);
+            let start_frame = values.len() - *declick_frames_left;
+
+            buffer[..process_frames]
+                .copy_from_slice(&values[start_frame..start_frame + process_frames]);
+
+            if process_frames < buffer.len() {
+                buffer[process_frames..].fill(fill_rest_with);
+            }
+
+            *declick_frames_left -= process_frames;
+        };
+
+        match self {
+            Self::SettledAt0 => {
+                if !buffer_already_cleared {
+                    wet_buffer.fill(0.0);
+                }
+                dry_buffer.fill(1.0);
+            }
+            Self::SettledAt1 => {
+                wet_buffer.fill(1.0);
+                if !buffer_already_cleared {
+                    dry_buffer.fill(0.0);
+                }
+            }
+            Self::FadingTo0 { frames_left } => {
+                let (wet_values, dry_values) = match fade_curve {
+                    DeclickFadeCurve::Linear => (
+                        &declick_values.linear_1_to_0_values,
+                        &declick_values.linear_0_to_1_values,
+                    ),
+                    DeclickFadeCurve::EqualPower3dB => (
+                        &declick_values.circular_1_to_0_values,
+                        &declick_values.circular_0_to_1_values,
+                    ),
+                };
+
+                fade_buffer(wet_buffer, frames_left, wet_values, 0.0);
+                fade_buffer(dry_buffer, frames_left, dry_values, 1.0);
+
+                if *frames_left == 0 {
+                    *self = Self::SettledAt0;
+                }
+            }
+            Self::FadingTo1 { frames_left } => {
+                let (wet_values, dry_values) = match fade_curve {
+                    DeclickFadeCurve::Linear => (
+                        &declick_values.linear_0_to_1_values,
+                        &declick_values.linear_1_to_0_values,
+                    ),
+                    DeclickFadeCurve::EqualPower3dB => (
+                        &declick_values.circular_0_to_1_values,
+                        &declick_values.circular_1_to_0_values,
+                    ),
+                };
+
+                fade_buffer(wet_buffer, frames_left, wet_values, 1.0);
+                fade_buffer(dry_buffer, frames_left, dry_values, 0.0);
+
+                if *frames_left == 0 {
+                    *self = Self::SettledAt1;
+                }
+            }
+        }
+    }
+
     pub fn process<V: AsMut<[f32]>>(
         &mut self,
         buffers: &mut [V],

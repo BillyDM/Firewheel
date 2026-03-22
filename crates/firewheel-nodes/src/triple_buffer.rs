@@ -264,6 +264,7 @@ impl AudioNode for TripleBufferNode {
             prev_publish_was_silent: true,
             num_silent_frames_in_tmp: window_size_frames,
             tmp_buffer_needs_cleared: false,
+            num_inputs: config.channels.get().get() as usize,
         })
     }
 }
@@ -286,13 +287,14 @@ struct Processor {
     prev_publish_was_silent: bool,
     num_silent_frames_in_tmp: usize,
     tmp_buffer_needs_cleared: bool,
+    num_inputs: usize,
 }
 
 impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -378,9 +380,7 @@ impl AudioNodeProcessor for Processor {
             resized = true;
         }
 
-        let input_is_silent = info
-            .in_silence_mask
-            .all_channels_silent(buffers.inputs.len());
+        let input_is_silent = info.in_silence_mask.all_channels_silent(self.num_inputs);
         if input_is_silent {
             self.num_silent_frames_in_tmp =
                 (self.num_silent_frames_in_tmp + info.frames).min(self.window_size_frames);
@@ -397,52 +397,67 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if info.frames >= self.window_size_frames {
-            // Just copy all the new data.
-            for (tmp_ch, in_ch) in self
-                .tmp_ring_buffer
-                .iter_channels_mut()
-                .zip(buffers.inputs.iter())
-            {
-                tmp_ch[..self.window_size_frames]
-                    .copy_from_slice(&in_ch[info.frames - self.window_size_frames..info.frames]);
-            }
-            self.ring_buf_ptr = 0;
-            self.tmp_buffer_needs_cleared = false;
-        } else {
-            if self.tmp_buffer_needs_cleared {
+        if let Some(buffers) = buffers {
+            if info.frames >= self.window_size_frames {
+                // Just copy all the new data.
+                for (tmp_ch, in_ch) in self
+                    .tmp_ring_buffer
+                    .iter_channels_mut()
+                    .zip(buffers.inputs.iter())
+                {
+                    tmp_ch[..self.window_size_frames].copy_from_slice(
+                        &in_ch[info.frames - self.window_size_frames..info.frames],
+                    );
+                }
+                self.ring_buf_ptr = 0;
                 self.tmp_buffer_needs_cleared = false;
+            } else {
+                if self.tmp_buffer_needs_cleared {
+                    self.tmp_buffer_needs_cleared = false;
 
+                    for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
+                        tmp_ch[..self.window_size_frames].fill(0.0);
+                    }
+                    self.ring_buf_ptr = 0;
+
+                    self.num_silent_frames_in_tmp = self.window_size_frames;
+                }
+
+                let first_copy_frames =
+                    info.frames.min(self.window_size_frames - self.ring_buf_ptr);
+                let second_copy_frames = info.frames - first_copy_frames;
+
+                for (tmp_ch, in_ch) in self
+                    .tmp_ring_buffer
+                    .iter_channels_mut()
+                    .zip(buffers.inputs.iter())
+                {
+                    if first_copy_frames > 0 {
+                        tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
+                            .copy_from_slice(&in_ch[..first_copy_frames]);
+                    }
+
+                    if second_copy_frames > 0 {
+                        tmp_ch[..second_copy_frames]
+                            .copy_from_slice(&in_ch[first_copy_frames..info.frames]);
+                    }
+                }
+
+                self.ring_buf_ptr = if second_copy_frames > 0 {
+                    second_copy_frames
+                } else {
+                    self.ring_buf_ptr + first_copy_frames
+                };
+            }
+        } else {
+            if info.did_just_bypass {
+                self.tmp_buffer_needs_cleared = false;
                 for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
                     tmp_ch[..self.window_size_frames].fill(0.0);
                 }
                 self.ring_buf_ptr = 0;
+                self.num_silent_frames_in_tmp = self.window_size_frames;
             }
-
-            let first_copy_frames = info.frames.min(self.window_size_frames - self.ring_buf_ptr);
-            let second_copy_frames = info.frames - first_copy_frames;
-
-            for (tmp_ch, in_ch) in self
-                .tmp_ring_buffer
-                .iter_channels_mut()
-                .zip(buffers.inputs.iter())
-            {
-                if first_copy_frames > 0 {
-                    tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
-                        .copy_from_slice(&in_ch[..first_copy_frames]);
-                }
-
-                if second_copy_frames > 0 {
-                    tmp_ch[..second_copy_frames]
-                        .copy_from_slice(&in_ch[first_copy_frames..info.frames]);
-                }
-            }
-
-            self.ring_buf_ptr = if second_copy_frames > 0 {
-                second_copy_frames
-            } else {
-                self.ring_buf_ptr + first_copy_frames
-            };
         }
 
         {

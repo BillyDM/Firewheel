@@ -87,7 +87,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         _events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -105,6 +105,18 @@ impl AudioNodeProcessor for Processor {
         };
         let first_copy_frames = info.frames.min(self.delay_frames - self.ptr);
         let second_copy_frames = (info.frames - first_copy_frames).min(self.ptr);
+
+        let Some(buffers) = buffers else {
+            if info.did_just_bypass {
+                self.buffer.fill(0.0);
+                self.ptr = 0;
+                for ch in self.num_silent_frames_per_channel.iter_mut() {
+                    *ch = self.buffer.len();
+                }
+            }
+
+            return ProcessStatus::Bypass;
+        };
 
         for (ch_i, (((in_buf, out_buf), delay_buf), num_silent_frames)) in buffers
             .inputs

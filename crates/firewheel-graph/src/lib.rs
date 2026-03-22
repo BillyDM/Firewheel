@@ -90,7 +90,7 @@ mod tests {
             fn process(
                 &mut self,
                 _: &firewheel_core::node::ProcInfo,
-                _: firewheel_core::node::ProcBuffers,
+                _: Option<firewheel_core::node::ProcBuffers>,
                 _: &mut firewheel_core::event::ProcEvents,
                 _: &mut firewheel_core::node::ProcExtra,
             ) -> firewheel_core::node::ProcessStatus {

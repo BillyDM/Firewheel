@@ -258,7 +258,7 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -268,17 +268,18 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
             self.params.apply(patch);
         }
 
-        if was_enabled && !self.params.enabled {
+        if (was_enabled && !self.params.enabled) || buffers.is_none() {
             for ch in self.shared_state.peak_gains.iter() {
                 ch.store(0.0, Ordering::Relaxed);
             }
         }
 
-        if !self.params.enabled {
+        if !self.params.enabled || buffers.is_none() {
             return ProcessStatus::Bypass;
         }
 
         for (i, (in_ch, peak_shared)) in buffers
+            .unwrap()
             .inputs
             .iter()
             .zip(self.shared_state.peak_gains.iter())

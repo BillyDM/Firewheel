@@ -138,7 +138,7 @@ impl AudioNode for VolumeNode {
 
     fn construct_processor(
         &self,
-        _config: &Self::Configuration,
+        config: &Self::Configuration,
         cx: ConstructProcessorContext,
     ) -> Result<impl AudioNodeProcessor, NodeError> {
         let min_gain = self.min_gain.max(0.0);
@@ -154,12 +154,14 @@ impl AudioNode for VolumeNode {
                 cx.stream_info.sample_rate,
             ),
             min_gain,
+            num_channels: config.channels.get().get() as usize,
         })
     }
 }
 
 struct VolumeProcessor {
     gain: SmoothedParam,
+    num_channels: usize,
 
     min_gain: f32,
 }
@@ -168,7 +170,7 @@ impl AudioNodeProcessor for VolumeProcessor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -195,16 +197,15 @@ impl AudioNodeProcessor for VolumeProcessor {
             }
         }
 
-        if info
-            .in_silence_mask
-            .all_channels_silent(buffers.inputs.len())
-        {
+        if info.in_silence_mask.all_channels_silent(self.num_channels) || buffers.is_none() {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain.reset_to_target();
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         if self.gain.has_settled() {
             if self.gain.target_value() <= self.min_gain {

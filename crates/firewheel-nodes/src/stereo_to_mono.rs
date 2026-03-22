@@ -42,16 +42,15 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         _events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        if info.in_silence_mask.all_channels_silent(2)
-            || buffers.inputs.len() < 2
-            || buffers.outputs.is_empty()
-        {
+        if info.in_silence_mask.all_channels_silent(2) || buffers.is_none() {
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         for (out_s, (&in1, &in2)) in buffers.outputs[0]
             .iter_mut()

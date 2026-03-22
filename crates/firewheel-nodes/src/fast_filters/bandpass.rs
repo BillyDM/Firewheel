@@ -159,7 +159,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -190,7 +190,9 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
             return ProcessStatus::Bypass;
         }
 
-        if info.in_silence_mask.all_channels_silent(CHANNELS) && self.enable_declicker.has_settled()
+        if (info.in_silence_mask.all_channels_silent(CHANNELS)
+            && self.enable_declicker.has_settled())
+            || buffers.is_none()
         {
             // Outputs will be silent, so no need to process.
 
@@ -203,6 +205,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         assert!(buffers.inputs.len() == CHANNELS);
         assert!(buffers.outputs.len() == CHANNELS);

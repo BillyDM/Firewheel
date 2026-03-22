@@ -201,7 +201,7 @@ impl AudioNodeProcessor for Processor {
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: ProcBuffers,
+        buffers: Option<ProcBuffers>,
         events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
@@ -237,12 +237,14 @@ impl AudioNodeProcessor for Processor {
             }
         }
 
-        if info.in_silence_mask.all_channels_silent(2) {
+        if info.in_silence_mask.all_channels_silent(2) || buffers.is_none() {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        let buffers = buffers.unwrap();
 
         let in1 = &buffers.inputs[0][..info.frames];
         let in2 = &buffers.inputs[1][..info.frames];

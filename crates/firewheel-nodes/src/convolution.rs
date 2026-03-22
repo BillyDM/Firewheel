@@ -238,7 +238,7 @@ impl AudioNodeProcessor for ConvolutionProcessor {
     fn process(
         &mut self,
         info: &firewheel_core::node::ProcInfo,
-        mut buffers: firewheel_core::node::ProcBuffers,
+        buffers: Option<firewheel_core::node::ProcBuffers>,
         events: &mut firewheel_core::event::ProcEvents,
         extra: &mut firewheel_core::node::ProcExtra,
     ) -> ProcessStatus {
@@ -298,6 +298,20 @@ impl AudioNodeProcessor for ConvolutionProcessor {
                 self.new_impulse_queued = false;
             }
         }
+
+        let Some(mut buffers) = buffers else {
+            if info.did_just_bypass {
+                self.mix.reset_to_target();
+                self.wet_gain_smoothed.reset_to_target();
+                self.wet_declick.reset_to_target();
+
+                for c in self.convolver.iter_mut() {
+                    c.reset();
+                }
+            }
+
+            return ProcessStatus::Bypass;
+        };
 
         let mut wet_frames_processed = 0;
         let mut wet_output_silent = true;

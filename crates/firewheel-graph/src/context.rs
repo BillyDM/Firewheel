@@ -856,6 +856,11 @@ impl FirewheelContext {
         self.graph.remove_node(node_id)
     }
 
+    /// Returns `true` if the node exists in the graph.
+    pub fn contains_node(&self, id: NodeID) -> bool {
+        self.graph.contains_node(id)
+    }
+
     /// Get information about a node in the graph.
     pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
         self.graph.node_info(id)
@@ -976,6 +981,12 @@ impl FirewheelContext {
     /// Note, this method is expensive.
     pub fn cycle_detected(&mut self) -> bool {
         self.graph.cycle_detected()
+    }
+
+    pub fn queue_node_bypassed(&mut self, node_id: NodeID, bypassed: bool) {
+        if self.contains_node(node_id) {
+            self.queue_event_for(node_id, NodeEventType::SetBypassed(bypassed));
+        }
     }
 
     /// Queue an event to be sent to an audio node's processor.
