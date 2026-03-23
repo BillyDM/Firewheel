@@ -75,7 +75,7 @@ pub enum NodeEventType {
         /// The path to the parameter.
         path: ParamPath,
     },
-    /// Used internally by the Firewheel processor.
+    /// Set the bypass state of the node.
     SetBypassed(bool),
     /// Custom event type stored on the heap.
     Custom(OwnedGc<Box<dyn Any + Send + 'static>>),

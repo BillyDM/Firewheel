@@ -1,6 +1,10 @@
 use firewheel::{cpal::CpalStream, diff::Memo, node::NodeID, FirewheelContext};
 
-use crate::nodes::{filter::FilterNode, noise_gen::NoiseGenNode, rms::FastRmsNode};
+use crate::nodes::{
+    filter::FilterNode,
+    noise_gen::NoiseGenNode,
+    rms::{FastRmsNode, FastRmsState},
+};
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
@@ -9,10 +13,15 @@ pub struct AudioSystem {
     pub noise_gen_node: Memo<NoiseGenNode>,
     pub filter_node: Memo<FilterNode>,
     pub rms_node: Memo<FastRmsNode>,
+    pub rms_node_state: FastRmsState,
 
     pub noise_gen_node_id: NodeID,
     pub filter_node_id: NodeID,
     pub rms_node_id: NodeID,
+
+    pub noise_gen_bypassed: bool,
+    pub filter_bypassed: bool,
+    pub rms_bypassed: bool,
 }
 
 impl AudioSystem {
@@ -43,15 +52,21 @@ impl AudioSystem {
         cx.connect(filter_node_id, graph_out_node_id, &[(0, 0), (0, 1)], false)
             .unwrap();
 
+        let rms_node_state = cx.node_state::<FastRmsState>(rms_node_id).unwrap().clone();
+
         Self {
             cx,
             stream,
             noise_gen_node: Memo::new(noise_gen_node),
             filter_node: Memo::new(filter_node),
             rms_node: Memo::new(rms_node),
+            rms_node_state,
             noise_gen_node_id,
             filter_node_id,
             rms_node_id,
+            noise_gen_bypassed: false,
+            filter_bypassed: false,
+            rms_bypassed: false,
         }
     }
 

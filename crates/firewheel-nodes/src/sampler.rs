@@ -863,13 +863,7 @@ impl SamplerProcessor {
 }
 
 impl AudioNodeProcessor for SamplerProcessor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, extra: &mut ProcExtra) {
         let mut sample_changed = self.is_first_process;
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
@@ -1095,8 +1089,31 @@ impl AudioNodeProcessor for SamplerProcessor {
             self.playing = new_playing;
         }
 
-        self.is_first_process = false;
+        self.shared_state.playback_state.store(
+            if self.playing {
+                SharedPlaybackState::Playing
+            } else if self.paused {
+                SharedPlaybackState::Paused
+            } else {
+                SharedPlaybackState::Stopped
+            } as u32,
+            Ordering::Relaxed,
+        );
 
+        self.is_first_process = false;
+    }
+
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.declicker.reset_to_target();
+        self.num_active_stop_declickers = 0;
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         self.shared_state.playback_state.store(
             if self.playing {
                 SharedPlaybackState::Playing
@@ -1110,13 +1127,9 @@ impl AudioNodeProcessor for SamplerProcessor {
 
         let currently_processing_sample = self.currently_processing_sample();
 
-        if (!currently_processing_sample && self.num_active_stop_declickers == 0)
-            || buffers.is_none()
-        {
+        if !currently_processing_sample && self.num_active_stop_declickers == 0 {
             return ProcessStatus::ClearAllOutputs;
         }
-
-        let buffers = buffers.unwrap();
 
         let mut num_filled_channels = 0;
 

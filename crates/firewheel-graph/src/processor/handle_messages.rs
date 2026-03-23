@@ -124,6 +124,7 @@ impl FirewheelProcessorInner {
                         event_data: NodeEventSchedulerData::new(n.is_pre_process),
                         bypass_declick: Declicker::SettledAt1,
                         is_bypassed: false,
+                        is_first_process: true,
                     }
                 )
                 .is_none());

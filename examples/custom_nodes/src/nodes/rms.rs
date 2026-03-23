@@ -160,19 +160,18 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    // The realtime process method.
-    fn process(
-        &mut self,
-        // Information about the process block.
-        info: &ProcInfo,
-        // The buffers of data to process.
-        // If the node is currently bypassed, then this will be `None`.
-        buffers: Option<ProcBuffers>,
-        // The list of events for our node to process.
-        events: &mut ProcEvents,
-        // Extra buffers and utilities.
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    // Called when there are new events for this node to process.
+    //
+    // This is called once before the first call to `process`, and after that
+    // it will be called whenever there are new events (including when the
+    // node is bypassed).
+    //
+    // Unless this node is bypassed, then [`AudioNodeProcessor::process`] will be
+    // called immediately after.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<FastRmsNode>() {
             match patch {
                 FastRmsNodePatch::WindowSizeSecs(window_size_secs) => {
@@ -190,18 +189,38 @@ impl AudioNodeProcessor for Processor {
 
             self.params.apply(patch);
         }
+    }
 
-        if buffers.is_none() {
+    // Called when the node has been fully bypassed/unbypassed.
+    //
+    // The Firewheel processor automatically handles bypass declicking, so
+    // there is no need to handle that manually.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn bypassed(&mut self, bypassed: bool) {
+        if bypassed {
             self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
 
             self.squares = 0.0;
             self.num_squared_values = 0;
-
-            return ProcessStatus::Bypass;
         }
+    }
 
-        let buffers = buffers.unwrap();
-
+    // The realtime process method.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn process(
+        &mut self,
+        // Information about the process block.
+        info: &ProcInfo,
+        // The buffers of data to process.
+        // If the node is currently bypassed, then this will be `None`.
+        buffers: ProcBuffers,
+        // Extra buffers and utilities.
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         let mut frames_processed = 0;
         while frames_processed < info.frames {
             let process_frames =

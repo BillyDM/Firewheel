@@ -261,7 +261,7 @@ impl Declicker {
         }
     }
 
-    pub fn process_into_mix_buffer(
+    pub fn process_into_crossfade_gain_buffers(
         &mut self,
         wet_buffer: &mut [f32],
         dry_buffer: &mut [f32],

@@ -32,9 +32,6 @@ pub struct BeepTestNode {
     /// is *LOUD*, prefer to use a value `Volume::Linear(0.5) or
     /// Volume::Decibels(-12.0)`.
     pub volume: Volume,
-
-    /// Whether or not the node is currently enabled.
-    pub enabled: bool,
 }
 
 impl Default for BeepTestNode {
@@ -42,7 +39,6 @@ impl Default for BeepTestNode {
         Self {
             freq_hz: 440.0,
             volume: Volume::Linear(0.5),
-            enabled: true,
         }
     }
 }
@@ -69,7 +65,6 @@ impl AudioNode for BeepTestNode {
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0)
                 * cx.stream_info.sample_rate_recip as f32,
             gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
-            enabled: self.enabled,
         })
     }
 }
@@ -78,17 +73,10 @@ struct Processor {
     phasor: f32,
     phasor_inc: f32,
     gain: f32,
-    enabled: bool,
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<BeepTestNode>() {
             match patch {
                 BeepTestNodePatch::FreqHz(f) => {
@@ -97,15 +85,17 @@ impl AudioNodeProcessor for Processor {
                 BeepTestNodePatch::Volume(v) => {
                     self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
                 }
-                BeepTestNodePatch::Enabled(e) => self.enabled = e,
             }
         }
+    }
 
-        if !self.enabled || buffers.is_none() || buffers.as_ref().unwrap().outputs.is_empty() {
-            return ProcessStatus::ClearAllOutputs;
-        }
-
-        for s in buffers.unwrap().outputs[0].iter_mut() {
+    fn process(
+        &mut self,
+        _info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        for s in buffers.outputs[0].iter_mut() {
             *s = (self.phasor * core::f32::consts::TAU).sin() * self.gain;
             self.phasor = (self.phasor + self.phasor_inc).fract();
         }

@@ -119,7 +119,7 @@ impl AudioNode for FreeverbNode {
                 cx.stream_info.sample_rate,
             ),
             paused: self.pause,
-            declicker: if self.pause {
+            pause_declicker: if self.pause {
                 Declicker::SettledAt0
             } else {
                 Declicker::SettledAt1
@@ -139,18 +139,25 @@ struct FreeverbProcessor {
     width: SmoothedParam,
     room_size: SmoothedParam,
     paused: bool,
-    declicker: Declicker,
+    pause_declicker: Declicker,
     values: DeclickValues,
 }
 
+impl FreeverbProcessor {
+    fn reset(&mut self, reset_reverb: bool) {
+        self.pause_declicker.reset_to_target();
+        self.damping.reset_to_target();
+        self.room_size.reset_to_target();
+        self.width.reset_to_target();
+
+        if reset_reverb {
+            self.freeverb.reset();
+        }
+    }
+}
+
 impl AudioNodeProcessor for FreeverbProcessor {
-    fn process(
-        &mut self,
-        proc_info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<FreeverbNode>() {
             match patch {
                 FreeverbNodePatch::Damping(value) => {
@@ -169,53 +176,44 @@ impl AudioNodeProcessor for FreeverbProcessor {
                     self.paused = value;
 
                     if value {
-                        self.declicker.fade_to_0(&self.values);
+                        self.pause_declicker.fade_to_0(&self.values);
                     } else {
                         self.apply_parameters();
-                        self.declicker.fade_to_1(&self.values);
+                        self.pause_declicker.fade_to_1(&self.values);
                     }
                 }
                 FreeverbNodePatch::SmoothSeconds(value) => {
-                    self.room_size
-                        .set_smooth_seconds(value, proc_info.sample_rate);
-                    self.width.set_smooth_seconds(value, proc_info.sample_rate);
-                    self.damping
-                        .set_smooth_seconds(value, proc_info.sample_rate);
+                    self.room_size.set_smooth_seconds(value, info.sample_rate);
+                    self.width.set_smooth_seconds(value, info.sample_rate);
+                    self.damping.set_smooth_seconds(value, info.sample_rate);
                 }
             }
         }
+    }
 
-        let Some(buffers) = buffers else {
-            if proc_info.did_just_bypass {
-                self.declicker.reset_to_target();
-                self.damping.reset_to_target();
-                self.room_size.reset_to_target();
-                self.width.reset_to_target();
-                self.freeverb.reset();
-            }
+    fn bypassed(&mut self, bypassed: bool) {
+        if !bypassed {
+            self.reset(true);
+        }
+    }
 
-            return ProcessStatus::Bypass;
-        };
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _: &mut ProcExtra,
+    ) -> ProcessStatus {
+        let all_silent = info.in_silence_mask.all_channels_silent(2);
 
-        if self.paused && self.declicker.has_settled() {
-            self.damping.reset_to_target();
-            self.room_size.reset_to_target();
-            self.width.reset_to_target();
+        if (self.paused && self.pause_declicker.has_settled())
+            || (all_silent && info.prev_output_was_silent)
+        {
+            self.reset(false);
 
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let all_silent = proc_info.in_silence_mask.all_channels_silent(2);
-        if all_silent && proc_info.prev_output_was_silent {
-            self.declicker.reset_to_target();
-            self.damping.reset_to_target();
-            self.room_size.reset_to_target();
-            self.width.reset_to_target();
-
-            return ProcessStatus::ClearAllOutputs;
-        }
-
-        if !all_silent && proc_info.prev_output_was_silent {
+        if !all_silent && info.prev_output_was_silent {
             // re-apply the parameters
             self.apply_parameters();
         }
@@ -223,13 +221,15 @@ impl AudioNodeProcessor for FreeverbProcessor {
         // just take the slow path if any are smoothing
         if self.damping.is_smoothing() || self.room_size.is_smoothing() || self.width.is_smoothing()
         {
-            for frame in 0..proc_info.frames {
+            for frame in 0..info.frames {
                 let damping = self.damping.next_smoothed();
                 let room_size = self.room_size.next_smoothed();
                 let width = self.width.next_smoothed();
 
                 // we assume setting these values is more expensive than
                 // calculating their smoothing
+                //
+                // TODO: Use CoeffUpdateFactor and cold path
                 if frame.is_multiple_of(4) {
                     self.freeverb.set_dampening(damping as f64);
                     self.freeverb.set_room_size(room_size as f64);
@@ -251,7 +251,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
             self.room_size.settle();
             self.width.settle();
         } else {
-            for frame in 0..proc_info.frames {
+            for frame in 0..info.frames {
                 let (left, right) = self.freeverb.tick((
                     buffers.inputs[0][frame] as f64,
                     buffers.inputs[1][frame] as f64,
@@ -265,7 +265,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
         // We do this before the declicking just to make sure we
         // finish declicking if we're paused simultaneously with the
         // input going silent.
-        if all_silent && !proc_info.prev_output_was_silent {
+        if all_silent && !info.prev_output_was_silent {
             // check the output buffers to see if they pass
             // the threshold for "completely silent"
 
@@ -277,10 +277,10 @@ impl AudioNodeProcessor for FreeverbProcessor {
             }
         }
 
-        if !self.declicker.has_settled() {
-            self.declicker.process(
+        if !self.pause_declicker.has_settled() {
+            self.pause_declicker.process(
                 &mut buffers.outputs[..2],
-                0..proc_info.frames,
+                0..info.frames,
                 &self.values,
                 1.0,
                 DeclickFadeCurve::EqualPower3dB,
@@ -291,11 +291,11 @@ impl AudioNodeProcessor for FreeverbProcessor {
     }
 
     fn new_stream(&mut self, stream_info: &firewheel_core::StreamInfo, _proc: &mut ProcStreamCtx) {
-        // TODO: we could probably attempt to smooth the transition here
         self.freeverb.resize(stream_info.sample_rate.get() as usize);
         self.damping.update_sample_rate(stream_info.sample_rate);
         self.width.update_sample_rate(stream_info.sample_rate);
         self.room_size.update_sample_rate(stream_info.sample_rate);
+        self.reset(true);
     }
 }
 

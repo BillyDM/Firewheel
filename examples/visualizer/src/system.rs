@@ -23,6 +23,7 @@ pub struct AudioSystem {
     pub triple_buffer_params: Memo<TripleBufferNode>,
     pub triple_buffer_node_id: NodeID,
     pub triple_buffer_state: TripleBufferState,
+    pub triple_buffer_bypassed: bool,
 }
 
 impl AudioSystem {
@@ -51,7 +52,6 @@ impl AudioSystem {
 
         let triple_buffer_params = TripleBufferNode {
             window_size: WindowSize::Samples(window_size),
-            enabled: true,
         };
         let triple_buffer_node_id = cx
             .add_node(
@@ -86,6 +86,7 @@ impl AudioSystem {
             triple_buffer_params: Memo::new(triple_buffer_params),
             triple_buffer_node_id,
             triple_buffer_state,
+            triple_buffer_bypassed: false,
         }
     }
 
@@ -95,10 +96,10 @@ impl AudioSystem {
             .update_memo(&mut self.cx.event_queue(self.sampler_node_id));
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.triple_buffer_params.enabled = enabled;
-        self.triple_buffer_params
-            .update_memo(&mut self.cx.event_queue(self.triple_buffer_node_id));
+    pub fn set_bypassed(&mut self, bypassed: bool) {
+        self.triple_buffer_bypassed = bypassed;
+        self.cx
+            .queue_bypassed_for(self.triple_buffer_node_id, bypassed);
     }
 
     pub fn set_window_size(&mut self, window_size: u32) {

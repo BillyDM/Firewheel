@@ -6,7 +6,6 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
-        declick::{DeclickFadeCurve, Declicker},
         filter::{
             butterworth::Q_BUTTERWORTH_ORD2,
             smoothing_filter::DEFAULT_SMOOTH_SECONDS,
@@ -131,8 +130,6 @@ pub struct SvfNode<const CHANNELS: usize = 2> {
     /// * [`SvfType::HighShelf`]
     /// * [`SvfType::Bell`]
     pub gain: Volume,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
 
     /// The time in seconds of the internal smoothing filter.
     ///
@@ -160,7 +157,6 @@ impl<const CHANNELS: usize> Default for SvfNode<CHANNELS> {
             cutoff_hz: 1_000.0,
             q_factor: DEFAULT_Q,
             gain: Volume::Decibels(0.0),
-            enabled: true,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -173,13 +169,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_lowpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_lowpass(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Lowpass,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -190,13 +185,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_lowpass_x2(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_lowpass_x2(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::LowpassX2,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -207,13 +201,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_highpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_highpass(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Highpass,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -224,13 +217,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_highpass_x2(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_highpass_x2(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::HighpassX2,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -241,13 +233,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_bandpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_bandpass(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Bandpass,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -259,13 +250,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `gain` - The filter gain
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_lowshelf(cutoff_hz: f32, gain: Volume, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_lowshelf(cutoff_hz: f32, gain: Volume, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::LowShelf,
             cutoff_hz,
             q_factor,
             gain,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -277,18 +267,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `gain` - The filter gain
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_highshelf(
-        cutoff_hz: f32,
-        gain: Volume,
-        q_factor: f32,
-        enabled: bool,
-    ) -> Self {
+    pub const fn from_highshelf(cutoff_hz: f32, gain: Volume, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::HighShelf,
             cutoff_hz,
             q_factor,
             gain,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -300,13 +284,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `gain` - The filter gain
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_bell(cutoff_hz: f32, gain: Volume, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_bell(cutoff_hz: f32, gain: Volume, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Bell,
             cutoff_hz,
             q_factor,
             gain,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -317,13 +300,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_notch(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_notch(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Notch,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -334,13 +316,12 @@ impl<const CHANNELS: usize> SvfNode<CHANNELS> {
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
     /// * `q_factor` - The quality (q) factor
     /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_allpass(cutoff_hz: f32, q_factor: f32, enabled: bool) -> Self {
+    pub const fn from_allpass(cutoff_hz: f32, q_factor: f32) -> Self {
         Self {
             filter_type: SvfType::Allpass,
             cutoff_hz,
             q_factor,
             gain: Volume::UNITY_GAIN,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor(5),
         }
@@ -540,11 +521,11 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
                 },
                 cx.stream_info.sample_rate,
             ),
-            enable_declicker: Declicker::from_enabled(self.enabled),
             freq_range: config.freq_range.clone(),
             q_range: config.q_range.clone(),
             gain_range: min_gain..max_gain,
             coeff_update_mask: self.coeff_update_factor.mask(),
+            params_changed: false,
         };
 
         new_self.update_coefficients(
@@ -571,12 +552,11 @@ struct Processor<const CHANNELS: usize> {
     q_factor: SmoothedParam,
     gain: SmoothedParam,
 
-    enable_declicker: Declicker,
-
     freq_range: Range<f32>,
     q_range: Range<f32>,
     gain_range: Range<f32>,
     coeff_update_mask: CoeffUpdateMask,
+    params_changed: bool,
 }
 
 impl<const CHANNELS: usize> Processor<CHANNELS> {
@@ -788,44 +768,39 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
     }
 }
 
-impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
-        let mut params_changed = false;
+impl<const CHANNELS: usize> Processor<CHANNELS> {
+    fn reset(&mut self) {
+        self.cutoff_hz.reset_to_target();
+        self.filter_0.reset();
+        self.filter_1.reset();
+    }
+}
 
+impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<SvfNode<CHANNELS>>() {
             match patch {
                 SvfNodePatch::FilterType(filter_type) => {
-                    params_changed = true;
+                    self.params_changed = true;
                     self.filter_type = filter_type;
                 }
                 SvfNodePatch::CutoffHz(cutoff) => {
-                    params_changed = true;
+                    self.params_changed = true;
                     self.cutoff_hz
                         .set_value(cutoff.clamp(self.freq_range.start, self.freq_range.end));
                 }
                 SvfNodePatch::QFactor(q_factor) => {
-                    params_changed = true;
+                    self.params_changed = true;
                     self.q_factor
                         .set_value(q_factor.clamp(self.q_range.start, self.q_range.end));
                 }
                 SvfNodePatch::Gain(gain) => {
-                    params_changed = true;
+                    self.params_changed = true;
                     let mut gain = gain.amp().clamp(self.gain_range.start, self.gain_range.end);
                     if gain > 0.99999 && gain < 1.00001 {
                         gain = 1.0;
                     }
                     self.gain.set_value(gain);
-                }
-                SvfNodePatch::Enabled(enabled) => {
-                    // Tell the declicker to crossfade.
-                    self.enable_declicker
-                        .fade_to_enabled(enabled, &extra.declick_values);
                 }
                 SvfNodePatch::SmoothSeconds(seconds) => {
                     self.cutoff_hz.set_smooth_seconds(seconds, info.sample_rate);
@@ -835,29 +810,27 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
             }
         }
+    }
 
-        if self.enable_declicker.disabled() {
-            // Disabled. Bypass this node.
-            return ProcessStatus::Bypass;
-        }
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
 
-        if (info.in_silence_mask.all_channels_silent(CHANNELS)
-            && self.enable_declicker.has_settled())
-            || buffers.is_none()
-        {
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if info.in_silence_mask.all_channels_silent(CHANNELS) {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
             // output.
-            self.cutoff_hz.reset_to_target();
-            self.filter_0.reset();
-            self.filter_1.reset();
-            self.enable_declicker.reset_to_target();
+            self.reset();
 
             return ProcessStatus::ClearAllOutputs;
         }
-
-        let buffers = buffers.unwrap();
 
         if self.cutoff_hz.is_smoothing() || self.q_factor.is_smoothing() || self.gain.is_smoothing()
         {
@@ -884,7 +857,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         } else {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
-            if params_changed {
+            if self.params_changed {
+                self.params_changed = false;
                 self.update_coefficients(
                     self.cutoff_hz.target_value(),
                     self.q_factor.target_value(),
@@ -939,15 +913,6 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
             }
         }
-
-        // Crossfade between the wet and dry signals to declick enabling/disabling.
-        self.enable_declicker.process_crossfade(
-            buffers.inputs,
-            buffers.outputs,
-            info.frames,
-            &extra.declick_values,
-            DeclickFadeCurve::Linear,
-        );
 
         ProcessStatus::OutputsModified
     }

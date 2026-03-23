@@ -167,13 +167,7 @@ struct VolumeProcessor {
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<VolumeNode>() {
             match patch {
                 VolumeNodePatch::Volume(v) => {
@@ -196,16 +190,25 @@ impl AudioNodeProcessor for VolumeProcessor {
                 }
             }
         }
+    }
 
-        if info.in_silence_mask.all_channels_silent(self.num_channels) || buffers.is_none() {
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.gain.reset_to_target();
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if info.in_silence_mask.all_channels_silent(self.num_channels) {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain.reset_to_target();
 
             return ProcessStatus::ClearAllOutputs;
         }
-
-        let buffers = buffers.unwrap();
 
         if self.gain.has_settled() {
             if self.gain.target_value() <= self.min_gain {

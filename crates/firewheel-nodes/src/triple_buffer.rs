@@ -102,17 +102,12 @@ impl Patch for WindowSize {
 pub struct TripleBufferNode {
     /// The window size (the number of frames in each channel in the output buffer)
     pub window_size: WindowSize,
-    /// Whether or not the node is enabled.
-    ///
-    /// Disable when not in use to save on CPU resources.
-    pub enabled: bool,
 }
 
 impl Default for TripleBufferNode {
     fn default() -> Self {
         Self {
             window_size: WindowSize::default(),
-            enabled: true,
         }
     }
 }
@@ -265,6 +260,7 @@ impl AudioNode for TripleBufferNode {
             num_silent_frames_in_tmp: window_size_frames,
             tmp_buffer_needs_cleared: false,
             num_inputs: config.channels.get().get() as usize,
+            did_resize: false,
         })
     }
 }
@@ -288,18 +284,11 @@ struct Processor {
     num_silent_frames_in_tmp: usize,
     tmp_buffer_needs_cleared: bool,
     num_inputs: usize,
+    did_resize: bool,
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
-        let was_enabled = self.params.enabled;
-
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let mut new_window_size_frames = self.window_size_frames;
         for patch in events.drain_patches::<TripleBufferNode>() {
             match patch {
@@ -307,7 +296,6 @@ impl AudioNodeProcessor for Processor {
                     new_window_size_frames = (window_size.as_frames(info.sample_rate) as usize)
                         .min(self.max_window_size_frames);
                 }
-                _ => {}
             }
 
             self.params.apply(patch);
@@ -315,37 +303,6 @@ impl AudioNodeProcessor for Processor {
 
         let producer = self.producer.as_mut().unwrap();
 
-        if !self.params.enabled {
-            if was_enabled {
-                {
-                    let data = producer.input_buffer_mut();
-
-                    for buf_ch in data.buffer.iter_channels_mut() {
-                        buf_ch[..new_window_size_frames].fill(0.0);
-                    }
-
-                    self.generation += 1;
-                    data.generation = self.generation;
-                    data.frames = new_window_size_frames;
-                }
-
-                producer.publish();
-
-                for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
-                    tmp_ch[..new_window_size_frames].fill(0.0);
-                }
-
-                self.window_size_frames = new_window_size_frames;
-                self.ring_buf_ptr = 0;
-                self.prev_publish_was_silent = true;
-                self.num_silent_frames_in_tmp = new_window_size_frames;
-                self.tmp_buffer_needs_cleared = false;
-            }
-
-            return ProcessStatus::ClearAllOutputs;
-        }
-
-        let mut resized = false;
         if self.window_size_frames != new_window_size_frames {
             let prev = self.window_size_frames;
 
@@ -377,9 +334,47 @@ impl AudioNodeProcessor for Processor {
             self.window_size_frames = new_window_size_frames;
             self.ring_buf_ptr = 0;
             self.num_silent_frames_in_tmp = 0;
-            resized = true;
+            self.did_resize = true;
         }
+    }
 
+    fn bypassed(&mut self, bypassed: bool) {
+        let Some(producer) = self.producer.as_mut() else {
+            return;
+        };
+
+        if bypassed {
+            {
+                let data = producer.input_buffer_mut();
+
+                for buf_ch in data.buffer.iter_channels_mut() {
+                    buf_ch[..self.window_size_frames].fill(0.0);
+                }
+
+                self.generation += 1;
+                data.generation = self.generation;
+                data.frames = self.window_size_frames;
+            }
+
+            producer.publish();
+
+            for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
+                tmp_ch[..self.window_size_frames].fill(0.0);
+            }
+
+            self.ring_buf_ptr = 0;
+            self.prev_publish_was_silent = true;
+            self.num_silent_frames_in_tmp = self.window_size_frames;
+            self.tmp_buffer_needs_cleared = false;
+        }
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         let input_is_silent = info.in_silence_mask.all_channels_silent(self.num_inputs);
         if input_is_silent {
             self.num_silent_frames_in_tmp =
@@ -390,75 +385,65 @@ impl AudioNodeProcessor for Processor {
 
         if self.num_silent_frames_in_tmp == self.window_size_frames
             && self.prev_publish_was_silent
-            && !resized
+            && !self.did_resize
         {
             // The previous publish already contained silence, so no need to publish again.
             self.tmp_buffer_needs_cleared = true;
             return ProcessStatus::ClearAllOutputs;
         }
+        self.did_resize = false;
 
-        if let Some(buffers) = buffers {
-            if info.frames >= self.window_size_frames {
-                // Just copy all the new data.
-                for (tmp_ch, in_ch) in self
-                    .tmp_ring_buffer
-                    .iter_channels_mut()
-                    .zip(buffers.inputs.iter())
-                {
-                    tmp_ch[..self.window_size_frames].copy_from_slice(
-                        &in_ch[info.frames - self.window_size_frames..info.frames],
-                    );
-                }
-                self.ring_buf_ptr = 0;
-                self.tmp_buffer_needs_cleared = false;
-            } else {
-                if self.tmp_buffer_needs_cleared {
-                    self.tmp_buffer_needs_cleared = false;
-
-                    for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
-                        tmp_ch[..self.window_size_frames].fill(0.0);
-                    }
-                    self.ring_buf_ptr = 0;
-
-                    self.num_silent_frames_in_tmp = self.window_size_frames;
-                }
-
-                let first_copy_frames =
-                    info.frames.min(self.window_size_frames - self.ring_buf_ptr);
-                let second_copy_frames = info.frames - first_copy_frames;
-
-                for (tmp_ch, in_ch) in self
-                    .tmp_ring_buffer
-                    .iter_channels_mut()
-                    .zip(buffers.inputs.iter())
-                {
-                    if first_copy_frames > 0 {
-                        tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
-                            .copy_from_slice(&in_ch[..first_copy_frames]);
-                    }
-
-                    if second_copy_frames > 0 {
-                        tmp_ch[..second_copy_frames]
-                            .copy_from_slice(&in_ch[first_copy_frames..info.frames]);
-                    }
-                }
-
-                self.ring_buf_ptr = if second_copy_frames > 0 {
-                    second_copy_frames
-                } else {
-                    self.ring_buf_ptr + first_copy_frames
-                };
+        if info.frames >= self.window_size_frames {
+            // Just copy all the new data.
+            for (tmp_ch, in_ch) in self
+                .tmp_ring_buffer
+                .iter_channels_mut()
+                .zip(buffers.inputs.iter())
+            {
+                tmp_ch[..self.window_size_frames]
+                    .copy_from_slice(&in_ch[info.frames - self.window_size_frames..info.frames]);
             }
+            self.ring_buf_ptr = 0;
+            self.tmp_buffer_needs_cleared = false;
         } else {
-            if info.did_just_bypass {
+            if self.tmp_buffer_needs_cleared {
                 self.tmp_buffer_needs_cleared = false;
+
                 for tmp_ch in self.tmp_ring_buffer.iter_channels_mut() {
                     tmp_ch[..self.window_size_frames].fill(0.0);
                 }
                 self.ring_buf_ptr = 0;
+
                 self.num_silent_frames_in_tmp = self.window_size_frames;
             }
+
+            let first_copy_frames = info.frames.min(self.window_size_frames - self.ring_buf_ptr);
+            let second_copy_frames = info.frames - first_copy_frames;
+
+            for (tmp_ch, in_ch) in self
+                .tmp_ring_buffer
+                .iter_channels_mut()
+                .zip(buffers.inputs.iter())
+            {
+                if first_copy_frames > 0 {
+                    tmp_ch[self.ring_buf_ptr..self.ring_buf_ptr + first_copy_frames]
+                        .copy_from_slice(&in_ch[..first_copy_frames]);
+                }
+
+                if second_copy_frames > 0 {
+                    tmp_ch[..second_copy_frames]
+                        .copy_from_slice(&in_ch[first_copy_frames..info.frames]);
+                }
+            }
+
+            self.ring_buf_ptr = if second_copy_frames > 0 {
+                second_copy_frames
+            } else {
+                self.ring_buf_ptr + first_copy_frames
+            };
         }
+
+        let producer = self.producer.as_mut().unwrap();
 
         {
             let buffer = producer.input_buffer_mut();

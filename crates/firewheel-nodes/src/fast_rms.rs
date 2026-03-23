@@ -28,8 +28,6 @@ use num_traits::Float;
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FastRmsNode {
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
     /// The size of the window used for measuring the RMS value.
     ///
     /// Smaller values are better at detecting short bursts of loudness (transients),
@@ -42,7 +40,6 @@ pub struct FastRmsNode {
 impl Default for FastRmsNode {
     fn default() -> Self {
         Self {
-            enabled: true,
             window_size_secs: 50.0 / 1_000.0,
         }
     }
@@ -132,13 +129,7 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<FastRmsNode>() {
             match patch {
                 FastRmsNodePatch::WindowSizeSecs(window_size_secs) => {
@@ -152,23 +143,25 @@ impl AudioNodeProcessor for Processor {
                         self.num_squared_values = 0;
                     }
                 }
-                _ => {}
             }
 
             self.params.apply(patch);
         }
+    }
 
-        if !self.params.enabled || buffers.is_none() {
-            self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.shared_state.rms_value.store(0.0, Ordering::Relaxed);
 
-            self.squares = 0.0;
-            self.num_squared_values = 0;
+        self.squares = 0.0;
+        self.num_squared_values = 0;
+    }
 
-            return ProcessStatus::Bypass;
-        }
-
-        let buffers = buffers.unwrap();
-
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         let mut frames_processed = 0;
         while frames_processed < info.frames {
             let process_frames =

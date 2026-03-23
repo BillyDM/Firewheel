@@ -296,7 +296,7 @@ impl FirewheelProcessorInner {
             process_to_playback_delay,
             #[cfg(feature = "musical_transport")]
             transport_info,
-            did_just_bypass: false,
+            did_just_unbypass: false,
         };
 
         // -- Find scheduled events that have elapsed this block ------------------------------
@@ -336,6 +336,9 @@ impl FirewheelProcessorInner {
 
                 let mut is_bypassed = node_entry.bypass_declick == Declicker::SettledAt0;
                 let mut is_bypass_declicking = !node_entry.bypass_declick.has_settled();
+                let mut prev_is_bypass_declicking = is_bypass_declicking;
+                let original_bypass_declick = node_entry.bypass_declick;
+                let has_outputs = !proc_buffers.outputs.is_empty();
 
                 // Process in sub-chunks for each new scheduled event (or process a single
                 // chunk if there are no scheduled events).
@@ -361,19 +364,30 @@ impl FirewheelProcessorInner {
                         } = sub_chunk_info;
                         let sub_chunk_frames = sub_chunk_range.end - sub_chunk_range.start;
 
-                        let prev_bypass_declick = node_entry.bypass_declick;
                         if let Some(bypassed) = set_bypassed {
                             if bypassed {
                                 if node_entry.bypass_declick != Declicker::SettledAt0 {
-                                    node_entry.bypass_declick.fade_to_0(&extra.declick_values);
-                                    is_bypassed = false;
-                                    is_bypass_declicking = true;
+                                    if has_outputs {
+                                        node_entry.bypass_declick.fade_to_0(&extra.declick_values);
+                                        is_bypass_declicking = true;
+                                        is_bypassed = false;
+                                    } else {
+                                        node_entry.bypass_declick = Declicker::SettledAt0;
+                                        is_bypass_declicking = false;
+                                        is_bypassed = true;
+                                    }
                                 } // else already bypassed
                             } else {
                                 if node_entry.bypass_declick != Declicker::SettledAt1 {
-                                    node_entry.bypass_declick.fade_to_1(&extra.declick_values);
                                     is_bypassed = false;
-                                    is_bypass_declicking = true;
+
+                                    if has_outputs {
+                                        node_entry.bypass_declick.fade_to_1(&extra.declick_values);
+                                        is_bypass_declicking = true;
+                                    } else {
+                                        node_entry.bypass_declick = Declicker::SettledAt1;
+                                        is_bypass_declicking = false;
+                                    }
                                 } // else already un-bypassed
                             }
                         }
@@ -382,18 +396,34 @@ impl FirewheelProcessorInner {
                         info.frames = sub_chunk_frames;
                         info.clock_samples = sub_clock_samples;
                         info.prev_output_was_silent = node_entry.prev_output_was_silent;
-                        info.did_just_bypass = false;
+                        info.did_just_unbypass = false;
 
                         // Call the node's process method.
                         let process_status = if node_entry.bypass_declick == Declicker::SettledAt0 {
-                            info.did_just_bypass = !node_entry.is_bypassed;
-                            node_entry.is_bypassed = true;
+                            let did_just_bypass = !node_entry.is_bypassed;
+                            if did_just_bypass {
+                                node_entry.is_bypassed = true;
+                                node_entry.processor.bypassed(true);
+                            }
 
-                            node_entry.processor.process(info, None, events, extra);
+                            if !events.is_empty() || node_entry.is_first_process {
+                                node_entry.processor.events(info, events, extra);
+                                node_entry.is_first_process = false;
+                            }
 
-                            ProcessStatus::ClearAllOutputs
+                            ProcessStatus::Bypass
                         } else {
-                            node_entry.is_bypassed = false;
+                            let did_just_unbypass = node_entry.is_bypassed;
+                            if did_just_unbypass {
+                                node_entry.is_bypassed = false;
+                                info.did_just_unbypass = true;
+                                node_entry.processor.bypassed(false);
+                            }
+
+                            if !events.is_empty() || node_entry.is_first_process {
+                                node_entry.processor.events(info, events, extra);
+                                node_entry.is_first_process = false;
+                            }
 
                             if sub_chunk_frames == block_frames {
                                 // If this is the only sub-chunk (because there are no scheduled
@@ -403,12 +433,7 @@ impl FirewheelProcessorInner {
                                     outputs: proc_buffers.outputs,
                                 };
 
-                                node_entry.processor.process(
-                                    info,
-                                    Some(sub_proc_buffers),
-                                    events,
-                                    extra,
-                                )
+                                node_entry.processor.process(info, sub_proc_buffers, extra)
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -432,12 +457,7 @@ impl FirewheelProcessorInner {
                                     outputs: sub_outputs.as_mut_slice(),
                                 };
 
-                                node_entry.processor.process(
-                                    info,
-                                    Some(sub_proc_buffers),
-                                    events,
-                                    extra,
-                                )
+                                node_entry.processor.process(info, sub_proc_buffers, extra)
                             }
                         };
 
@@ -445,13 +465,26 @@ impl FirewheelProcessorInner {
                             let (wet_buffer, dry_buffer) =
                                 bypass_gain_buffer.split_at_mut(self.max_block_frames);
 
-                            node_entry.bypass_declick.process_into_mix_buffer(
-                                &mut wet_buffer[sub_chunk_range.clone()],
-                                &mut dry_buffer[sub_chunk_range.clone()],
-                                false,
-                                &extra.declick_values,
-                                DeclickFadeCurve::EqualPower3dB,
-                            );
+                            if !prev_is_bypass_declicking && sub_chunk_range.start > 0 {
+                                if original_bypass_declick == Declicker::SettledAt0 {
+                                    wet_buffer[..sub_chunk_range.start].fill(0.0);
+                                    dry_buffer[..sub_chunk_range.start].fill(1.0);
+                                } else if original_bypass_declick == Declicker::SettledAt1 {
+                                    wet_buffer[..sub_chunk_range.start].fill(1.0);
+                                    dry_buffer[..sub_chunk_range.start].fill(0.0);
+                                }
+                            }
+                            prev_is_bypass_declicking = true;
+
+                            node_entry
+                                .bypass_declick
+                                .process_into_crossfade_gain_buffers(
+                                    &mut wet_buffer[sub_chunk_range.clone()],
+                                    &mut dry_buffer[sub_chunk_range.clone()],
+                                    false,
+                                    &extra.declick_values,
+                                    DeclickFadeCurve::EqualPower3dB,
+                                );
                         }
 
                         node_entry.prev_output_was_silent = match process_status {
@@ -514,20 +547,6 @@ impl FirewheelProcessorInner {
                                         }
                                         ProcessStatus::OutputsModifiedWithMask(out_mask) => {
                                             final_mask = Some(out_mask);
-                                        }
-                                    }
-
-                                    if is_bypass_declicking {
-                                        if prev_bypass_declick == Declicker::SettledAt0 {
-                                            bypass_gain_buffer[0..sub_chunk_range.start].fill(0.0);
-                                            bypass_gain_buffer[self.max_block_frames
-                                                ..self.max_block_frames + sub_chunk_range.start]
-                                                .fill(1.0);
-                                        } else if prev_bypass_declick == Declicker::SettledAt1 {
-                                            bypass_gain_buffer[0..sub_chunk_range.start].fill(1.0);
-                                            bypass_gain_buffer[self.max_block_frames
-                                                ..self.max_block_frames + sub_chunk_range.start]
-                                                .fill(0.0);
                                         }
                                     }
                                 }

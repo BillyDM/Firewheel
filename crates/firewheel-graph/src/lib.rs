@@ -86,17 +86,7 @@ mod tests {
             }
         }
 
-        impl AudioNodeProcessor for DummyClapPluginProcessor {
-            fn process(
-                &mut self,
-                _: &firewheel_core::node::ProcInfo,
-                _: Option<firewheel_core::node::ProcBuffers>,
-                _: &mut firewheel_core::event::ProcEvents,
-                _: &mut firewheel_core::node::ProcExtra,
-            ) -> firewheel_core::node::ProcessStatus {
-                firewheel_core::node::ProcessStatus::Bypass
-            }
-        }
+        impl AudioNodeProcessor for DummyClapPluginProcessor {}
 
         let mut dummy_out_buffer = vec![0.0; 1024];
 

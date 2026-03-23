@@ -32,8 +32,6 @@ pub struct PinkNoiseGenNode {
     /// Note, pink noise is really loud, so prefer to use a value like
     /// `Volume::Linear(0.4)` or `Volume::Decibels(-18.0)`.
     pub volume: Volume,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
     /// The time in seconds of the internal smoothing filter.
     ///
     /// By default this is set to `0.015` (15ms).
@@ -44,7 +42,6 @@ impl Default for PinkNoiseGenNode {
     fn default() -> Self {
         Self {
             volume: Volume::Linear(0.4),
-            enabled: true,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
         }
     }
@@ -117,13 +114,7 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<PinkNoiseGenNode>() {
             match patch {
                 PinkNoiseGenNodePatch::Volume(vol) => {
@@ -132,21 +123,24 @@ impl AudioNodeProcessor for Processor {
                 PinkNoiseGenNodePatch::SmoothSeconds(seconds) => {
                     self.gain.set_smooth_seconds(seconds, info.sample_rate);
                 }
-                _ => {}
             }
 
             self.params.apply(patch);
         }
+    }
 
-        if !self.params.enabled
-            || self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON)
-            || buffers.is_none()
-        {
+    fn process(
+        &mut self,
+        _info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
             self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }
 
-        for s in buffers.unwrap().outputs[0].iter_mut() {
+        for s in buffers.outputs[0].iter_mut() {
             // i16[0,32767]
             let randu: i16 = (rng(&mut self.fpd) & 0x7fff) as i16;
 

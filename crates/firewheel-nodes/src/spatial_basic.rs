@@ -258,14 +258,16 @@ struct Processor {
     params: SpatialBasicNode,
 }
 
+impl Processor {
+    fn reset(&mut self) {
+        self.gain_l.reset_to_target();
+        self.gain_r.reset_to_target();
+        self.distance_attenuator.reset();
+    }
+}
+
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let mut updated = false;
         for mut patch in events.drain_patches::<SpatialBasicNode>() {
             match &mut patch {
@@ -311,21 +313,26 @@ impl AudioNodeProcessor for Processor {
 
             if info.prev_output_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_l.reset_to_target();
-                self.gain_r.reset_to_target();
-                self.distance_attenuator.reset();
+                self.reset();
             }
         }
+    }
 
-        if info.in_silence_mask.all_channels_silent(2) || buffers.is_none() {
-            self.gain_l.reset_to_target();
-            self.gain_r.reset_to_target();
-            self.distance_attenuator.reset();
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
 
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if info.in_silence_mask.all_channels_silent(2) {
+            self.reset();
             return ProcessStatus::ClearAllOutputs;
         }
 
-        let buffers = buffers.unwrap();
         let scratch_buffer = extra.scratch_buffers.first_mut();
 
         let (in1, in2) = if info.in_connected_mask == ConnectedMask::STEREO_CONNECTED {

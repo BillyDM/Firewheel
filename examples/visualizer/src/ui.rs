@@ -108,10 +108,12 @@ impl App for DemoApp {
                 self.audio_system.play_sample();
             }
 
-            let mut enabled = self.audio_system.triple_buffer_params.enabled;
-            ui.checkbox(&mut enabled, "enabled").changed();
-            if enabled != self.audio_system.triple_buffer_params.enabled {
-                self.audio_system.set_enabled(enabled);
+            if ui
+                .checkbox(&mut self.audio_system.triple_buffer_bypassed, "enabled")
+                .changed()
+            {
+                self.audio_system
+                    .set_bypassed(self.audio_system.triple_buffer_bypassed);
             }
 
             if ui

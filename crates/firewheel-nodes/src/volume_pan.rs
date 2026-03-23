@@ -198,13 +198,7 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let mut updated = false;
         for mut patch in events.drain_patches::<VolumePanNode>() {
             match &mut patch {
@@ -236,15 +230,25 @@ impl AudioNodeProcessor for Processor {
                 self.gain_r.reset_to_target();
             }
         }
+    }
 
-        if info.in_silence_mask.all_channels_silent(2) || buffers.is_none() {
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.gain_l.reset_to_target();
+        self.gain_r.reset_to_target();
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if info.in_silence_mask.all_channels_silent(2) {
             self.gain_l.reset_to_target();
             self.gain_r.reset_to_target();
 
             return ProcessStatus::ClearAllOutputs;
         }
-
-        let buffers = buffers.unwrap();
 
         let in1 = &buffers.inputs[0][..info.frames];
         let in2 = &buffers.inputs[1][..info.frames];

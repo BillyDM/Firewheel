@@ -2,7 +2,6 @@ use bevy_platform::prelude::Vec;
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
-    event::ProcEvents,
     mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -84,11 +83,20 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
+    fn bypassed(&mut self, bypassed: bool) {
+        if !bypassed {
+            self.buffer.fill(0.0);
+            self.ptr = 0;
+            for ch in self.num_silent_frames_per_channel.iter_mut() {
+                *ch = self.buffer.len();
+            }
+        }
+    }
+
     fn process(
         &mut self,
         info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        _events: &mut ProcEvents,
+        buffers: ProcBuffers,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         if self.delay_frames == 0 {
@@ -105,18 +113,6 @@ impl AudioNodeProcessor for Processor {
         };
         let first_copy_frames = info.frames.min(self.delay_frames - self.ptr);
         let second_copy_frames = (info.frames - first_copy_frames).min(self.ptr);
-
-        let Some(buffers) = buffers else {
-            if info.did_just_bypass {
-                self.buffer.fill(0.0);
-                self.ptr = 0;
-                for ch in self.num_silent_frames_per_channel.iter_mut() {
-                    *ch = self.buffer.len();
-                }
-            }
-
-            return ProcessStatus::Bypass;
-        };
 
         for (ch_i, (((in_buf, out_buf), delay_buf), num_silent_frames)) in buffers
             .inputs

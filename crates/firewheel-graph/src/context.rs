@@ -9,6 +9,7 @@ use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMa
 use firewheel_core::node::{NodeError, ProcStore};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
+    diff::EventQueue,
     dsp::declick::DeclickValues,
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
@@ -380,9 +381,9 @@ impl FirewheelContext {
             return Err(ActivateError::AlreadyActive);
         }
 
-        let maybe_processor = self.processor_channel.take();
+        let maybe_proc_channel = self.processor_channel.take();
 
-        let prev_sample_rate = if maybe_processor.is_some() {
+        let prev_sample_rate = if maybe_proc_channel.is_some() {
             sample_rate
         } else {
             self.sample_rate
@@ -409,7 +410,7 @@ impl FirewheelContext {
 
         let (drop_tx, drop_rx) = ringbuf::HeapRb::<FirewheelProcessorInner>::new(1).split();
 
-        let processor = if let Some(proc_channel) = maybe_processor {
+        let processor = if let Some(proc_channel) = maybe_proc_channel {
             FirewheelProcessorInner::new(
                 proc_channel,
                 self.config.immediate_event_capacity,
@@ -839,6 +840,34 @@ impl FirewheelContext {
         self.graph.add_dyn_node(node)
     }
 
+    /// Add a node to the audio graph with the given bypass state.
+    pub fn add_node_bypassed<T: AudioNode + 'static>(
+        &mut self,
+        node: T,
+        config: Option<T::Configuration>,
+        bypassed: bool,
+    ) -> Result<NodeID, NodeError> {
+        let node_id = self.add_node(node, config)?;
+        if bypassed {
+            self.queue_event_for(node_id, NodeEventType::SetBypassed(true));
+        }
+        Ok(node_id)
+    }
+
+    /// Add a node with the given bypass state to the audio graph which implements
+    /// the type-erased [`DynAudioNode`] trait.
+    pub fn add_dyn_node_bypassed<T: DynAudioNode + 'static>(
+        &mut self,
+        node: T,
+        bypassed: bool,
+    ) -> Result<NodeID, NodeError> {
+        let node_id = self.graph.add_dyn_node(node)?;
+        if bypassed {
+            self.queue_event_for(node_id, NodeEventType::SetBypassed(true));
+        }
+        Ok(node_id)
+    }
+
     /// Remove the given node from the audio graph.
     ///
     /// This will automatically remove all edges from the graph that
@@ -862,25 +891,36 @@ impl FirewheelContext {
     }
 
     /// Get information about a node in the graph.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
         self.graph.node_info(id)
     }
 
     /// Get an immutable reference to the custom state of a node.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_state<T: 'static>(&self, id: NodeID) -> Option<&T> {
         self.graph.node_state(id)
     }
 
     /// Get a type-erased, immutable reference to the custom state of a node.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_state_dyn(&self, id: NodeID) -> Option<&dyn Any> {
         self.graph.node_state_dyn(id)
     }
 
     /// Get a mutable reference to the custom state of a node.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_state_mut<T: 'static>(&mut self, id: NodeID) -> Option<&mut T> {
         self.graph.node_state_mut(id)
     }
 
+    /// Get a type-erased, mutable reference to the custom state of a node.
+    ///
+    /// If the node does not exist in the graph, then `None` will be returned.
     pub fn node_state_dyn_mut(&mut self, id: NodeID) -> Option<&mut dyn Any> {
         self.graph.node_state_dyn_mut(id)
     }
@@ -983,18 +1023,14 @@ impl FirewheelContext {
         self.graph.cycle_detected()
     }
 
-    pub fn queue_node_bypassed(&mut self, node_id: NodeID, bypassed: bool) {
-        if self.contains_node(node_id) {
-            self.queue_event_for(node_id, NodeEventType::SetBypassed(bypassed));
-        }
-    }
-
     /// Queue an event to be sent to an audio node's processor.
     ///
     /// Note, this event will not be sent until the event queue is flushed
     /// in [`FirewheelContext::update`].
     pub fn queue_event(&mut self, event: NodeEvent) {
-        self.event_group.push(event);
+        if self.contains_node(event.node_id) {
+            self.event_group.push(event);
+        }
     }
 
     /// Queue an event to be sent to an audio node's processor.
@@ -1007,6 +1043,16 @@ impl FirewheelContext {
             #[cfg(feature = "scheduled_events")]
             time: None,
             event,
+        });
+    }
+
+    /// Queue a [`NodeEventType::SetBypassed`] event for the given node.
+    pub fn queue_bypassed_for(&mut self, node_id: NodeID, bypassed: bool) {
+        self.queue_event(NodeEvent {
+            node_id,
+            #[cfg(feature = "scheduled_events")]
+            time: None,
+            event: NodeEventType::SetBypassed(bypassed),
         });
     }
 
@@ -1029,6 +1075,35 @@ impl FirewheelContext {
             time,
             event,
         });
+    }
+
+    /// Construct a [`ContextQueue`] for diffing.
+    ///
+    /// Returns `None` if the node does not exist in the graph.
+    pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_> {
+        ContextQueue {
+            context: self,
+            id,
+            #[cfg(feature = "scheduled_events")]
+            time: None,
+        }
+    }
+
+    /// Construct a [`ContextQueue`] for diffing, along with the event instant that
+    /// any pushed events will be scheduled for.
+    ///
+    /// Returns `None` if the node does not exist in the graph.
+    #[cfg(feature = "scheduled_events")]
+    pub fn event_queue_scheduled(
+        &mut self,
+        id: NodeID,
+        time: Option<EventInstant>,
+    ) -> ContextQueue<'_> {
+        ContextQueue {
+            context: self,
+            id,
+            time,
+        }
     }
 
     /// Cancel scheduled events for all nodes.
@@ -1097,31 +1172,6 @@ impl Drop for FirewheelContext {
     }
 }
 
-impl FirewheelContext {
-    /// Construct a [`ContextQueue`] for diffing.
-    pub fn event_queue(&mut self, id: NodeID) -> ContextQueue<'_> {
-        ContextQueue {
-            context: self,
-            id,
-            #[cfg(feature = "scheduled_events")]
-            time: None,
-        }
-    }
-
-    #[cfg(feature = "scheduled_events")]
-    pub fn event_queue_scheduled(
-        &mut self,
-        id: NodeID,
-        time: Option<EventInstant>,
-    ) -> ContextQueue<'_> {
-        ContextQueue {
-            context: self,
-            id,
-            time,
-        }
-    }
-}
-
 /// An event queue acquired from [`FirewheelContext::event_queue`].
 ///
 /// This can help reduce event queue allocations
@@ -1149,14 +1199,21 @@ pub struct ContextQueue<'a> {
     time: Option<EventInstant>,
 }
 
+impl ContextQueue<'_> {
+    /// Send an event to set the bypass state of the node.
+    pub fn push_bypassed(&mut self, bypassed: bool) {
+        self.push(NodeEventType::SetBypassed(bypassed));
+    }
+}
+
 #[cfg(feature = "scheduled_events")]
-impl<'a> ContextQueue<'a> {
+impl ContextQueue<'_> {
     pub fn time(&self) -> Option<EventInstant> {
         self.time
     }
 }
 
-impl firewheel_core::diff::EventQueue for ContextQueue<'_> {
+impl EventQueue for ContextQueue<'_> {
     fn push(&mut self, data: NodeEventType) {
         self.context.queue_event(NodeEvent {
             event: data,

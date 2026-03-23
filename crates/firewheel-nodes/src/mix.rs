@@ -217,13 +217,7 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: Option<ProcBuffers>,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let mut updated = false;
         for mut patch in events.drain_patches::<MixNode>() {
             match &mut patch {
@@ -259,13 +253,19 @@ impl AudioNodeProcessor for Processor {
                 self.gain_1.reset_to_target();
             }
         }
+    }
 
-        let Some(buffers) = buffers else {
-            self.gain_0.reset_to_target();
-            self.gain_1.reset_to_target();
-            return ProcessStatus::Bypass;
-        };
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.gain_0.reset_to_target();
+        self.gain_1.reset_to_target();
+    }
 
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         let channels = buffers.outputs.len();
 
         let gain_0_silent = self.gain_0.has_settled_at_or_below(self.min_gain);
