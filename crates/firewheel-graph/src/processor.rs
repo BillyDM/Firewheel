@@ -1,3 +1,4 @@
+use audioadapter::{Adapter, AdapterMut};
 use bevy_platform::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -71,18 +72,18 @@ impl FirewheelProcessor {
         }
     }
 
-    pub fn process_interleaved(
+    pub fn process(
         &mut self,
-        input: &[f32],
-        output: &mut [f32],
+        input: &dyn Adapter<'_, f32>,
+        output: &mut dyn AdapterMut<'_, f32>,
         info: BackendProcessInfo,
     ) {
         self.poll_drop_flag();
 
         if let Some(inner) = &mut self.inner {
-            inner.process_interleaved(input, output, info);
+            inner.process(input, output, info);
         } else {
-            output.fill(0.0);
+            output.fill_frames_with(0, info.frames, &0.0);
         }
     }
 

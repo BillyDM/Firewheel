@@ -31,8 +31,8 @@ cpal = "0.17.1"
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 thiserror.workspace = true
-fast-interleave.workspace = true
 fixed-resample = { workspace = true, features = [
   "channel",
 ] }
 bevy_platform = { workspace = true, features = ["std"] }
+audioadapter-buffers = { workspace = true, features = ["std"] }
