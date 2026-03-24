@@ -269,21 +269,20 @@ impl Declicker {
         declick_values: &DeclickValues,
         fade_curve: DeclickFadeCurve,
     ) {
+        let buffer_frames = wet_buffer.len().min(dry_buffer.len());
+
         let fade_buffer = |buffer: &mut [f32],
-                           declick_frames_left: &mut usize,
+                           proc_frames: usize,
+                           declick_frames_left: usize,
                            values: &[f32],
                            fill_rest_with: f32| {
-            let process_frames = buffer.len().min(*declick_frames_left);
-            let start_frame = values.len() - *declick_frames_left;
+            let start_frame = values.len() - declick_frames_left;
 
-            buffer[..process_frames]
-                .copy_from_slice(&values[start_frame..start_frame + process_frames]);
+            buffer[..proc_frames].copy_from_slice(&values[start_frame..start_frame + proc_frames]);
 
-            if process_frames < buffer.len() {
-                buffer[process_frames..].fill(fill_rest_with);
+            if proc_frames < buffer.len() {
+                buffer[proc_frames..].fill(fill_rest_with);
             }
-
-            *declick_frames_left -= process_frames;
         };
 
         match self {
@@ -311,8 +310,12 @@ impl Declicker {
                     ),
                 };
 
-                fade_buffer(wet_buffer, frames_left, wet_values, 0.0);
-                fade_buffer(dry_buffer, frames_left, dry_values, 1.0);
+                let proc_frames = buffer_frames.min(*frames_left);
+
+                fade_buffer(wet_buffer, proc_frames, *frames_left, wet_values, 0.0);
+                fade_buffer(dry_buffer, proc_frames, *frames_left, dry_values, 1.0);
+
+                *frames_left -= proc_frames;
 
                 if *frames_left == 0 {
                     *self = Self::SettledAt0;
@@ -330,8 +333,12 @@ impl Declicker {
                     ),
                 };
 
-                fade_buffer(wet_buffer, frames_left, wet_values, 1.0);
-                fade_buffer(dry_buffer, frames_left, dry_values, 0.0);
+                let proc_frames = buffer_frames.min(*frames_left);
+
+                fade_buffer(wet_buffer, proc_frames, *frames_left, wet_values, 1.0);
+                fade_buffer(dry_buffer, proc_frames, *frames_left, dry_values, 0.0);
+
+                *frames_left -= proc_frames;
 
                 if *frames_left == 0 {
                     *self = Self::SettledAt1;

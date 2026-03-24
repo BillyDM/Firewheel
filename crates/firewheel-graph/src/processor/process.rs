@@ -483,7 +483,7 @@ impl FirewheelProcessorInner {
                                     &mut dry_buffer[sub_chunk_range.clone()],
                                     false,
                                     &extra.declick_values,
-                                    DeclickFadeCurve::EqualPower3dB,
+                                    DeclickFadeCurve::Linear,
                                 );
                         }
 

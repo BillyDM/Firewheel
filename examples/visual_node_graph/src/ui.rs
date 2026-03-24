@@ -842,7 +842,7 @@ impl DemoApp {
 
     fn add_graph_in_out_nodes(&mut self) {
         self.snarl.insert_node(
-            egui::Pos2 { x: -200.0, y: 0.0 },
+            egui::Pos2 { x: -300.0, y: 0.0 },
             GuiAudioNode {
                 node: GuiAudioNodeType::SystemIn,
                 id: self.audio_system.graph_in_node_id(),
@@ -851,7 +851,7 @@ impl DemoApp {
         );
 
         self.snarl.insert_node(
-            egui::Pos2 { x: 200.0, y: 0.0 },
+            egui::Pos2 { x: 300.0, y: 0.0 },
             GuiAudioNode {
                 node: GuiAudioNodeType::SystemOut,
                 id: self.audio_system.graph_out_node_id(),
