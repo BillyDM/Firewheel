@@ -1,3 +1,4 @@
+use audioadapter_buffers::direct::InterleavedSlice;
 use bevy_platform::sync::{Mutex, OnceLock};
 use core::{num::NonZeroU32, time::Duration};
 use firewheel_core::node::StreamStatus;
@@ -196,12 +197,10 @@ impl DataCallback {
         self.next_predicted_stream_time =
             Some(info.stream_time + (frames as f64 * self.sample_rate_recip));
 
-        self.processor.process_interleaved(
-            input,
-            output,
+        self.processor.process(
+            &InterleavedSlice::new(input, info.in_channels, frames).unwrap(),
+            &mut InterleavedSlice::new_mut(output, info.out_channels, frames).unwrap(),
             BackendProcessInfo {
-                num_in_channels: info.in_channels,
-                num_out_channels: info.out_channels,
                 frames,
                 process_timestamp: None,
                 duration_since_stream_start: Duration::from_secs_f64(info.stream_time),

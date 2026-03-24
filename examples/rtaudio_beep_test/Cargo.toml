@@ -10,9 +10,6 @@ firewheel = { path = "../../", default-features = false, features = [
     "rtaudio",
     "beep_test_node",
     "std",
-    "symphonium",
-    "symphonium_resample",
-    "sampler_node",
     "tracing",
 ] }
 tracing.workspace = true

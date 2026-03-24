@@ -1,4 +1,5 @@
-use bevy_platform::sync::atomic::Ordering;
+use audioadapter::{Adapter, AdapterMut};
+use bevy_platform::sync::{atomic::Ordering, Arc};
 use core::{num::NonZeroU32, time::Duration};
 
 use arrayvec::ArrayVec;
@@ -7,6 +8,7 @@ use firewheel_core::{
     clock::{DurationSamples, InstantSamples},
     dsp::declick::{DeclickFadeCurve, Declicker},
     event::ProcEvents,
+    log::RealtimeLogger,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
     node::{NodeID, ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
 };
@@ -26,18 +28,14 @@ use bevy_platform::time::Instant;
 use firewheel_core::clock::ProcTransportInfo;
 
 impl FirewheelProcessorInner {
-    // TODO: Add a `process_deinterleaved` method.
-
     /// Process the given buffers of audio data.
-    pub fn process_interleaved(
+    pub fn process(
         &mut self,
-        input: &[f32],
-        output: &mut [f32],
+        input: &dyn Adapter<'_, f32>,
+        output: &mut dyn AdapterMut<'_, f32>,
         info: BackendProcessInfo,
     ) {
         let BackendProcessInfo {
-            num_in_channels,
-            num_out_channels,
             frames,
             process_timestamp,
             duration_since_stream_start,
@@ -46,6 +44,9 @@ impl FirewheelProcessorInner {
             mut dropped_frames,
             process_to_playback_delay,
         } = info;
+
+        let num_in_channels = input.channels();
+        let num_out_channels = output.channels();
 
         #[cfg(feature = "scheduled_events")]
         let process_timestamp = process_timestamp.unwrap_or_else(|| Instant::now());
@@ -75,12 +76,9 @@ impl FirewheelProcessorInner {
         // --- Process the audio graph in blocks ----------------------------------------------
 
         if self.schedule_data.is_none() || frames == 0 {
-            output.fill(0.0);
+            output.fill_frames_with(0, frames, &0.0);
             return;
         };
-
-        assert_eq!(input.len(), frames * num_in_channels);
-        assert_eq!(output.len(), frames * num_out_channels);
 
         #[cfg(feature = "unsafe_flush_denormals_to_zero")]
         let _ftz_gaurd = crate::ftz::ScopedFtz::enable();
@@ -116,14 +114,35 @@ impl FirewheelProcessorInner {
                     block_frames,
                     num_in_channels,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
-                        firewheel_core::dsp::interleave::deinterleave(
-                            channels,
-                            0,
-                            &input[frames_processed * num_in_channels
-                                ..(frames_processed + block_frames) * num_in_channels],
-                            num_in_channels,
-                            true,
-                        )
+                        let mut silence_mask = SilenceMask::NONE_SILENT;
+
+                        for (ch_i, ch) in channels.iter_mut().enumerate().take(num_in_channels) {
+                            let mut input_is_silent = true;
+                            for s in ch[..block_frames].iter() {
+                                if *s != 0.0 {
+                                    input_is_silent = false;
+                                    break;
+                                }
+                            }
+                            silence_mask.set_channel(ch_i, input_is_silent);
+
+                            if input_is_silent {
+                                ch[..block_frames].fill(0.0);
+                            } else {
+                                input.copy_from_channel_to_slice(
+                                    ch_i,
+                                    frames_processed,
+                                    &mut ch[..block_frames],
+                                );
+                            }
+                        }
+
+                        for (ch_i, ch) in channels.iter_mut().enumerate().skip(num_in_channels) {
+                            ch[..block_frames].fill(0.0);
+                            silence_mask.set_channel(ch_i, true);
+                        }
+
+                        silence_mask
                     },
                 );
 
@@ -149,15 +168,25 @@ impl FirewheelProcessorInner {
                 .read_graph_outputs(
                     block_frames,
                     num_out_channels,
-                    |channels: &[&[f32]], silence_mask| {
-                        firewheel_core::dsp::interleave::interleave(
+                    |channels: &mut [&mut [f32]], silence_mask| {
+                        validate_output(
                             channels,
-                            0,
-                            &mut output[frames_processed * num_out_channels
-                                ..(frames_processed + block_frames) * num_out_channels],
-                            num_out_channels,
-                            Some(silence_mask),
+                            &self.flags,
+                            &self.status_flags,
+                            &mut self.extra.logger,
                         );
+
+                        for (ch_i, ch) in channels.iter().enumerate().take(num_out_channels) {
+                            if silence_mask.is_channel_silent(ch_i) {
+                                output.fill_frames_with(frames_processed, block_frames, &0.0);
+                            } else {
+                                output.copy_from_slice_to_channel(
+                                    ch_i,
+                                    frames_processed,
+                                    &ch[..block_frames],
+                                );
+                            }
+                        }
                     },
                 );
 
@@ -166,69 +195,6 @@ impl FirewheelProcessorInner {
             clock_samples += DurationSamples(block_frames as i64);
             output_stream_status = StreamStatus::empty();
             dropped_frames = 0;
-        }
-
-        self.validate_output(output);
-    }
-
-    fn validate_output(&mut self, output: &mut [f32]) {
-        if self.flags.validate_output_is_finite {
-            let mut non_finite_value = 0.0;
-
-            for s in output.iter_mut() {
-                // Try to optimize for auto-vectorization
-                let is_finite = s.is_finite();
-
-                non_finite_value = if is_finite { non_finite_value } else { *s };
-                *s = if is_finite { *s } else { 0.0 };
-            }
-
-            if non_finite_value != 0.0 {
-                let _ = self.extra.logger.try_error_with(|s| {
-                    #[cfg(feature = "std")]
-                    {
-                        *s = format!(
-                            "Non-finite number detected on audio output: {}",
-                            non_finite_value
-                        );
-                    }
-
-                    #[cfg(not(feature = "std"))]
-                    {
-                        *s = bevy_platform::prelude::String::from(
-                            "Non-finite number detected on audio output",
-                        );
-                    }
-                });
-            }
-        }
-
-        if self.flags.detect_clipping_on_output {
-            let mut clipping_occurred = false;
-
-            if self.flags.hard_clip_outputs {
-                for s in output.iter_mut() {
-                    // Try to optimize for auto-vectorization
-                    let ss = *s;
-                    *s = s.clamp(-1.0, 1.0);
-
-                    clipping_occurred |= ss != *s;
-                }
-            } else {
-                for s in output.iter() {
-                    clipping_occurred |= *s < -1.0 || *s > 1.0;
-                }
-            }
-
-            if clipping_occurred {
-                self.status_flags
-                    .clipping_occured
-                    .store(true, Ordering::Relaxed);
-            }
-        } else if self.flags.hard_clip_outputs {
-            for s in output.iter_mut() {
-                *s = s.clamp(-1.0, 1.0);
-            }
         }
     }
 
@@ -667,5 +633,77 @@ impl FirewheelProcessorInner {
             transport_is_playing: shared_clock_info.transport_is_playing,
             update_instant: process_timestamp,
         });
+    }
+}
+
+fn validate_output(
+    output: &mut [&mut [f32]],
+    flags: &FirewheelFlags,
+    status_flags: &Arc<StatusFlags>,
+    logger: &mut RealtimeLogger,
+) {
+    if flags.validate_output_is_finite {
+        let mut non_finite_value = 0.0;
+
+        for ch in output.iter_mut() {
+            for s in ch.iter_mut() {
+                // Try to optimize for auto-vectorization
+                let is_finite = s.is_finite();
+
+                non_finite_value = if is_finite { non_finite_value } else { *s };
+                *s = if is_finite { *s } else { 0.0 };
+            }
+        }
+
+        if non_finite_value != 0.0 {
+            let _ = logger.try_error_with(|s| {
+                #[cfg(feature = "std")]
+                {
+                    *s = format!(
+                        "Non-finite number detected on audio output: {}",
+                        non_finite_value
+                    );
+                }
+
+                #[cfg(not(feature = "std"))]
+                {
+                    *s = bevy_platform::prelude::String::from(
+                        "Non-finite number detected on audio output",
+                    );
+                }
+            });
+        }
+    }
+
+    if flags.detect_clipping_on_output {
+        let mut clipping_occurred = false;
+
+        if flags.hard_clip_outputs {
+            for ch in output.iter_mut() {
+                for s in ch.iter_mut() {
+                    // Try to optimize for auto-vectorization
+                    let ss = *s;
+                    *s = s.clamp(-1.0, 1.0);
+
+                    clipping_occurred |= ss != *s;
+                }
+            }
+        } else {
+            for ch in output.iter_mut() {
+                for s in ch.iter() {
+                    clipping_occurred |= *s < -1.0 || *s > 1.0;
+                }
+            }
+        }
+
+        if clipping_occurred {
+            status_flags.clipping_occured.store(true, Ordering::Relaxed);
+        }
+    } else if flags.hard_clip_outputs {
+        for ch in output.iter_mut() {
+            for s in ch.iter_mut() {
+                *s = s.clamp(-1.0, 1.0);
+            }
+        }
     }
 }

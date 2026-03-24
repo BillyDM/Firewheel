@@ -395,7 +395,7 @@ impl CompiledSchedule {
         &mut self,
         frames: usize,
         num_stream_outputs: usize,
-        read_outputs: impl FnOnce(&[&[f32]], SilenceMask),
+        read_outputs: impl FnOnce(&mut [&mut [f32]], SilenceMask),
     ) {
         let frames = frames.min(self.max_block_frames);
         let buffers_ptr = self.buffers.as_mut_ptr();
@@ -403,7 +403,7 @@ impl CompiledSchedule {
 
         let graph_out_node = self.schedule.last().unwrap();
 
-        let mut outputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
+        let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
         let mut silence_mask = SilenceMask::NONE_SILENT;
 
@@ -425,7 +425,7 @@ impl CompiledSchedule {
             });
         }
 
-        (read_outputs)(outputs.as_slice(), silence_mask);
+        (read_outputs)(outputs.as_mut_slice(), silence_mask);
     }
 
     #[cfg(feature = "scheduled_events")]
