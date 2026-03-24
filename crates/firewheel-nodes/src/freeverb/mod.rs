@@ -61,7 +61,9 @@ pub struct FreeverbNode {
 
     /// Adjusts the time in seconds over which parameters are smoothed.
     ///
-    /// Defaults to `0.015` (15ms).
+    /// By default this is set to `0.023` (23ms). This value is chosen to be
+    /// roughly equal to a typical block size of 1024 samples (23 ms) to
+    /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
 }
 

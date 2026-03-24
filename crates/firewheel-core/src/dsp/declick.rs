@@ -483,7 +483,7 @@ pub struct DeclickValues {
 }
 
 impl DeclickValues {
-    pub const DEFAULT_FADE_SECONDS: f32 = 10.0 / 1_000.0;
+    pub const DEFAULT_FADE_SECONDS: f32 = 3.0 / 1_000.0;
 
     pub fn new(frames: NonZeroU32) -> Self {
         let frames = frames.get() as usize;

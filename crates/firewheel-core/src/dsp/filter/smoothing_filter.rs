@@ -3,7 +3,12 @@ use num_traits::Float;
 
 use core::num::NonZeroU32;
 
-pub const DEFAULT_SMOOTH_SECONDS: f32 = 15.0 / 1_000.0;
+/// The default number of seconds for a [`Smoothing Filter`].
+///
+/// This value is chosen to be roughly equal to a typical block size
+/// of 1024 samples (23 ms) to eliminate stair-stepping for most
+/// games.
+pub const DEFAULT_SMOOTH_SECONDS: f32 = 23.0 / 1_000.0;
 pub const DEFAULT_SETTLE_EPSILON: f32 = 0.001f32;
 
 /// The coefficients for a simple smoothing/declicking filter where:
