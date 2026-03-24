@@ -749,17 +749,6 @@ fn fade_curve_ui(ui: &mut Ui, curve: &mut FadeCurve) {
 
 // Channel-independent UI for convolution
 fn convolution_ui(ui: &mut Ui, params: &mut Memo<ConvolutionNode>, audio_system: &mut AudioSystem) {
-    ui.add(
-        egui::Slider::from_get_set(0.0..=1.0, |val: Option<f64>| {
-            if let Some(val) = val {
-                params.mix = Mix::new(val as f32);
-            }
-            params.mix.get() as f64
-        })
-        .text("mix"),
-    );
-    fade_curve_ui(ui, &mut params.fade_curve);
-
     let ir_sample_id = format!("ir_sample_id_{}", ui.id().value());
     let current_ir_sample_index: Option<usize> = ui
         .memory(|mem| {
