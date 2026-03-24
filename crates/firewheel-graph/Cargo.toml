@@ -74,3 +74,6 @@ num-traits.workspace = true
 audioadapter.workspace = true
 serde = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
+
+[dev-dependencies]
+audioadapter-buffers.workspace = true

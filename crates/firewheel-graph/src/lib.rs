@@ -17,7 +17,8 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::BackendProcessInfo;
+    use crate::{backend::BackendProcessInfo, processor::FirewheelProcessor};
+    use audioadapter_buffers::direct::InterleavedSlice;
     use bevy_platform::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -88,25 +89,32 @@ mod tests {
 
         impl AudioNodeProcessor for DummyClapPluginProcessor {}
 
-        let mut dummy_out_buffer = vec![0.0; 1024];
+        const DUMMY_OUT_LEN: usize = 1024;
+        let mut dummy_out_buffer = vec![0.0; DUMMY_OUT_LEN];
 
         let activate_info = ActivateInfo {
             sample_rate: NonZeroU32::new(44100).unwrap(),
-            max_block_frames: NonZeroU32::new(1024).unwrap(),
+            max_block_frames: NonZeroU32::new(DUMMY_OUT_LEN as u32).unwrap(),
             num_stream_in_channels: 0,
             num_stream_out_channels: 1,
             input_to_output_latency_seconds: 0.0,
         };
         let process_info = BackendProcessInfo {
-            num_in_channels: 0,
-            num_out_channels: 1,
-            frames: 1024,
+            frames: DUMMY_OUT_LEN,
             process_timestamp: None,
             duration_since_stream_start: Duration::default(),
             input_stream_status: StreamStatus::empty(),
             output_stream_status: StreamStatus::empty(),
             dropped_frames: 0,
             process_to_playback_delay: None,
+        };
+
+        let mut process = |processor: &mut FirewheelProcessor| {
+            processor.process(
+                &InterleavedSlice::new(&[], 0, 0).unwrap(),
+                &mut InterleavedSlice::new_mut(&mut dummy_out_buffer, 1, DUMMY_OUT_LEN).unwrap(),
+                process_info.clone(),
+            );
         };
 
         // Test dropping by removing node manually
@@ -124,13 +132,13 @@ mod tests {
 
             context.update().unwrap();
 
-            processor.process_interleaved(&[], &mut dummy_out_buffer, process_info.clone());
+            process(&mut processor);
 
             context.remove_node(node_id).unwrap();
 
             context.update().unwrap();
 
-            processor.process_interleaved(&[], &mut dummy_out_buffer, process_info.clone());
+            process(&mut processor);
 
             context.update().unwrap();
 
@@ -146,7 +154,7 @@ mod tests {
 
             context.update().unwrap();
 
-            processor.process_interleaved(&[], &mut dummy_out_buffer, process_info.clone());
+            process(&mut processor);
 
             context.update().unwrap();
 
@@ -163,14 +171,14 @@ mod tests {
 
             context.update().unwrap();
 
-            processor.process_interleaved(&[], &mut dummy_out_buffer, process_info.clone());
+            process(&mut processor);
 
             context.update().unwrap();
 
             context.request_deactivate();
 
             // The processor must process at least once to deactivate.
-            processor.process_interleaved(&[], &mut dummy_out_buffer, process_info.clone());
+            process(&mut processor);
 
             let _ = context;
             let _ = processor;

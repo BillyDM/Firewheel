@@ -16,7 +16,8 @@ use firewheel_core::{
 use crate::{
     backend::BackendProcessInfo,
     graph::ScheduleProcStatus,
-    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry},
+    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, StatusFlags},
+    FirewheelFlags,
 };
 
 #[cfg(feature = "scheduled_events")]
