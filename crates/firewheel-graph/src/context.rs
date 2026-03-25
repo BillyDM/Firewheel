@@ -143,15 +143,15 @@ pub struct FirewheelConfig {
     /// By default this is set to `8`.
     pub proc_store_capacity: usize,
 
-    /// If `Some`, then all inputs to the audio graph will be clamped to silence if
-    /// the max peak amplitude is less than the given volume. This can help improve
-    /// the performance of processing chains which use the graph inputs.
+    /// If `Some`, then inputs to the audio graph will be clamped to silence if the
+    /// max peak amplitude is less than the given volume. This can help improve the
+    /// performance of processing chains which use the graph inputs.
     ///
     /// If this is `None`, then no clamping will occur.
     ///
     /// Note, while this is functionally a noise gate, it is not a good noise gate,
     /// and values above -70dB may cause audible clicking. If you need to increase
-    /// the threshold, it is recommended to instead use a dedicated noise gate plugin.
+    /// the threshold, it is recommended to instead use a dedicated noise gate node.
     ///
     /// By default this is set to `Some(Volume::Decibels(-70.0)`.
     pub clamp_graph_inputs_below: Option<Volume>,
