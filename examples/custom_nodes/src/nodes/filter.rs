@@ -1,8 +1,8 @@
 //! This node applies a simple single-pole lowpass filter to a stereo signal.
 //!
-//! It also demonstrates how to make proper use of the parameter smoothers and
-//! declickers from the dsp module, as well as how to make proper use of the
-//! silence flags for optimization.
+//! It also demonstrates how to make proper use of the parameter smoothers from
+//! the dsp module, as well as how to make proper use of the silence flags for
+//! optimization.
 
 use std::f32::consts::PI;
 
@@ -10,10 +10,7 @@ use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::{
-        declick::{DeclickFadeCurve, Declicker},
-        volume::{Volume, DEFAULT_AMP_EPSILON},
-    },
+    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
@@ -38,8 +35,6 @@ pub struct FilterNode {
     pub cutoff_hz: f32,
     /// The overall volume.
     pub volume: Volume,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
 }
 
 impl Default for FilterNode {
@@ -47,7 +42,6 @@ impl Default for FilterNode {
         Self {
             cutoff_hz: 1_000.0,
             volume: Volume::default(),
-            enabled: true,
         }
     }
 }
@@ -98,7 +92,6 @@ impl AudioNode for FilterNode {
                 cx.stream_info.sample_rate,
             ),
             gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
-            enable_declicker: Declicker::from_enabled(self.enabled),
         })
     }
 }
@@ -112,23 +105,30 @@ struct Processor {
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer
     // for the smoothed values.
     gain: SmoothedParamBuffer,
-    // This struct is used to declick when enabling/disabling this node.
-    enable_declicker: Declicker,
+}
+
+impl Processor {
+    fn reset(&mut self) {
+        self.filter_l.reset();
+        self.filter_r.reset();
+        self.cutoff_hz.reset_to_target();
+        self.gain.reset();
+    }
 }
 
 impl AudioNodeProcessor for Processor {
-    // The realtime process method.
-    fn process(
-        &mut self,
-        // Information about the process block.
-        info: &ProcInfo,
-        // The buffers of data to process.
-        buffers: ProcBuffers,
-        // The list of events for our node to process.
-        events: &mut ProcEvents,
-        // Extra buffers and utilities.
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    // Called when there are new events for this node to process.
+    //
+    // This is called once before the first call to `process`, and after that
+    // it will be called whenever there are new events (including when the
+    // node is bypassed).
+    //
+    // Unless this node is bypassed, then [`AudioNodeProcessor::process`] will be
+    // called immediately after.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn events(&mut self, _info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         // Process the events.
         //
         // We don't need to keep around a `FilterNode` instance,
@@ -141,35 +141,44 @@ impl AudioNodeProcessor for Processor {
                 FilterNodePatch::Volume(volume) => {
                     self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
                 }
-                FilterNodePatch::Enabled(enabled) => {
-                    // Tell the declicker to crossfade.
-                    self.enable_declicker
-                        .fade_to_enabled(enabled, &extra.declick_values);
-                }
             }
         }
+    }
 
-        if self.enable_declicker.disabled() {
-            // Disabled. Bypass this node.
-            return ProcessStatus::Bypass;
-        }
+    // Called when the node has been fully bypassed/unbypassed.
+    //
+    // The Firewheel processor automatically handles bypass declicking, so
+    // there is no need to handle that manually.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
 
+    // The realtime process method.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn process(
+        &mut self,
+        // Information about the process block.
+        info: &ProcInfo,
+        // The buffers of data to process.
+        buffers: ProcBuffers,
+        // Extra buffers and utilities.
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         // If the gain parameter is not currently smoothing and is silent, then
         // there is no need to process.
         let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON);
 
-        if (info.in_silence_mask.all_channels_silent(2) || gain_is_silent)
-            && self.enable_declicker.has_settled()
-        {
+        if info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
             // output.
-            self.cutoff_hz.reset_to_target();
-            self.gain.reset();
-            self.filter_l.reset();
-            self.filter_r.reset();
-            self.enable_declicker.reset_to_target();
+            self.reset();
 
             return ProcessStatus::ClearAllOutputs;
         }
@@ -227,15 +236,6 @@ impl AudioNodeProcessor for Processor {
                 out2[i] = fr * gain[i];
             }
         }
-
-        // Crossfade between the wet and dry signals to declick enabling/disabling.
-        self.enable_declicker.process_crossfade(
-            buffers.inputs,
-            buffers.outputs,
-            info.frames,
-            &extra.declick_values,
-            DeclickFadeCurve::Linear,
-        );
 
         // Notify the engine that we have modified the output buffers.
         //

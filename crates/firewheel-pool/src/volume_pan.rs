@@ -38,14 +38,13 @@ impl VolumePanChain {
     ) {
         let node_id = node_ids[0];
 
-        self.volume_pan.diff(
-            &params,
-            PathBuilder::default(),
-            #[cfg(not(feature = "scheduled_events"))]
-            &mut cx.event_queue(node_id),
-            #[cfg(feature = "scheduled_events")]
-            &mut cx.event_queue_scheduled(node_id, time),
-        );
+        #[cfg(not(feature = "scheduled_events"))]
+        let event_queue = &mut cx.event_queue(node_id);
+        #[cfg(feature = "scheduled_events")]
+        let event_queue = &mut cx.event_queue_scheduled(node_id, time);
+
+        self.volume_pan
+            .diff(&params, PathBuilder::default(), event_queue);
     }
 }
 

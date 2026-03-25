@@ -29,7 +29,6 @@ fn main() {
     let mut beep_test_node = Memo::new(BeepTestNode {
         freq_hz: BEEP_FREQUENCY_HZ,
         volume: BEEP_VOLUME,
-        enabled: true,
     });
 
     let beep_test_id = cx

@@ -5,7 +5,6 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
-        declick::{DeclickFadeCurve, Declicker},
         filter::{
             single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
             smoothing_filter::DEFAULT_SMOOTH_SECONDS,
@@ -31,12 +30,12 @@ pub type FastLowpassStereoNode = FastLowpassNode<2>;
 pub struct FastLowpassNode<const CHANNELS: usize = 2> {
     /// The cutoff frequency in hertz in the range `[20.0, 20480.0]`.
     pub cutoff_hz: f32,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.015` (15ms).
+    /// By default this is set to `0.023` (23ms). This value is chosen to be
+    /// roughly equal to a typical block size of 1024 samples (23 ms) to
+    /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
 
     /// An exponent representing the rate at which DSP coefficients are
@@ -57,7 +56,6 @@ impl<const CHANNELS: usize> Default for FastLowpassNode<CHANNELS> {
     fn default() -> Self {
         Self {
             cutoff_hz: 1_000.0,
-            enabled: true,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor::default(),
         }
@@ -68,11 +66,9 @@ impl<const CHANNELS: usize> FastLowpassNode<CHANNELS> {
     /// Construct a new `FastLowpassNode` from the given parameters.
     ///
     /// * `cutoff_hz` - The cutoff frequency in hertz in the range `[20.0, 20480.0]`
-    /// * `enabled` - Whether or not this node is enabled
-    pub const fn from_cutoff_hz(cutoff_hz: f32, enabled: bool) -> Self {
+    pub const fn from_cutoff_hz(cutoff_hz: f32) -> Self {
         Self {
             cutoff_hz,
-            enabled,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor::DEFAULT,
         }
@@ -114,8 +110,8 @@ impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
                 },
                 cx.stream_info.sample_rate,
             ),
-            enable_declicker: Declicker::from_enabled(self.enabled),
             coeff_update_mask: self.coeff_update_factor.mask(),
+            cutoff_changed: false,
         })
     }
 }
@@ -134,30 +130,24 @@ struct Processor<const CHANNELS: usize> {
     coeff: OnePoleIirLPFCoeffSimd<CHANNELS>,
 
     cutoff_hz: SmoothedParam,
-    enable_declicker: Declicker,
     coeff_update_mask: CoeffUpdateMask,
+    cutoff_changed: bool,
+}
+
+impl<const CHANNELS: usize> Processor<CHANNELS> {
+    fn reset(&mut self) {
+        self.cutoff_hz.reset_to_target();
+        self.filter.reset();
+    }
 }
 
 impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: ProcBuffers,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
-        let mut cutoff_changed = false;
-
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<FastLowpassNode<CHANNELS>>() {
             match patch {
                 FastLowpassNodePatch::CutoffHz(cutoff) => {
-                    cutoff_changed = true;
+                    self.cutoff_changed = true;
                     self.cutoff_hz.set_value(cutoff.clamp(MIN_HZ, MAX_HZ));
-                }
-                FastLowpassNodePatch::Enabled(enabled) => {
-                    // Tell the declicker to crossfade.
-                    self.enable_declicker
-                        .fade_to_enabled(enabled, &extra.declick_values);
                 }
                 FastLowpassNodePatch::SmoothSeconds(seconds) => {
                     self.cutoff_hz.set_smooth_seconds(seconds, info.sample_rate);
@@ -167,21 +157,24 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
             }
         }
+    }
 
-        if self.enable_declicker.disabled() {
-            // Disabled. Bypass this node.
-            return ProcessStatus::Bypass;
-        }
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
 
-        if info.in_silence_mask.all_channels_silent(CHANNELS) && self.enable_declicker.has_settled()
-        {
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if info.in_silence_mask.all_channels_silent(CHANNELS) {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
             // output.
-            self.cutoff_hz.reset_to_target();
-            self.filter.reset();
-            self.enable_declicker.reset_to_target();
+            self.reset();
 
             return ProcessStatus::ClearAllOutputs;
         }
@@ -226,7 +219,8 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         } else {
             // The cutoff parameter is not currently smoothing, so we can optimize by
             // only updating the filter coefficients once.
-            if cutoff_changed {
+            if self.cutoff_changed {
+                self.cutoff_changed = false;
                 self.coeff =
                     calc_coeff(self.cutoff_hz.target_value(), info.sample_rate_recip as f32);
             }
@@ -247,15 +241,6 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 }
             }
         }
-
-        // Crossfade between the wet and dry signals to declick enabling/disabling.
-        self.enable_declicker.process_crossfade(
-            buffers.inputs,
-            buffers.outputs,
-            info.frames,
-            &extra.declick_values,
-            DeclickFadeCurve::Linear,
-        );
 
         ProcessStatus::OutputsModified
     }

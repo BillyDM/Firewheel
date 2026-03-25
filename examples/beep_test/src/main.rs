@@ -25,7 +25,6 @@ fn main() {
     let beep_test_node = BeepTestNode {
         freq_hz: BEEP_FREQUENCY_HZ,
         volume: BEEP_VOLUME,
-        enabled: true,
     };
 
     let beep_test_id = cx

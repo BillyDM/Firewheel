@@ -28,15 +28,12 @@ pub struct NoiseGenNode {
     /// Note, white noise is really loud, so prefer to use a value like
     /// `Volume::Linear(0.4)` or `Volume::Decibels(-18.0)`.
     pub volume: Volume,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
 }
 
 impl Default for NoiseGenNode {
     fn default() -> Self {
         Self {
             volume: Volume::Linear(0.4),
-            enabled: true,
         }
     }
 }
@@ -105,30 +102,48 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
+    // Called when there are new events for this node to process.
+    //
+    // This is called once before the first call to `process`, and after that
+    // it will be called whenever there are new events (including when the
+    // node is bypassed).
+    //
+    // Unless this node is bypassed, then [`AudioNodeProcessor::process`] will be
+    // called immediately after.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
+    fn events(&mut self, _info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
+        for patch in events.drain_patches::<NoiseGenNode>() {
+            match patch {
+                NoiseGenNodePatch::Volume(vol) => {
+                    // Since we want to clamp the volume event, we can
+                    // grab it here and perform the processing only when required.
+                    self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
+                }
+            }
+
+            // In this example we don't ever read from this params struct, but for
+            // other nodes this is how you can automatically apply a patch.
+            self.params.apply(patch);
+        }
+    }
+
     // The realtime process method.
+    //
+    // This is always called in a realtime thread, so do not perform any
+    // realtime-unsafe operations.
     fn process(
         &mut self,
         // Information about the process block.
         _info: &ProcInfo,
         // The buffers of data to process.
+        // If the node is currently bypassed, then this will be `None`.
         buffers: ProcBuffers,
-        // The list of events for our node to process.
-        events: &mut ProcEvents,
         // Extra buffers and utilities.
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        // Process the events.
-        for patch in events.drain_patches::<NoiseGenNode>() {
-            // Since we want to clamp the volume event, we can
-            // grab it here and perform the processing only when required.
-            if let NoiseGenNodePatch::Volume(vol) = &patch {
-                self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
-            }
-
-            self.params.apply(patch);
-        }
-
-        if !self.params.enabled || self.gain == 0.0 {
+        if self.gain == 0.0 {
             // Tell the engine to automatically and efficiently clear the output buffers
             // for us. This is equivalent to doing:
             // ```

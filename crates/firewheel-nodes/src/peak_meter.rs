@@ -254,14 +254,16 @@ struct Processor<const NUM_CHANNELS: usize> {
     shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
 }
 
+impl<const NUM_CHANNELS: usize> Processor<NUM_CHANNELS> {
+    fn reset(&mut self) {
+        for ch in self.shared_state.peak_gains.iter() {
+            ch.store(0.0, Ordering::Relaxed);
+        }
+    }
+}
+
 impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: ProcBuffers,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, _info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let was_enabled = self.params.enabled;
 
         for patch in events.drain_patches::<PeakMeterNode<NUM_CHANNELS>>() {
@@ -269,11 +271,20 @@ impl<const NUM_CHANNELS: usize> AudioNodeProcessor for Processor<NUM_CHANNELS> {
         }
 
         if was_enabled && !self.params.enabled {
-            for ch in self.shared_state.peak_gains.iter() {
-                ch.store(0.0, Ordering::Relaxed);
-            }
+            self.reset();
         }
+    }
 
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         if !self.params.enabled {
             return ProcessStatus::Bypass;
         }

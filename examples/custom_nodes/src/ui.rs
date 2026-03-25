@@ -2,7 +2,7 @@ use eframe::App;
 use egui::{Color32, ProgressBar};
 use firewheel::dsp::volume::Volume;
 
-use crate::{nodes::rms::FastRmsState, system::AudioSystem};
+use crate::system::AudioSystem;
 
 pub struct DemoApp {
     audio_system: AudioSystem,
@@ -45,7 +45,15 @@ impl App for DemoApp {
                 self.audio_system.noise_gen_node.volume = Volume::Linear(linear_volume);
             };
 
-            ui.checkbox(&mut self.audio_system.noise_gen_node.enabled, "enabled");
+            if ui
+                .checkbox(&mut self.audio_system.noise_gen_bypassed, "bypassed")
+                .changed()
+            {
+                self.audio_system.cx.queue_bypassed_for(
+                    self.audio_system.noise_gen_node_id,
+                    self.audio_system.noise_gen_bypassed,
+                );
+            }
 
             self.audio_system.noise_gen_node.update_memo(
                 &mut self
@@ -74,7 +82,15 @@ impl App for DemoApp {
                 .logarithmic(true),
             );
 
-            ui.checkbox(&mut self.audio_system.filter_node.enabled, "enabled");
+            if ui
+                .checkbox(&mut self.audio_system.filter_bypassed, "bypassed")
+                .changed()
+            {
+                self.audio_system.cx.queue_bypassed_for(
+                    self.audio_system.filter_node_id,
+                    self.audio_system.filter_bypassed,
+                );
+            }
 
             self.audio_system.filter_node.update_memo(
                 &mut self
@@ -87,14 +103,12 @@ impl App for DemoApp {
             ui.label("RMS meter");
 
             if ui
-                .checkbox(&mut self.audio_system.rms_node.enabled, "enabled")
+                .checkbox(&mut self.audio_system.rms_bypassed, "bypassed")
                 .changed()
             {
-                self.audio_system.rms_node.update_memo(
-                    &mut self
-                        .audio_system
-                        .cx
-                        .event_queue(self.audio_system.rms_node_id),
+                self.audio_system.cx.queue_bypassed_for(
+                    self.audio_system.rms_node_id,
+                    self.audio_system.rms_bypassed,
                 );
             }
 
@@ -107,12 +121,7 @@ impl App for DemoApp {
                 .logarithmic(true),
             );
 
-            let rms_value = self
-                .audio_system
-                .cx
-                .node_state::<FastRmsState>(self.audio_system.rms_node_id)
-                .unwrap()
-                .rms_value();
+            let rms_value = self.audio_system.rms_node_state.rms_value();
 
             // The rms value is quite low, so scale it up to register on the meter better.
             ui.add(ProgressBar::new(rms_value * 2.0).fill(Color32::DARK_GREEN));

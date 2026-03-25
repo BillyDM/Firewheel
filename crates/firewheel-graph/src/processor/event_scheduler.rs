@@ -6,7 +6,7 @@ use bevy_platform::prelude::Vec;
 use arrayvec::ArrayVec;
 use firewheel_core::{
     clock::{DurationSamples, InstantSamples},
-    event::{NodeEvent, ProcEvents, ProcEventsIndex},
+    event::{NodeEvent, NodeEventType, ProcEvents, ProcEventsIndex},
     log::RealtimeLogger,
     node::{NodeID, ProcBuffers, ProcExtra, ProcInfo},
 };
@@ -580,11 +580,44 @@ impl EventScheduler {
             &mut ProcBuffers,
             &mut ProcEvents,
             &mut ProcExtra,
+            Option<bool>,
         ),
     ) {
         let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
+                          immediate_event_buffer: &[Option<NodeEvent>],
+                          #[cfg(feature = "scheduled_events")]
+                          scheduled_event_arena: &[Option<
+            ScheduledEventEntry,
+        >],
                           event: ProcEventsIndex,
-                          logger: &mut RealtimeLogger| {
+                          logger: &mut RealtimeLogger,
+                          set_bypassed: &mut Option<bool>| {
+            match event {
+                ProcEventsIndex::Immediate(i) => {
+                    if let Some(event) = immediate_event_buffer
+                        .get(i as usize)
+                        .and_then(|e| e.as_ref())
+                    {
+                        if let NodeEventType::SetBypassed(bypassed) = &event.event {
+                            *set_bypassed = Some(*bypassed);
+                            return;
+                        }
+                    }
+                }
+                #[cfg(feature = "scheduled_events")]
+                ProcEventsIndex::Scheduled(i) => {
+                    if let Some(event) = scheduled_event_arena
+                        .get(i as usize)
+                        .and_then(|e| e.as_ref())
+                    {
+                        if let NodeEventType::SetBypassed(bypassed) = &event.event.event {
+                            *set_bypassed = Some(*bypassed);
+                            return;
+                        }
+                    }
+                }
+            }
+
             if node_event_queue.len() == node_event_queue.capacity() {
                 match self.buffer_out_of_space_mode {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
@@ -612,6 +645,8 @@ impl EventScheduler {
         while frames_processed < block_frames {
             #[allow(unused_mut)]
             let mut sub_chunk_frames = block_frames - frames_processed;
+
+            let mut set_bypassed: Option<bool> = None;
 
             // Add scheduled events to the processing queue.
             #[cfg(feature = "scheduled_events")]
@@ -648,8 +683,12 @@ impl EventScheduler {
                     // sub-chunk, add it to the processing queue.
                     push_event(
                         proc_event_queue,
+                        &self.immediate_event_buffer,
+                        #[cfg(feature = "scheduled_events")]
+                        &self.scheduled_event_arena,
                         ProcEventsIndex::Scheduled(slot),
                         &mut extra.logger,
+                        &mut set_bypassed,
                     );
                 } else {
                     // Else set the length of this sub-chunk to process up to this event.
@@ -680,8 +719,12 @@ impl EventScheduler {
             {
                 push_event(
                     proc_event_queue,
+                    &self.immediate_event_buffer,
+                    #[cfg(feature = "scheduled_events")]
+                    &self.scheduled_event_arena,
                     ProcEventsIndex::Immediate(*clump_event_start_i),
                     &mut extra.logger,
+                    &mut set_bypassed,
                 );
 
                 node_entry.event_data.num_immediate_events -= 1;
@@ -699,8 +742,12 @@ impl EventScheduler {
                         if event.node_id == node_id {
                             push_event(
                                 proc_event_queue,
+                                &self.immediate_event_buffer,
+                                #[cfg(feature = "scheduled_events")]
+                                &self.scheduled_event_arena,
                                 ProcEventsIndex::Immediate(event_i as u32),
                                 &mut extra.logger,
+                                &mut set_bypassed,
                             );
 
                             node_entry.event_data.num_immediate_events -= 1;
@@ -738,6 +785,7 @@ impl EventScheduler {
                 &mut proc_buffers,
                 &mut node_event_list,
                 extra,
+                set_bypassed,
             );
 
             // Ensure that all `ArcGc`s have been cleaned up.
@@ -755,8 +803,12 @@ impl EventScheduler {
 
                 push_event(
                     proc_event_queue,
+                    &self.immediate_event_buffer,
+                    #[cfg(feature = "scheduled_events")]
+                    &self.scheduled_event_arena,
                     ProcEventsIndex::Scheduled(slot),
                     &mut extra.logger,
+                    &mut set_bypassed,
                 );
             }
 

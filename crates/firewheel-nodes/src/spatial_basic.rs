@@ -90,7 +90,9 @@ pub struct SpatialBasicNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.015` (15ms).
+    /// By default this is set to `0.023` (23ms). This value is chosen to be
+    /// roughly equal to a typical block size of 1024 samples (23 ms) to
+    /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
     /// If the resutling gain (in raw amplitude, not decibels) is less than or equal
     /// to this value, the the gain will be clamped to `0` (silence).
@@ -258,14 +260,16 @@ struct Processor {
     params: SpatialBasicNode,
 }
 
+impl Processor {
+    fn reset(&mut self) {
+        self.gain_l.reset_to_target();
+        self.gain_r.reset_to_target();
+        self.distance_attenuator.reset();
+    }
+}
+
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: ProcBuffers,
-        events: &mut ProcEvents,
-        extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         let mut updated = false;
         for mut patch in events.drain_patches::<SpatialBasicNode>() {
             match &mut patch {
@@ -311,17 +315,23 @@ impl AudioNodeProcessor for Processor {
 
             if info.prev_output_was_silent {
                 // Previous block was silent, so no need to smooth.
-                self.gain_l.reset_to_target();
-                self.gain_r.reset_to_target();
-                self.distance_attenuator.reset();
+                self.reset();
             }
         }
+    }
 
+    fn bypassed(&mut self, _bypassed: bool) {
+        self.reset();
+    }
+
+    fn process(
+        &mut self,
+        info: &ProcInfo,
+        buffers: ProcBuffers,
+        extra: &mut ProcExtra,
+    ) -> ProcessStatus {
         if info.in_silence_mask.all_channels_silent(2) {
-            self.gain_l.reset_to_target();
-            self.gain_r.reset_to_target();
-            self.distance_attenuator.reset();
-
+            self.reset();
             return ProcessStatus::ClearAllOutputs;
         }
 

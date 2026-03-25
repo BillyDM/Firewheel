@@ -32,11 +32,11 @@ pub struct PinkNoiseGenNode {
     /// Note, pink noise is really loud, so prefer to use a value like
     /// `Volume::Linear(0.4)` or `Volume::Decibels(-18.0)`.
     pub volume: Volume,
-    /// Whether or not this node is enabled.
-    pub enabled: bool,
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.015` (15ms).
+    /// By default this is set to `0.023` (23ms). This value is chosen to be
+    /// roughly equal to a typical block size of 1024 samples (23 ms) to
+    /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
 }
 
@@ -44,7 +44,6 @@ impl Default for PinkNoiseGenNode {
     fn default() -> Self {
         Self {
             volume: Volume::Linear(0.4),
-            enabled: true,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
         }
     }
@@ -117,13 +116,7 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
-    fn process(
-        &mut self,
-        info: &ProcInfo,
-        buffers: ProcBuffers,
-        events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, _extra: &mut ProcExtra) {
         for patch in events.drain_patches::<PinkNoiseGenNode>() {
             match patch {
                 PinkNoiseGenNodePatch::Volume(vol) => {
@@ -132,13 +125,19 @@ impl AudioNodeProcessor for Processor {
                 PinkNoiseGenNodePatch::SmoothSeconds(seconds) => {
                     self.gain.set_smooth_seconds(seconds, info.sample_rate);
                 }
-                _ => {}
             }
 
             self.params.apply(patch);
         }
+    }
 
-        if !self.params.enabled || self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
+    fn process(
+        &mut self,
+        _info: &ProcInfo,
+        buffers: ProcBuffers,
+        _extra: &mut ProcExtra,
+    ) -> ProcessStatus {
+        if self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
             self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }

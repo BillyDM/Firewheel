@@ -1,7 +1,7 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
     collector::ArcGc,
-    cpal::CpalStream,
+    cpal::{CpalConfig, CpalStream},
     error::AddEdgeError,
     node::NodeID,
     nodes::{
@@ -24,7 +24,7 @@ use firewheel::{
 };
 use symphonium::SymphoniumLoader;
 
-use crate::ui::GuiAudioNode;
+use crate::ui::{GuiAudioNode, GuiAudioNodeType};
 
 pub const SAMPLE_PATHS: [&'static str; 4] = [
     "assets/test_files/swosh-sword-swing.flac",
@@ -69,7 +69,14 @@ const IR_SAMPLE_PATHS: [&'static str; 2] = [
 impl AudioSystem {
     pub fn new() -> Self {
         let mut cx = FirewheelContext::new(Default::default());
-        let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
+        let stream = CpalStream::new(
+            &mut cx,
+            CpalConfig {
+                output: Default::default(),
+                input: Some(Default::default()),
+            },
+        )
+        .unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
@@ -170,72 +177,62 @@ impl AudioSystem {
         }
         .expect("Failed to add node");
 
-        match node_type {
-            NodeType::BeepTest => GuiAudioNode::BeepTest {
-                id,
+        let node = match node_type {
+            NodeType::BeepTest => GuiAudioNodeType::BeepTest {
                 params: Default::default(),
             },
-            NodeType::WhiteNoiseGen => GuiAudioNode::WhiteNoiseGen {
-                id,
+            NodeType::WhiteNoiseGen => GuiAudioNodeType::WhiteNoiseGen {
                 params: Default::default(),
             },
-            NodeType::PinkNoiseGen => GuiAudioNode::PinkNoiseGen {
-                id,
+            NodeType::PinkNoiseGen => GuiAudioNodeType::PinkNoiseGen {
                 params: Default::default(),
             },
-            NodeType::StereoToMono => GuiAudioNode::StereoToMono { id },
-            NodeType::VolumeMono => GuiAudioNode::VolumeMono {
-                id,
+            NodeType::StereoToMono => GuiAudioNodeType::StereoToMono,
+            NodeType::VolumeMono => GuiAudioNodeType::VolumeMono {
                 params: Default::default(),
             },
-            NodeType::VolumeStereo => GuiAudioNode::VolumeStereo {
-                id,
+            NodeType::VolumeStereo => GuiAudioNodeType::VolumeStereo {
                 params: Default::default(),
             },
-            NodeType::VolumePan => GuiAudioNode::VolumePan {
-                id,
+            NodeType::VolumePan => GuiAudioNodeType::VolumePan {
                 params: Default::default(),
             },
-            NodeType::FastLowpass => GuiAudioNode::FastLowpass {
-                id,
+            NodeType::FastLowpass => GuiAudioNodeType::FastLowpass {
                 params: Default::default(),
             },
-            NodeType::FastHighpass => GuiAudioNode::FastHighpass {
-                id,
+            NodeType::FastHighpass => GuiAudioNodeType::FastHighpass {
                 params: Default::default(),
             },
-            NodeType::FastBandpass => GuiAudioNode::FastBandpass {
-                id,
+            NodeType::FastBandpass => GuiAudioNodeType::FastBandpass {
                 params: Default::default(),
             },
-            NodeType::SVF => GuiAudioNode::SVF {
-                id,
+            NodeType::SVF => GuiAudioNodeType::SVF {
                 params: Default::default(),
             },
-            NodeType::MixMono => GuiAudioNode::MixMono {
-                id,
+            NodeType::MixMono => GuiAudioNodeType::MixMono {
                 params: Default::default(),
             },
-            NodeType::MixStereo => GuiAudioNode::MixStereo {
-                id,
+            NodeType::MixStereo => GuiAudioNodeType::MixStereo {
                 params: Default::default(),
             },
-            NodeType::Sampler => GuiAudioNode::Sampler {
-                id,
+            NodeType::Sampler => GuiAudioNodeType::Sampler {
                 params: Default::default(),
             },
-            NodeType::Freeverb => GuiAudioNode::Freeverb {
-                id,
+            NodeType::Freeverb => GuiAudioNodeType::Freeverb {
                 params: Default::default(),
             },
-            NodeType::ConvolutionMono => GuiAudioNode::ConvolutionMono {
-                id,
+            NodeType::ConvolutionMono => GuiAudioNodeType::ConvolutionMono {
                 params: Default::default(),
             },
-            NodeType::ConvolutionStereo => GuiAudioNode::ConvolutionStereo {
-                id,
+            NodeType::ConvolutionStereo => GuiAudioNodeType::ConvolutionStereo {
                 params: Default::default(),
             },
+        };
+
+        GuiAudioNode {
+            node,
+            id,
+            bypassed: false,
         }
     }
 

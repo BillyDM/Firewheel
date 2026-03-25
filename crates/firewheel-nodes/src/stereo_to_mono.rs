@@ -1,7 +1,6 @@
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
-    event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
         ProcBuffers, ProcExtra, ProcInfo, ProcessStatus,
@@ -43,13 +42,9 @@ impl AudioNodeProcessor for StereoToMonoProcessor {
         &mut self,
         info: &ProcInfo,
         buffers: ProcBuffers,
-        _events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        if info.in_silence_mask.all_channels_silent(2)
-            || buffers.inputs.len() < 2
-            || buffers.outputs.is_empty()
-        {
+        if info.in_silence_mask.all_channels_silent(2) {
             return ProcessStatus::ClearAllOutputs;
         }
 

@@ -6,6 +6,7 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
+    dsp::declick::{DeclickFadeCurve, Declicker},
     event::ProcEvents,
     log::RealtimeLogger,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
@@ -14,6 +15,7 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
+    graph::ScheduleProcStatus,
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, StatusFlags},
     FirewheelFlags,
 };
@@ -261,6 +263,7 @@ impl FirewheelProcessorInner {
             process_to_playback_delay,
             #[cfg(feature = "musical_transport")]
             transport_info,
+            did_just_unbypass: false,
         };
 
         // -- Find scheduled events that have elapsed this block ------------------------------
@@ -281,8 +284,9 @@ impl FirewheelProcessorInner {
              out_constant_mask: ConstantMask,
              in_connected_mask: ConnectedMask,
              out_connected_mask: ConnectedMask,
-             proc_buffers|
-             -> ProcessStatus {
+             proc_buffers,
+             bypass_gain_buffer: &mut [f32]|
+             -> ScheduleProcStatus {
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
                 // Add the mask information to proc info.
@@ -296,6 +300,12 @@ impl FirewheelProcessorInner {
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
                 let mut final_mask = None;
+
+                let mut is_bypassed = node_entry.bypass_declick == Declicker::SettledAt0;
+                let mut is_bypass_declicking = !node_entry.bypass_declick.has_settled();
+                let mut prev_is_bypass_declicking = is_bypass_declicking;
+                let original_bypass_declick = node_entry.bypass_declick;
+                let has_outputs = !proc_buffers.outputs.is_empty();
 
                 // Process in sub-chunks for each new scheduled event (or process a single
                 // chunk if there are no scheduled events).
@@ -313,20 +323,75 @@ impl FirewheelProcessorInner {
                      info: &mut ProcInfo,
                      proc_buffers: &mut ProcBuffers,
                      events: &mut ProcEvents,
-                     extra: &mut ProcExtra| {
+                     extra: &mut ProcExtra,
+                     set_bypassed: Option<bool>| {
                         let SubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
                         } = sub_chunk_info;
                         let sub_chunk_frames = sub_chunk_range.end - sub_chunk_range.start;
 
+                        if let Some(bypassed) = set_bypassed {
+                            if bypassed {
+                                if node_entry.bypass_declick != Declicker::SettledAt0 {
+                                    if has_outputs {
+                                        node_entry.bypass_declick.fade_to_0(&extra.declick_values);
+                                        is_bypass_declicking = true;
+                                        is_bypassed = false;
+                                    } else {
+                                        node_entry.bypass_declick = Declicker::SettledAt0;
+                                        is_bypass_declicking = false;
+                                        is_bypassed = true;
+                                    }
+                                } // else already bypassed
+                            } else {
+                                if node_entry.bypass_declick != Declicker::SettledAt1 {
+                                    is_bypassed = false;
+
+                                    if has_outputs {
+                                        node_entry.bypass_declick.fade_to_1(&extra.declick_values);
+                                        is_bypass_declicking = true;
+                                    } else {
+                                        node_entry.bypass_declick = Declicker::SettledAt1;
+                                        is_bypass_declicking = false;
+                                    }
+                                } // else already un-bypassed
+                            }
+                        }
+
                         // Set the timing information for the process info for this sub-chunk.
                         info.frames = sub_chunk_frames;
                         info.clock_samples = sub_clock_samples;
                         info.prev_output_was_silent = node_entry.prev_output_was_silent;
+                        info.did_just_unbypass = false;
 
                         // Call the node's process method.
-                        let process_status = {
+                        let process_status = if node_entry.bypass_declick == Declicker::SettledAt0 {
+                            let did_just_bypass = !node_entry.is_bypassed;
+                            if did_just_bypass {
+                                node_entry.is_bypassed = true;
+                                node_entry.processor.bypassed(true);
+                            }
+
+                            if !events.is_empty() || node_entry.is_first_process {
+                                node_entry.processor.events(info, events, extra);
+                                node_entry.is_first_process = false;
+                            }
+
+                            ProcessStatus::Bypass
+                        } else {
+                            let did_just_unbypass = node_entry.is_bypassed;
+                            if did_just_unbypass {
+                                node_entry.is_bypassed = false;
+                                info.did_just_unbypass = true;
+                                node_entry.processor.bypassed(false);
+                            }
+
+                            if !events.is_empty() || node_entry.is_first_process {
+                                node_entry.processor.events(info, events, extra);
+                                node_entry.is_first_process = false;
+                            }
+
                             if sub_chunk_frames == block_frames {
                                 // If this is the only sub-chunk (because there are no scheduled
                                 // events), there is no need to edit the buffer slices.
@@ -335,9 +400,7 @@ impl FirewheelProcessorInner {
                                     outputs: proc_buffers.outputs,
                                 };
 
-                                node_entry
-                                    .processor
-                                    .process(info, sub_proc_buffers, events, extra)
+                                node_entry.processor.process(info, sub_proc_buffers, extra)
                             } else {
                                 // Else if there are multiple sub-chunks, edit the range of each
                                 // buffer slice to cover the range of this sub-chunk.
@@ -361,11 +424,35 @@ impl FirewheelProcessorInner {
                                     outputs: sub_outputs.as_mut_slice(),
                                 };
 
-                                node_entry
-                                    .processor
-                                    .process(info, sub_proc_buffers, events, extra)
+                                node_entry.processor.process(info, sub_proc_buffers, extra)
                             }
                         };
+
+                        if is_bypass_declicking {
+                            let (wet_buffer, dry_buffer) =
+                                bypass_gain_buffer.split_at_mut(self.max_block_frames);
+
+                            if !prev_is_bypass_declicking && sub_chunk_range.start > 0 {
+                                if original_bypass_declick == Declicker::SettledAt0 {
+                                    wet_buffer[..sub_chunk_range.start].fill(0.0);
+                                    dry_buffer[..sub_chunk_range.start].fill(1.0);
+                                } else if original_bypass_declick == Declicker::SettledAt1 {
+                                    wet_buffer[..sub_chunk_range.start].fill(1.0);
+                                    dry_buffer[..sub_chunk_range.start].fill(0.0);
+                                }
+                            }
+                            prev_is_bypass_declicking = true;
+
+                            node_entry
+                                .bypass_declick
+                                .process_into_crossfade_gain_buffers(
+                                    &mut wet_buffer[sub_chunk_range.clone()],
+                                    &mut dry_buffer[sub_chunk_range.clone()],
+                                    false,
+                                    &extra.declick_values,
+                                    DeclickFadeCurve::Linear,
+                                );
+                        }
 
                         node_entry.prev_output_was_silent = match process_status {
                             ProcessStatus::ClearAllOutputs => true,
@@ -506,13 +593,19 @@ impl FirewheelProcessorInner {
 
                 // -- Done processing in sub-chunks. Return the final process status. ---------
 
-                if let Some(final_mask) = final_mask {
+                let status = if let Some(final_mask) = final_mask {
                     // If we manually handled process statuses, return the calculated silence
                     // mask.
                     ProcessStatus::OutputsModifiedWithMask(final_mask)
                 } else {
                     // Else return the process status returned by the node's proces method.
                     prev_process_status.unwrap()
+                };
+
+                ScheduleProcStatus {
+                    status,
+                    is_bypass_declicking,
+                    is_bypassed,
                 }
             },
         );

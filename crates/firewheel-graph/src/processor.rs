@@ -15,7 +15,10 @@ use bevy_platform::time::Instant;
 
 use firewheel_core::{
     clock::InstantSamples,
-    dsp::{buffer::ConstSequentialBuffer, declick::DeclickValues},
+    dsp::{
+        buffer::ConstSequentialBuffer,
+        declick::{DeclickValues, Declicker},
+    },
     event::{NodeEvent, ProcEventsIndex},
     node::{AudioNodeProcessor, ProcExtra},
     StreamInfo,
@@ -200,6 +203,9 @@ impl FirewheelProcessorInner {
 pub(crate) struct NodeEntry {
     pub processor: Box<dyn AudioNodeProcessor>,
     pub prev_output_was_silent: bool,
+    pub bypass_declick: Declicker,
+    pub is_bypassed: bool,
+    pub is_first_process: bool,
 
     event_data: NodeEventSchedulerData,
 }

@@ -75,6 +75,8 @@ pub enum NodeEventType {
         /// The path to the parameter.
         path: ParamPath,
     },
+    /// Set the bypass state of the node.
+    SetBypassed(bool),
     /// Custom event type stored on the heap.
     Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
@@ -163,6 +165,7 @@ impl core::fmt::Debug for NodeEventType {
                 .finish(),
             NodeEventType::Custom(_) => f.debug_tuple("Custom").finish_non_exhaustive(),
             NodeEventType::CustomBytes(f0) => f.debug_tuple("CustomBytes").field(&f0).finish(),
+            NodeEventType::SetBypassed(b) => f.debug_tuple("SetBypassed").field(&b).finish(),
             #[cfg(feature = "midi_events")]
             NodeEventType::MIDI(f0) => f.debug_tuple("MIDI").field(&f0).finish(),
         }
@@ -390,6 +393,10 @@ impl<'a> ProcEvents<'a> {
 
     pub fn num_events(&self) -> usize {
         self.indices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
     }
 
     /// Iterate over all events, draining the events from the list.

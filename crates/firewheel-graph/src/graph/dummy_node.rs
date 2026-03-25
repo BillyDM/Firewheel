@@ -1,11 +1,7 @@
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::ChannelConfig,
-    event::ProcEvents,
-    node::{
-        AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
-        ProcExtra, ProcInfo, ProcessStatus,
-    },
+    node::{AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext},
 };
 
 /// A "dummy" [`AudioNode`], a node which does nothing.
@@ -38,14 +34,4 @@ impl AudioNode for DummyNode {
 
 struct DummyProcessor;
 
-impl AudioNodeProcessor for DummyProcessor {
-    fn process(
-        &mut self,
-        _info: &ProcInfo,
-        _buffers: ProcBuffers,
-        _events: &mut ProcEvents,
-        _extra: &mut ProcExtra,
-    ) -> ProcessStatus {
-        ProcessStatus::Bypass
-    }
-}
+impl AudioNodeProcessor for DummyProcessor {}

@@ -22,7 +22,9 @@ use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
 
-pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
+pub(crate) use self::compiler::{
+    CompiledSchedule, NodeHeapData, ScheduleHeapData, ScheduleProcStatus,
+};
 
 pub use self::compiler::{Edge, EdgeID, NodeEntry, PortIdx};
 
@@ -209,6 +211,11 @@ impl AudioGraph {
     /// Get information about a node in the graph.
     pub fn node_info(&self, id: NodeID) -> Option<&NodeEntry> {
         self.nodes.get(id.0)
+    }
+
+    /// Returns `true` if the node exists in the graph.
+    pub fn contains_node(&self, id: NodeID) -> bool {
+        self.nodes.contains(id.0)
     }
 
     /// Get an immutable reference to the custom state of a node.

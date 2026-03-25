@@ -449,26 +449,67 @@ impl<T: AudioNode> DynAudioNode for Constructor<T, T::Configuration> {
 /// The trait describing the realtime processor counterpart to an
 /// audio node.
 pub trait AudioNodeProcessor: 'static + Send {
-    /// Process the given block of audio. Only process data in the
-    /// buffers up to `samples`.
+    /// Called when there are new events for this node to process.
+    ///
+    /// This is called once before the first call to `process`, and after that
+    /// it will be called whenever there are new events (including when the
+    /// node is bypassed).
+    ///
+    /// Unless this node is bypassed, then [`AudioNodeProcessor::process`] will be
+    /// called immediately after.
+    ///
+    /// * `info` - Information about this processing block.
+    /// * `events` - A list of events for this node to process.
+    /// * `extra` - Additional buffers and utilities.
+    ///
+    /// This is always called in a realtime thread, so do not perform any
+    /// realtime-unsafe operations.
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, extra: &mut ProcExtra) {
+        let _ = info;
+        let _ = events;
+        let _ = extra;
+    }
+
+    /// Called when the node has been fully bypassed/unbypassed.
+    ///
+    /// The Firewheel processor automatically handles bypass declicking, so
+    /// there is no need to handle that manually.
+    ///
+    /// This is always called in a realtime thread, so do not perform any
+    /// realtime-unsafe operations.
+    fn bypassed(&mut self, bypassed: bool) {
+        let _ = bypassed;
+    }
+
+    /// Process the given block of audio.
     ///
     /// * `info` - Information about this processing block.
     /// * `buffers` - The buffers of data to process.
-    /// * `events` - A list of events for this node to process.
     /// * `extra` - Additional buffers and utilities.
     ///
     /// WARNING: Audio nodes *MUST* either completely fill all output buffers
     /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
     /// Failing to do this will result in audio glitches.
+    ///
+    /// This is always called in a realtime thread, so do not perform any
+    /// realtime-unsafe operations.
     fn process(
         &mut self,
         info: &ProcInfo,
         buffers: ProcBuffers,
-        events: &mut ProcEvents,
         extra: &mut ProcExtra,
-    ) -> ProcessStatus;
+    ) -> ProcessStatus {
+        let _ = info;
+        let _ = buffers;
+        let _ = extra;
+
+        ProcessStatus::Bypass
+    }
 
     /// Called when the audio stream has been stopped.
+    ///
+    /// This may or may not be called in a realtime thread, so prefer not
+    /// perform any realtime-unsafe operations.
     fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
         let _ = context;
     }
@@ -476,7 +517,7 @@ pub trait AudioNodeProcessor: 'static + Send {
     /// Called when a new audio stream has been started after a previous
     /// call to [`AudioNodeProcessor::stream_stopped`].
     ///
-    /// Note, this method gets called on the main thread, not the audio
+    /// This method gets called on the main thread, not the realtime audio
     /// thread. So it is safe to allocate/deallocate here.
     fn new_stream(&mut self, stream_info: &StreamInfo, context: &mut ProcStreamCtx) {
         let _ = stream_info;
@@ -485,20 +526,25 @@ pub trait AudioNodeProcessor: 'static + Send {
 }
 
 impl AudioNodeProcessor for Box<dyn AudioNodeProcessor> {
-    fn new_stream(&mut self, stream_info: &StreamInfo, context: &mut ProcStreamCtx) {
-        self.as_mut().new_stream(stream_info, context)
+    fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, extra: &mut ProcExtra) {
+        self.as_mut().events(info, events, extra);
+    }
+    fn bypassed(&mut self, bypassed: bool) {
+        self.as_mut().bypassed(bypassed);
     }
     fn process(
         &mut self,
         info: &ProcInfo,
         buffers: ProcBuffers,
-        events: &mut ProcEvents,
         extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        self.as_mut().process(info, buffers, events, extra)
+        self.as_mut().process(info, buffers, extra)
     }
     fn stream_stopped(&mut self, context: &mut ProcStreamCtx) {
         self.as_mut().stream_stopped(context)
+    }
+    fn new_stream(&mut self, stream_info: &StreamInfo, context: &mut ProcStreamCtx) {
+        self.as_mut().new_stream(stream_info, context)
     }
 }
 
@@ -677,6 +723,9 @@ pub struct ProcInfo {
     /// If the audio backend does not provide this information, then this
     /// will be `None`.
     pub process_to_playback_delay: Option<Duration>,
+
+    /// If the node has just been un-bypassed, then this will be `true`.
+    pub did_just_unbypass: bool,
 
     /// Information about the musical transport.
     ///

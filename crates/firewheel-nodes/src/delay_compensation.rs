@@ -2,7 +2,6 @@ use bevy_platform::prelude::Vec;
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
-    event::ProcEvents,
     mask::{MaskType, SilenceMask},
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -84,11 +83,20 @@ struct Processor {
 }
 
 impl AudioNodeProcessor for Processor {
+    fn bypassed(&mut self, bypassed: bool) {
+        if !bypassed {
+            self.buffer.fill(0.0);
+            self.ptr = 0;
+            for ch in self.num_silent_frames_per_channel.iter_mut() {
+                *ch = self.buffer.len();
+            }
+        }
+    }
+
     fn process(
         &mut self,
         info: &ProcInfo,
         buffers: ProcBuffers,
-        _events: &mut ProcEvents,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
         if self.delay_frames == 0 {
