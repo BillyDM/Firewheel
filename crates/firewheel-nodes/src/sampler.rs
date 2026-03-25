@@ -31,7 +31,7 @@ use firewheel_core::{
     dsp::{
         buffer::InstanceBuffer,
         declick::{DeclickFadeCurve, Declicker},
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     event::{NodeEventType, ParamData, ProcEvents},
     mask::{MaskType, SilenceMask},
@@ -166,7 +166,7 @@ impl Default for SamplerNode {
             speed: 1.0,
             mono_to_stereo: true,
             crossfade_on_seek: true,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 }

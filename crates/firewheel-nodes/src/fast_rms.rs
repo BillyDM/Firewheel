@@ -63,9 +63,9 @@ impl FastRmsState {
 
     /// Get the estimated RMS value in decibels.
     ///
-    /// * `db_epsilon` - If the RMS value is less than or equal to this value, then it
+    /// * `min_db` - If the RMS value is less than or equal to this value, then it
     /// will be clamped to `f32::NEG_INFINITY` (silence). (You can use
-    /// [firewheel_core::dsp::volume::DEFAULT_DB_EPSILON].)
+    /// [firewheel_core::dsp::volume::DEFAULT_MIN_DB].)
     ///
     /// If the node is currently disabled, then this will return a value
     /// of `f32::NEG_INFINITY` (silence).
@@ -73,11 +73,11 @@ impl FastRmsState {
     /// Note this node doesn't calculate the true RMS (That requires a much more expensive
     /// algorithm using a sliding window.) But it should be good enough for games that
     /// simply wish to react to player audio.
-    pub fn rms_db(&self, db_epsilon: f32) -> f32 {
+    pub fn rms_db(&self, min_db: f32) -> f32 {
         let rms = amp_to_db(self.shared_state.rms_value.load(Ordering::Relaxed));
         self.shared_state.read_count.fetch_add(1, Ordering::Relaxed);
 
-        if rms <= db_epsilon {
+        if rms <= min_db {
             f32::NEG_INFINITY
         } else {
             rms

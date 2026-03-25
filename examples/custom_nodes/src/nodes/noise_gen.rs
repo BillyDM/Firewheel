@@ -4,7 +4,7 @@ use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
+    dsp::volume::{Volume, DEFAULT_MIN_AMP},
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcBuffers,
@@ -88,7 +88,7 @@ impl AudioNode for NoiseGenNode {
 
         Ok(Processor {
             fpd: seed,
-            gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
+            gain: self.volume.amp_clamped(DEFAULT_MIN_AMP),
             params: *self,
         })
     }
@@ -119,7 +119,7 @@ impl AudioNodeProcessor for Processor {
                 NoiseGenNodePatch::Volume(vol) => {
                     // Since we want to clamp the volume event, we can
                     // grab it here and perform the processing only when required.
-                    self.gain = vol.amp_clamped(DEFAULT_AMP_EPSILON);
+                    self.gain = vol.amp_clamped(DEFAULT_MIN_AMP);
                 }
             }
 

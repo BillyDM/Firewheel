@@ -198,16 +198,16 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
 
     /// Get the latest peak values for each channel in decibels.
     ///
-    /// * `db_epsilon` - If a peak value is less than or equal to this value, then it
+    /// * `min_db` - If a peak value is less than or equal to this value, then it
     /// will be clamped to `f32::NEG_INFINITY` (silence). (You can use
-    /// [firewheel_core::dsp::volume::DEFAULT_DB_EPSILON].)
+    /// [firewheel_core::dsp::volume::DEFAULT_MIN_DB].)
     ///
     /// If the node is currently disabled, then this will return a value
     /// of `f32::NEG_INFINITY` (silence) for all channels.
-    pub fn peak_gain_db(&self, db_epsilon: f32) -> [f32; NUM_CHANNELS] {
+    pub fn peak_gain_db(&self, min_db: f32) -> [f32; NUM_CHANNELS] {
         core::array::from_fn(|i| {
             let db = amp_to_db(self.shared_state.peak_gains[i].load(Ordering::Relaxed));
-            if db <= db_epsilon {
+            if db <= min_db {
                 f32::NEG_INFINITY
             } else {
                 db

@@ -1,8 +1,17 @@
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-pub const DEFAULT_AMP_EPSILON: f32 = 0.0001;
-pub const DEFAULT_DB_EPSILON: f32 = -80.0;
+/// A good default value when using [`Volume::amp_clamped`],
+/// [`amp_to_db_clamped`], [`amp_to_linear_volume_clamped`], or
+/// [`is_buffer_silent`].
+///
+/// This is equal to -80dB.
+pub const DEFAULT_MIN_AMP: f32 = 0.0001;
+/// A good default value when using [`Volume::decibels_clamped`] or
+/// [`db_to_amp_clamped`].
+///
+/// This is equal to an amplitdue of `0.0001`.
+pub const DEFAULT_MIN_DB: f32 = -80.0;
 
 /// A value representing a volume (gain) applied to an audio signal
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,16 +49,16 @@ impl Volume {
 
     /// Get the volume in raw amplitude for use in DSP.
     ///
-    /// If the resulting amplitude is `<= amp_epsilon`, then `0.0` (silence) will be returned.
-    pub fn amp_clamped(&self, amp_epsilon: f32) -> f32 {
+    /// If the resulting amplitude is `<= min_amp`, then `0.0` (silence) will be returned.
+    pub fn amp_clamped(&self, min_amp: f32) -> f32 {
         match *self {
-            Self::Linear(volume) => linear_volume_to_amp_clamped(volume, amp_epsilon),
+            Self::Linear(volume) => linear_volume_to_amp_clamped(volume, min_amp),
             Self::Decibels(db) => {
                 if db == f32::NEG_INFINITY {
                     0.0
                 } else {
                     let amp = db_to_amp(db);
-                    if amp <= amp_epsilon {
+                    if amp <= min_amp {
                         0.0
                     } else {
                         amp
@@ -76,9 +85,9 @@ impl Volume {
 
     /// Get the volume in decibles.
     ///
-    /// If the resulting decibel value is `<= db_epsilon`, then `f32::NEG_INFINITY` (silence)
+    /// If the resulting decibel value is `<= min_db`, then `f32::NEG_INFINITY` (silence)
     /// will be returned.
-    pub fn decibels_clamped(&self, db_epsilon: f32) -> f32 {
+    pub fn decibels_clamped(&self, min_db: f32) -> f32 {
         match *self {
             Self::Linear(volume) => {
                 if volume == 0.0 {
@@ -86,7 +95,7 @@ impl Volume {
                 } else {
                     let amp = linear_volume_to_amp_clamped(volume, 0.0);
                     let db = amp_to_db(amp);
-                    if db <= db_epsilon {
+                    if db <= min_db {
                         f32::NEG_INFINITY
                     } else {
                         db
@@ -94,7 +103,7 @@ impl Volume {
                 }
             }
             Self::Decibels(db) => {
-                if db <= db_epsilon {
+                if db <= min_db {
                     f32::NEG_INFINITY
                 } else {
                     db
@@ -252,11 +261,11 @@ pub fn amp_to_db(amp: f32) -> f32 {
 
 /// Returns the raw amplitude from the given decibel value.
 ///
-/// If `db == f32::NEG_INFINITY || db <= db_epsilon`, then `0.0` (silence) will be
+/// If `db == f32::NEG_INFINITY || db <= min_db`, then `0.0` (silence) will be
 /// returned.
 #[inline]
-pub fn db_to_amp_clamped(db: f32, db_epsilon: f32) -> f32 {
-    if db == f32::NEG_INFINITY || db <= db_epsilon {
+pub fn db_to_amp_clamped(db: f32, min_db: f32) -> f32 {
+    if db == f32::NEG_INFINITY || db <= min_db {
         0.0
     } else {
         db_to_amp(db)
@@ -265,10 +274,10 @@ pub fn db_to_amp_clamped(db: f32, db_epsilon: f32) -> f32 {
 
 /// Returns the decibel value from the given raw amplitude.
 ///
-/// If `amp <= amp_epsilon`, then `f32::NEG_INFINITY` (silence) will be returned.
+/// If `amp <= min_amp`, then `f32::NEG_INFINITY` (silence) will be returned.
 #[inline]
-pub fn amp_to_db_clamped(amp: f32, amp_epsilon: f32) -> f32 {
-    if amp <= amp_epsilon {
+pub fn amp_to_db_clamped(amp: f32, min_amp: f32) -> f32 {
+    if amp <= min_amp {
         f32::NEG_INFINITY
     } else {
         amp_to_db(amp)
@@ -279,12 +288,12 @@ pub fn amp_to_db_clamped(amp: f32, amp_epsilon: f32) -> f32 {
 /// gain) to the corresponding raw amplitude value (not decibels) for use in
 /// DSP. Values above `1.0` are allowed.
 ///
-/// If the resulting amplitude is `<= amp_epsilon`, then `0.0` (silence) will be
+/// If the resulting amplitude is `<= min_amp`, then `0.0` (silence) will be
 /// returned.
 #[inline]
-pub fn linear_volume_to_amp_clamped(linear_volume: f32, amp_epsilon: f32) -> f32 {
+pub fn linear_volume_to_amp_clamped(linear_volume: f32, min_amp: f32) -> f32 {
     let v = linear_volume * linear_volume;
-    if v <= amp_epsilon {
+    if v <= min_amp {
         0.0
     } else {
         v
@@ -294,11 +303,11 @@ pub fn linear_volume_to_amp_clamped(linear_volume: f32, amp_epsilon: f32) -> f32
 /// Map the raw amplitude (where `0.0` means mute and `1.0` means unity
 /// gain) to the corresponding linear volume.
 ///
-/// If the amplitude is `<= amp_epsilon`, then `0.0` (silence) will be
+/// If the amplitude is `<= min_amp`, then `0.0` (silence) will be
 /// returned.
 #[inline]
-pub fn amp_to_linear_volume_clamped(amp: f32, amp_epsilon: f32) -> f32 {
-    if amp <= amp_epsilon {
+pub fn amp_to_linear_volume_clamped(amp: f32, min_amp: f32) -> f32 {
+    if amp <= min_amp {
         0.0
     } else {
         amp.sqrt()
@@ -349,11 +358,11 @@ impl Default for DbMeterNormalizer {
 }
 
 /// Thoroughly checks if the given buffer contains silence (as in all samples
-/// have an absolute amplitude less than or equal to `amp_epsilon`)
-pub fn is_buffer_silent(buffer: &[f32], amp_epsilon: f32) -> bool {
+/// have an absolute amplitude less than or equal to `min_amp`)
+pub fn is_buffer_silent(buffer: &[f32], min_amp: f32) -> bool {
     let mut silent = true;
     for &s in buffer.iter() {
-        if s.abs() > amp_epsilon {
+        if s.abs() > min_amp {
             silent = false;
             break;
         }

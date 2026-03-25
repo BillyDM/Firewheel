@@ -1,7 +1,7 @@
 use firewheel::{
     cpal::CpalStream,
     diff::Memo,
-    dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_DB_EPSILON},
+    dsp::volume::{DbMeterNormalizer, Volume, DEFAULT_MIN_DB},
     node::NodeID,
     nodes::{
         peak_meter::{PeakMeterNode, PeakMeterSmoother, PeakMeterState},
@@ -206,7 +206,7 @@ impl AudioSystem {
             self.cx
                 .node_state::<PeakMeterState<2>>(self.peak_meter_id)
                 .unwrap()
-                .peak_gain_db(DEFAULT_DB_EPSILON),
+                .peak_gain_db(DEFAULT_MIN_DB),
             delta_seconds,
         );
     }

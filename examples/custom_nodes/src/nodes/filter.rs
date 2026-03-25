@@ -10,7 +10,7 @@ use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
+    dsp::volume::{Volume, DEFAULT_MIN_AMP},
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
@@ -81,7 +81,7 @@ impl AudioNode for FilterNode {
         let sample_rate_recip = cx.stream_info.sample_rate_recip as f32;
 
         let cutoff_hz = self.cutoff_hz.clamp(20.0, 20_000.0);
-        let gain = self.volume.amp_clamped(DEFAULT_AMP_EPSILON);
+        let gain = self.volume.amp_clamped(DEFAULT_MIN_AMP);
 
         Ok(Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
@@ -139,7 +139,7 @@ impl AudioNodeProcessor for Processor {
                     self.cutoff_hz.set_value(cutoff.clamp(20.0, 20_000.0));
                 }
                 FilterNodePatch::Volume(volume) => {
-                    self.gain.set_value(volume.amp_clamped(DEFAULT_AMP_EPSILON));
+                    self.gain.set_value(volume.amp_clamped(DEFAULT_MIN_AMP));
                 }
             }
         }
@@ -171,7 +171,7 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         // If the gain parameter is not currently smoothing and is silent, then
         // there is no need to process.
-        let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON);
+        let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_MIN_AMP);
 
         if info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
             // Outputs will be silent, so no need to process.

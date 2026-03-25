@@ -12,7 +12,7 @@ use firewheel_core::{
     dsp::{
         declick::{DeclickFadeCurve, Declicker},
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, ProcessStatus,
@@ -349,7 +349,7 @@ impl AudioNodeProcessor for ConvolutionProcessor {
         if output_silent {
             ProcessStatus::outputs_modified_with_silence_mask(info.in_silence_mask)
         } else {
-            buffers.check_for_silence_on_outputs(DEFAULT_AMP_EPSILON)
+            buffers.check_for_silence_on_outputs(DEFAULT_MIN_AMP)
         }
     }
 }

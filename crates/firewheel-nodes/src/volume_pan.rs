@@ -6,7 +6,7 @@ use firewheel_core::{
     dsp::{
         fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     event::ProcEvents,
     mask::MaskType,
@@ -59,7 +59,7 @@ impl VolumePanNode {
             pan,
             pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -75,7 +75,7 @@ impl VolumePanNode {
             pan,
             pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -88,7 +88,7 @@ impl VolumePanNode {
             pan: 0.0,
             pan_law: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -115,8 +115,8 @@ impl VolumePanNode {
         self.volume = Volume::Decibels(decibels);
     }
 
-    pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
-        let global_gain = self.volume.amp_clamped(amp_epsilon);
+    pub fn compute_gains(&self, min_amp: f32) -> (f32, f32) {
+        let global_gain = self.volume.amp_clamped(min_amp);
 
         let (mut gain_l, mut gain_r) = self.pan_law.compute_gains_neg1_to_1(self.pan);
 
@@ -141,7 +141,7 @@ impl Default for VolumePanNode {
             pan: 0.0,
             pan_law: FadeCurve::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 }

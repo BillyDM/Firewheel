@@ -6,7 +6,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     event::ProcEvents,
     node::{
@@ -83,7 +83,7 @@ impl AudioNode for WhiteNoiseGenNode {
         Ok(Processor {
             fpd: seed,
             gain: SmoothedParam::new(
-                self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
+                self.volume.amp_clamped(DEFAULT_MIN_AMP),
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -107,7 +107,7 @@ impl AudioNodeProcessor for Processor {
         for patch in events.drain_patches::<WhiteNoiseGenNode>() {
             match patch {
                 WhiteNoiseGenNodePatch::Volume(vol) => {
-                    self.gain.set_value(vol.amp_clamped(DEFAULT_AMP_EPSILON));
+                    self.gain.set_value(vol.amp_clamped(DEFAULT_MIN_AMP));
                 }
                 WhiteNoiseGenNodePatch::SmoothSeconds(seconds) => {
                     self.gain.set_smooth_seconds(seconds, info.sample_rate);
@@ -124,7 +124,7 @@ impl AudioNodeProcessor for Processor {
         buffers: ProcBuffers,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        if self.gain.has_settled_at_or_below(DEFAULT_AMP_EPSILON) {
+        if self.gain.has_settled_at_or_below(DEFAULT_MIN_AMP) {
             self.gain.reset_to_target();
             return ProcessStatus::ClearAllOutputs;
         }

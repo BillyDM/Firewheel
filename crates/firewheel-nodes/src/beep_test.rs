@@ -5,7 +5,7 @@ use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
-    dsp::volume::{Volume, DEFAULT_AMP_EPSILON},
+    dsp::volume::{Volume, DEFAULT_MIN_AMP},
     event::ProcEvents,
     node::{
         AudioNode, AudioNodeInfo, AudioNodeProcessor, ConstructProcessorContext, EmptyConfig,
@@ -64,7 +64,7 @@ impl AudioNode for BeepTestNode {
             phasor: 0.0,
             phasor_inc: self.freq_hz.clamp(20.0, 20_000.0)
                 * cx.stream_info.sample_rate_recip as f32,
-            gain: self.volume.amp_clamped(DEFAULT_AMP_EPSILON),
+            gain: self.volume.amp_clamped(DEFAULT_MIN_AMP),
         })
     }
 }
@@ -83,7 +83,7 @@ impl AudioNodeProcessor for Processor {
                     self.phasor_inc = f.clamp(20.0, 20_000.0) * info.sample_rate_recip as f32;
                 }
                 BeepTestNodePatch::Volume(v) => {
-                    self.gain = v.amp_clamped(DEFAULT_AMP_EPSILON);
+                    self.gain = v.amp_clamped(DEFAULT_MIN_AMP);
                 }
             }
         }

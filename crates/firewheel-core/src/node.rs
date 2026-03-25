@@ -585,15 +585,15 @@ pub struct ProcBuffers<'a, 'b> {
 
 impl<'a, 'b> ProcBuffers<'a, 'b> {
     /// Thouroughly checks if all output buffers contain silence (as in all
-    /// samples have an absolute amplitude less than or equal to `amp_epsilon`).
+    /// samples have an absolute amplitude less than or equal to `min_amp`).
     ///
     /// If all buffers are silent, then [`ProcessStatus::ClearAllOutputs`] will
     /// be returned. Otherwise, [`ProcessStatus::OutputsModified`] will be
     /// returned.
-    pub fn check_for_silence_on_outputs(&self, amp_epsilon: f32) -> ProcessStatus {
+    pub fn check_for_silence_on_outputs(&self, min_amp: f32) -> ProcessStatus {
         let mut silent = true;
         for buffer in self.outputs.iter() {
-            if !is_buffer_silent(buffer, amp_epsilon) {
+            if !is_buffer_silent(buffer, min_amp) {
                 silent = false;
                 break;
             }

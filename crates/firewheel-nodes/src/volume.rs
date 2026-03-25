@@ -4,7 +4,7 @@ use firewheel_core::{
     diff::{Diff, Patch},
     dsp::{
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     event::ProcEvents,
     mask::MaskType,
@@ -61,7 +61,7 @@ impl Default for VolumeNode {
         Self {
             volume: Volume::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 }
@@ -76,7 +76,7 @@ impl VolumeNode {
         Self {
             volume: Volume::Linear(linear),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -88,7 +88,7 @@ impl VolumeNode {
         Self {
             volume: Volume::from_percent(percent),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -98,7 +98,7 @@ impl VolumeNode {
         Self {
             volume: Volume::Decibels(decibels),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 

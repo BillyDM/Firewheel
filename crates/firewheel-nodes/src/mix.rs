@@ -6,7 +6,7 @@ use firewheel_core::{
         fade::FadeCurve,
         filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS,
         mix::Mix,
-        volume::{Volume, DEFAULT_AMP_EPSILON},
+        volume::{Volume, DEFAULT_MIN_AMP},
     },
     event::ProcEvents,
     mask::{MaskType, SilenceMask},
@@ -90,7 +90,7 @@ impl MixNode {
             mix,
             fade_curve: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -100,7 +100,7 @@ impl MixNode {
             mix,
             fade_curve: FadeCurve::EqualPower3dB,
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 
@@ -127,8 +127,8 @@ impl MixNode {
         self.volume = Volume::Decibels(decibels);
     }
 
-    pub fn compute_gains(&self, amp_epsilon: f32) -> (f32, f32) {
-        let global_gain = self.volume.amp_clamped(amp_epsilon);
+    pub fn compute_gains(&self, min_amp: f32) -> (f32, f32) {
+        let global_gain = self.volume.amp_clamped(min_amp);
 
         let (mut gain_0, mut gain_1) = self.mix.compute_gains(self.fade_curve);
 
@@ -153,7 +153,7 @@ impl Default for MixNode {
             mix: Mix::FULLY_FIRST,
             fade_curve: FadeCurve::default(),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            min_gain: DEFAULT_AMP_EPSILON,
+            min_gain: DEFAULT_MIN_AMP,
         }
     }
 }

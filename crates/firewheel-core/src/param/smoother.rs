@@ -8,6 +8,8 @@ use crate::{
     StreamInfo,
 };
 
+const MIN_SMOOTH_SECONDS: f32 = 0.00001;
+
 /// The configuration for a [`SmoothedParam`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -19,7 +21,7 @@ pub struct SmootherConfig {
     pub smooth_seconds: f32,
     /// The threshold at which the smoothing will complete
     ///
-    /// By default this is set to `0.00001`.
+    /// By default this is set to `0.001`.
     pub settle_epsilon: f32,
 }
 
@@ -46,7 +48,7 @@ pub struct SmoothedParam {
 impl SmoothedParam {
     /// Construct a new smoothed f32 parameter with the given configuration.
     pub fn new(value: f32, config: SmootherConfig, sample_rate: NonZeroU32) -> Self {
-        let smooth_secs = config.smooth_seconds.max(0.00001);
+        let smooth_secs = config.smooth_seconds.max(MIN_SMOOTH_SECONDS);
         let settle_epsilon = config.settle_epsilon.max(f32::EPSILON);
 
         let coeff = SmoothingFilterCoeff::new(sample_rate, smooth_secs);

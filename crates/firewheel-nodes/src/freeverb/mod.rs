@@ -10,7 +10,7 @@ use firewheel_core::{
     diff::{Diff, Notify, Patch},
     dsp::{
         declick::{DeclickFadeCurve, DeclickValues, Declicker},
-        volume::DEFAULT_AMP_EPSILON,
+        volume::DEFAULT_MIN_AMP,
     },
     event::ProcEvents,
     node::{
@@ -272,7 +272,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
             // the threshold for "completely silent"
 
             if matches!(
-                buffers.check_for_silence_on_outputs(DEFAULT_AMP_EPSILON),
+                buffers.check_for_silence_on_outputs(DEFAULT_MIN_AMP),
                 ProcessStatus::ClearAllOutputs
             ) {
                 return ProcessStatus::ClearAllOutputs;
