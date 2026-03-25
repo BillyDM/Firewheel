@@ -5,7 +5,6 @@ use bevy_platform::sync::{
 use core::num::NonZeroU32;
 use core::time::Duration;
 use core::{any::Any, f64};
-use firewheel_core::log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread};
 use firewheel_core::node::{NodeError, ProcStore};
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -14,6 +13,10 @@ use firewheel_core::{
     event::{NodeEvent, NodeEventType},
     node::{AudioNode, DynAudioNode, NodeID},
     StreamInfo,
+};
+use firewheel_core::{
+    dsp::volume::Volume,
+    log::{RealtimeLogger, RealtimeLoggerConfig, RealtimeLoggerMainThread},
 };
 use ringbuf::traits::{Consumer, Producer, Split};
 use smallvec::SmallVec;
@@ -139,6 +142,19 @@ pub struct FirewheelConfig {
     ///
     /// By default this is set to `8`.
     pub proc_store_capacity: usize,
+
+    /// If `Some`, then all inputs to the audio graph will be clamped to silence if
+    /// the max peak amplitude is less than the given volume. This can help improve
+    /// the performance of processing chains which use the graph inputs.
+    ///
+    /// If this is `None`, then no clamping will occur.
+    ///
+    /// Note, while this is functionally a noise gate, it is not a good noise gate,
+    /// and values above -70dB may cause audible clicking. If you need to increase
+    /// the threshold, it is recommended to instead use a dedicated noise gate plugin.
+    ///
+    /// By default this is set to `Some(Volume::Decibels(-70.0)`.
+    pub clamp_graph_inputs_below: Option<Volume>,
 }
 
 impl Default for FirewheelConfig {
@@ -159,6 +175,7 @@ impl Default for FirewheelConfig {
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
             proc_store_capacity: 8,
+            clamp_graph_inputs_below: Some(Volume::Decibels(-70.0)),
         }
     }
 }
@@ -421,6 +438,7 @@ impl FirewheelContext {
                 self.config.flags,
                 Arc::clone(&self.status_flags),
                 self.config.buffer_out_of_space_mode,
+                self.config.clamp_graph_inputs_below.map(|v| v.amp()),
             )
         } else {
             let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();

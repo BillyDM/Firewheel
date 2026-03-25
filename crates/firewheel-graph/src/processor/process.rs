@@ -114,22 +114,32 @@ impl FirewheelProcessorInner {
                 .prepare_graph_inputs(
                     block_frames,
                     num_in_channels,
+                    self.flags.force_clear_buffers,
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         let mut silence_mask = SilenceMask::NONE_SILENT;
 
                         for (ch_i, ch) in channels.iter_mut().enumerate().take(num_in_channels) {
                             let mut input_is_silent = true;
-                            for s in ch[..block_frames].iter() {
-                                if *s != 0.0 {
-                                    input_is_silent = false;
-                                    break;
+
+                            if let Some(min_amp) = self.clamp_graph_inputs_below_amp {
+                                for s in ch[..block_frames].iter() {
+                                    if s.abs() >= min_amp {
+                                        input_is_silent = false;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                for s in ch[..block_frames].iter() {
+                                    if *s != 0.0 {
+                                        input_is_silent = false;
+                                        break;
+                                    }
                                 }
                             }
+
                             silence_mask.set_channel(ch_i, input_is_silent);
 
-                            if input_is_silent {
-                                ch[..block_frames].fill(0.0);
-                            } else {
+                            if !input_is_silent {
                                 input.copy_from_channel_to_slice(
                                     ch_i,
                                     frames_processed,
@@ -138,9 +148,10 @@ impl FirewheelProcessorInner {
                             }
                         }
 
-                        for (ch_i, ch) in channels.iter_mut().enumerate().skip(num_in_channels) {
-                            ch[..block_frames].fill(0.0);
-                            silence_mask.set_channel(ch_i, true);
+                        if channels.len() > num_in_channels {
+                            for ch_i in num_in_channels..channels.len() {
+                                silence_mask.set_channel(ch_i, true);
+                            }
                         }
 
                         silence_mask
@@ -276,7 +287,7 @@ impl FirewheelProcessorInner {
 
         schedule_data.schedule.process(
             block_frames,
-            self.flags,
+            self.flags.force_clear_buffers,
             |node_id: NodeID,
              in_silence_mask: SilenceMask,
              out_silence_mask: SilenceMask,

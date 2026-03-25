@@ -136,6 +136,7 @@ pub(crate) struct FirewheelProcessorInner {
 
     flags: FirewheelFlags,
     status_flags: Arc<StatusFlags>,
+    clamp_graph_inputs_below_amp: Option<f32>,
 
     pub(crate) extra: ProcExtra,
 
@@ -156,6 +157,7 @@ impl FirewheelProcessorInner {
         flags: FirewheelFlags,
         status_flags: Arc<StatusFlags>,
         buffer_out_of_space_mode: BufferOutOfSpaceMode,
+        clamp_graph_inputs_below_amp: Option<f32>,
     ) -> Self {
         let ProcessorChannel {
             from_context_rx,
@@ -187,6 +189,7 @@ impl FirewheelProcessorInner {
             proc_transport_state: ProcTransportState::new(),
             flags,
             status_flags,
+            clamp_graph_inputs_below_amp,
             extra: ProcExtra {
                 scratch_buffers: ConstSequentialBuffer::new(
                     stream_info.max_block_frames.get() as usize
