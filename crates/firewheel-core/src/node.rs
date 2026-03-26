@@ -160,8 +160,8 @@ impl AudioNodeInfo {
     ///
     /// If the number of input channels is greater than the number of output channels,
     /// then the input buffers passed into [`AudioNodeProcessor::process`] will contain
-    /// ONLY the input buffers in the range `[num_outputs..num_inputs]`. Otherwise, the
-    /// number of input buffers will be 0.
+    /// ONLY the input buffers in the range `[num_outputs_in_config..num_inputs_in_config]`.
+    /// Otherwise, the number of input buffers will be 0.
     ///
     /// Note, this currently doesn't improve performance. But if and when the scheduler
     /// is updated to support in-place buffer processing in a future version, then it
@@ -510,7 +510,10 @@ pub trait AudioNodeProcessor: 'static + Send {
     ///
     /// WARNING: Audio nodes *MUST* either completely fill all output buffers
     /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
-    /// Failing to do this will result in audio glitches.
+    /// Failing to do this will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers in the
+    /// range `[0..num_inputs_in_config.min(num_outputs_in_config)]` do not
+    /// need to be filled with data.
     ///
     /// This is always called in a realtime thread, so do not perform any
     /// realtime-unsafe operations.
@@ -582,7 +585,9 @@ pub struct ProcBuffers<'a, 'b> {
     /// The audio input buffers.
     ///
     /// The number of channels will always equal the [`ChannelConfig::num_inputs`]
-    /// value that was returned in [`AudioNode::info`].
+    /// value that was returned in [`AudioNode::info`]. Except when
+    /// [`AudioNodeInfo::in_place_buffers`] is used, in which case this will contain
+    /// ONLY the input buffers in the range `[num_outputs_in_config..num_inputs_in_config]`.
     ///
     /// Each channel slice will have a length of [`ProcInfo::frames`].
     pub inputs: &'a [&'b [f32]],
@@ -591,7 +596,10 @@ pub struct ProcBuffers<'a, 'b> {
     ///
     /// WARNING: The node *MUST* either completely fill all output buffers
     /// with data, or return [`ProcessStatus::ClearAllOutputs`]/[`ProcessStatus::Bypass`].
-    /// Failing to do this will result in audio glitches.
+    /// Failing to do this will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers in the
+    /// range `[0..num_inputs_in_config.min(num_outputs_in_config)]` do not
+    /// need to be filled with data.
     ///
     /// The number of channels will always equal the [`ChannelConfig::num_outputs`]
     /// value that was returned in [`AudioNode::info`].
@@ -931,14 +939,20 @@ pub enum ProcessStatus {
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
-    /// Failing to do so will result in audio glitches.
+    /// Failing to do so will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers
+    /// in the range `[0..num_inputs_in_config.min(num_outputs_in_config)]`
+    /// do not need to be filled with data.
     OutputsModified,
     /// All output buffers were filled with data. Additionally,
     /// a constant/silence mask is provided for optimizations.
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
-    /// Failing to do so will result in audio glitches.
+    /// Failing to do so will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers
+    /// in the range `[0..num_inputs_in_config.min(num_outputs_in_config)]`
+    /// do not need to be filled with data.
     ///
     /// WARNING: Incorrectly marking a channel as containing
     /// silence/constant values when it doesn't will result in audio
@@ -953,7 +967,10 @@ impl ProcessStatus {
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
-    /// Failing to do so will result in audio glitches.
+    /// Failing to do so will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers
+    /// in the range `[0..num_inputs_in_config.min(num_outputs_in_config)]`
+    /// do not need to be filled with data.
     ///
     /// WARNING: Incorrectly marking a channel as containing
     /// silence when it doesn't will result in audio glitches.
@@ -968,7 +985,10 @@ impl ProcessStatus {
     ///
     /// WARNING: The node must fill all audio audio output buffers
     /// completely with data when returning this process status.
-    /// Failing to do so will result in audio glitches.
+    /// Failing to do so will result in audio glitches. If using
+    /// [`AudioNodeInfo::in_place_buffers`], then the output buffers
+    /// in the range `[0..num_inputs_in_config.min(num_outputs_in_config)]`
+    /// do not need to be filled with data.
     ///
     /// WARNING: Incorrectly marking a channel as containing
     /// constant values when it doesn't will result in audio
