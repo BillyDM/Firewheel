@@ -78,6 +78,7 @@ pub struct AudioNodeInfo {
     call_update_method: bool,
     custom_state: Option<Box<dyn Any>>,
     latency_frames: u32,
+    in_place_buffers: bool,
 }
 
 impl AudioNodeInfo {
@@ -92,6 +93,7 @@ impl AudioNodeInfo {
             call_update_method: false,
             custom_state: None,
             latency_frames: 0,
+            in_place_buffers: false,
         }
     }
 
@@ -151,6 +153,23 @@ impl AudioNodeInfo {
         self.latency_frames = latency_frames;
         self
     }
+
+    /// If set to `true`, then the input buffers will be merged into the output
+    /// buffers. This may improve performance in cases where this node is commonly used
+    /// in a serial chain such as when in a node pool.
+    ///
+    /// If the number of input channels is greater than the number of output channels,
+    /// then the input buffers passed into [`AudioNodeProcessor::process`] will contain
+    /// ONLY the input buffers in the range `[num_outputs..num_inputs]`. Otherwise, the
+    /// number of input buffers will be 0.
+    ///
+    /// Note, this currently doesn't improve performance. But if and when the scheduler
+    /// is updated to support in-place buffer processing in a future version, then it
+    /// will.
+    pub const fn in_place_buffers(mut self, in_place_buffers: bool) -> Self {
+        self.in_place_buffers = in_place_buffers;
+        self
+    }
 }
 
 impl Default for AudioNodeInfo {
@@ -167,6 +186,7 @@ impl From<AudioNodeInfo> for AudioNodeInfoInner {
             call_update_method: value.call_update_method,
             custom_state: value.custom_state,
             latency_frames: value.latency_frames,
+            in_place_buffers: value.in_place_buffers,
         }
     }
 }
@@ -179,6 +199,7 @@ pub struct AudioNodeInfoInner {
     pub call_update_method: bool,
     pub custom_state: Option<Box<dyn Any>>,
     pub latency_frames: u32,
+    pub in_place_buffers: bool,
 }
 
 /// A trait representing a node in a Firewheel audio graph.

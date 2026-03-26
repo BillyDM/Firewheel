@@ -465,12 +465,16 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
     type Configuration = SvfNodeConfig;
 
     fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
-        Ok(AudioNodeInfo::new()
-            .debug_name("svf")
-            .channel_config(ChannelConfig {
-                num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-                num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-            }))
+        Ok(
+            AudioNodeInfo::new()
+                .debug_name("svf")
+                .channel_config(ChannelConfig {
+                    num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
+                    num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
+                })
+                .in_place_buffers(true), // Use SVF node as a test for in-place buffers, even
+                                         // though it currently does not improve performance
+        )
     }
 
     fn construct_processor(
@@ -643,17 +647,8 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
     /// Smoothing loop for single-filter types that don't use gain
     /// (Lowpass, Highpass, Notch, Allpass).
-    fn smoothing_loop_single(
-        &mut self,
-        info: &ProcInfo,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-    ) {
-        assert!(inputs.len() == CHANNELS);
+    fn smoothing_loop_single(&mut self, info: &ProcInfo, outputs: &mut [&mut [f32]]) {
         assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
         for ch in outputs.iter() {
             assert!(ch.len() >= info.frames);
         }
@@ -669,7 +664,7 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
                 // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
+                unsafe { *outputs.get_unchecked(ch_i).get_unchecked(i) }
             });
 
             let out = self.filter_0.process(s, &self.filter_0_coeff);
@@ -685,17 +680,8 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
     /// Smoothing loop for single-filter types that use gain
     /// (LowShelf, HighShelf, Bell).
-    fn smoothing_loop_single_with_gain(
-        &mut self,
-        info: &ProcInfo,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-    ) {
-        assert!(inputs.len() == CHANNELS);
+    fn smoothing_loop_single_with_gain(&mut self, info: &ProcInfo, outputs: &mut [&mut [f32]]) {
         assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
         for ch in outputs.iter() {
             assert!(ch.len() >= info.frames);
         }
@@ -712,7 +698,7 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
                 // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
+                unsafe { *outputs.get_unchecked(ch_i).get_unchecked(i) }
             });
 
             let out = self.filter_0.process(s, &self.filter_0_coeff);
@@ -728,17 +714,8 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
     /// Smoothing loop for dual-filter types that don't use gain
     /// (LowpassX2, HighpassX2, Bandpass).
-    fn smoothing_loop_dual(
-        &mut self,
-        info: &ProcInfo,
-        inputs: &[&[f32]],
-        outputs: &mut [&mut [f32]],
-    ) {
-        assert!(inputs.len() == CHANNELS);
+    fn smoothing_loop_dual(&mut self, info: &ProcInfo, outputs: &mut [&mut [f32]]) {
         assert!(outputs.len() == CHANNELS);
-        for ch in inputs.iter() {
-            assert!(ch.len() >= info.frames);
-        }
         for ch in outputs.iter() {
             assert!(ch.len() >= info.frames);
         }
@@ -754,7 +731,7 @@ impl<const CHANNELS: usize> Processor<CHANNELS> {
 
             let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
                 // Safety: These bounds have been checked above.
-                unsafe { *inputs.get_unchecked(ch_i).get_unchecked(i) }
+                unsafe { *outputs.get_unchecked(ch_i).get_unchecked(i) }
             });
 
             let s = self.filter_0.process(s, &self.filter_0_coeff);
@@ -824,7 +801,10 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         buffers: ProcBuffers,
         _extra: &mut ProcExtra,
     ) -> ProcessStatus {
-        if info.in_silence_mask.all_channels_silent(CHANNELS) {
+        // Make sure that in-place buffer processing is being handled correctly.
+        debug_assert_eq!(buffers.inputs.len(), 0);
+
+        if info.out_silence_mask.all_channels_silent(CHANNELS) {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
@@ -838,13 +818,13 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
         {
             match self.filter_type {
                 SvfType::Lowpass | SvfType::Highpass | SvfType::Notch | SvfType::Allpass => {
-                    self.smoothing_loop_single(info, buffers.inputs, buffers.outputs)
+                    self.smoothing_loop_single(info, buffers.outputs)
                 }
                 SvfType::LowShelf | SvfType::HighShelf | SvfType::Bell => {
-                    self.smoothing_loop_single_with_gain(info, buffers.inputs, buffers.outputs)
+                    self.smoothing_loop_single_with_gain(info, buffers.outputs)
                 }
                 SvfType::LowpassX2 | SvfType::HighpassX2 | SvfType::Bandpass => {
-                    self.smoothing_loop_dual(info, buffers.inputs, buffers.outputs)
+                    self.smoothing_loop_dual(info, buffers.outputs)
                 }
             }
 
@@ -869,11 +849,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 );
             }
 
-            assert!(buffers.inputs.len() == CHANNELS);
             assert!(buffers.outputs.len() == CHANNELS);
-            for ch in buffers.inputs.iter() {
-                assert!(ch.len() >= info.frames);
-            }
             for ch in buffers.outputs.iter() {
                 assert!(ch.len() >= info.frames);
             }
@@ -882,7 +858,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 for i in 0..info.frames {
                     let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
                         // Safety: These bounds have been checked above.
-                        unsafe { *buffers.inputs.get_unchecked(ch_i).get_unchecked(i) }
+                        unsafe { *buffers.outputs.get_unchecked(ch_i).get_unchecked(i) }
                     });
 
                     let out = self.filter_0.process(s, &self.filter_0_coeff);
@@ -899,7 +875,7 @@ impl<const CHANNELS: usize> AudioNodeProcessor for Processor<CHANNELS> {
                 for i in 0..info.frames {
                     let s: [f32; CHANNELS] = core::array::from_fn(|ch_i| {
                         // Safety: These bounds have been checked above.
-                        unsafe { *buffers.inputs.get_unchecked(ch_i).get_unchecked(i) }
+                        unsafe { *buffers.outputs.get_unchecked(ch_i).get_unchecked(i) }
                     });
 
                     let s = self.filter_0.process(s, &self.filter_0_coeff);

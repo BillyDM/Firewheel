@@ -116,10 +116,14 @@ impl Declicker {
         &mut self,
         buffers_a: &[VA],
         buffers_b: &mut [VB],
-        frames: usize,
+        buffer_a_range: Range<usize>,
+        buffer_b_range: Range<usize>,
         declick_values: &DeclickValues,
         fade_curve: DeclickFadeCurve,
     ) {
+        let frames = (buffer_a_range.end - buffer_a_range.start)
+            .min(buffer_b_range.end - buffer_b_range.start);
+
         let mut crossfade_buffers =
             |declick_frames_left: &mut usize, values_a: &[f32], values_b: &[f32]| -> usize {
                 let process_frames = frames.min(*declick_frames_left);
@@ -129,8 +133,10 @@ impl Declicker {
                 let values_b = &values_b[values_start..values_start + process_frames];
 
                 for (ch_a, ch_b) in buffers_a.iter().zip(buffers_b.iter_mut()) {
-                    let slice_a = &ch_a.as_ref()[..process_frames];
-                    let slice_b = &mut ch_b.as_mut()[..process_frames];
+                    let slice_a =
+                        &ch_a.as_ref()[buffer_a_range.start..buffer_a_range.start + process_frames];
+                    let slice_b = &mut ch_b.as_mut()
+                        [buffer_b_range.start..buffer_b_range.start + process_frames];
 
                     for i in 0..process_frames {
                         slice_b[i] = (slice_a[i] * values_a[i]) + (slice_b[i] * values_b[i]);
@@ -145,8 +151,10 @@ impl Declicker {
         match self {
             Self::SettledAt0 => {
                 for (ch_a, ch_b) in buffers_a.iter().zip(buffers_b.iter_mut()) {
-                    let slice_a = &ch_a.as_ref()[..frames];
-                    let slice_b = &mut ch_b.as_mut()[..frames];
+                    let slice_a =
+                        &ch_a.as_ref()[buffer_a_range.start..buffer_a_range.start + frames];
+                    let slice_b =
+                        &mut ch_b.as_mut()[buffer_b_range.start..buffer_b_range.start + frames];
 
                     slice_b.copy_from_slice(slice_a);
                 }
@@ -167,8 +175,10 @@ impl Declicker {
 
                 if frames_processed < frames {
                     for (ch_a, ch_b) in buffers_a.iter().zip(buffers_b.iter_mut()) {
-                        let slice_a = &ch_a.as_ref()[frames_processed..frames];
-                        let slice_b = &mut ch_b.as_mut()[frames_processed..frames];
+                        let slice_a = &ch_a.as_ref()[buffer_a_range.start + frames_processed
+                            ..buffer_a_range.start + frames];
+                        let slice_b = &mut ch_b.as_mut()[buffer_b_range.start + frames_processed
+                            ..buffer_b_range.start + frames];
 
                         slice_b.copy_from_slice(slice_a);
                     }

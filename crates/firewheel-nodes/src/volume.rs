@@ -136,6 +136,8 @@ impl AudioNode for VolumeNode {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
             }))
+        // TODO: Once the scheduler gets in-place processing support, use
+        // in-place processing for this node.
     }
 
     fn construct_processor(

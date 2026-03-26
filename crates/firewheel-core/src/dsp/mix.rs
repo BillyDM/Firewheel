@@ -1,4 +1,5 @@
 use core::num::NonZeroU32;
+use std::ops::Range;
 
 use crate::{
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
@@ -186,13 +187,21 @@ impl MixDSP {
 
     pub fn mix_dry_into_wet<VF: AsRef<[f32]>, VS: AsMut<[f32]>>(
         &mut self,
-        frames: usize,
         dry: &[VF],
         wet: &mut [VS],
+        dry_range: Range<usize>,
+        wet_range: Range<usize>,
         scratch_buffer_0: &mut [f32],
         scratch_buffer_1: &mut [f32],
     ) {
-        self.mix_first_into_second(frames, dry, wet, scratch_buffer_0, scratch_buffer_1);
+        self.mix_first_into_second(
+            dry,
+            wet,
+            dry_range,
+            wet_range,
+            scratch_buffer_0,
+            scratch_buffer_1,
+        );
     }
 
     pub fn mix_first_into_second_mono(&mut self, first: &[f32], second: &mut [f32], frames: usize) {
@@ -264,21 +273,29 @@ impl MixDSP {
 
     pub fn mix_first_into_second<VF: AsRef<[f32]>, VS: AsMut<[f32]>>(
         &mut self,
-        frames: usize,
         first: &[VF],
         second: &mut [VS],
+        first_range: Range<usize>,
+        second_range: Range<usize>,
         scratch_buffer_0: &mut [f32],
         scratch_buffer_1: &mut [f32],
     ) {
+        let frames =
+            (first_range.end - first_range.start).min(second_range.end - second_range.start);
+
         if second.len() == 1 {
-            self.mix_first_into_second_mono(first[0].as_ref(), second[0].as_mut(), frames);
+            self.mix_first_into_second_mono(
+                &first[0].as_ref()[first_range.clone()],
+                &mut second[0].as_mut()[second_range.clone()],
+                frames,
+            );
         } else if second.len() == 2 {
             let (second_l, second_r) = second.split_first_mut().unwrap();
             self.mix_first_into_second_stereo(
-                first[0].as_ref(),
-                first[1].as_ref(),
-                second_l.as_mut(),
-                second_r[0].as_mut(),
+                &first[0].as_ref()[first_range.clone()],
+                &first[1].as_ref()[first_range.clone()],
+                &mut second_l.as_mut()[second_range.clone()],
+                &mut second_r[0].as_mut()[second_range.clone()],
                 frames,
             );
         } else if self.is_smoothing() {
@@ -288,11 +305,15 @@ impl MixDSP {
                 .process_into_buffer(&mut scratch_buffer_1[..frames]);
 
             for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
-                for (((&first_s, &g0), &g1), second_s) in first_ch.as_ref()[..frames]
+                for (((&first_s, &g0), &g1), second_s) in first_ch.as_ref()
+                    [first_range.start..first_range.start + frames]
                     .iter()
                     .zip(scratch_buffer_0[..frames].iter())
                     .zip(scratch_buffer_1[..frames].iter())
-                    .zip(second_ch.as_mut()[..frames].iter_mut())
+                    .zip(
+                        second_ch.as_mut()[second_range.start..second_range.start + frames]
+                            .iter_mut(),
+                    )
                 {
                     *second_s = first_s * g0 + *second_s * g1;
                 }
@@ -303,15 +324,22 @@ impl MixDSP {
         } else if self.gain_1.target_value() <= 0.00001 && self.gain_0.target_value() >= 0.99999 {
             // Simply copy input 0 to output.
             for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
-                second_ch.as_mut()[..frames].copy_from_slice(&first_ch.as_ref()[..frames]);
+                second_ch.as_mut()[second_range.start..second_range.start + frames]
+                    .copy_from_slice(
+                        &first_ch.as_ref()[first_range.start..first_range.start + frames],
+                    );
             }
         } else if self.gain_0.target_value() <= 0.00001 && self.gain_1.target_value() >= 0.99999 {
             // Signal is already fully second
         } else {
             for (first_ch, second_ch) in first[..second.len()].iter().zip(second.iter_mut()) {
-                for (&first_s, second_s) in first_ch.as_ref()[..frames]
+                for (&first_s, second_s) in first_ch.as_ref()
+                    [first_range.start..first_range.start + frames]
                     .iter()
-                    .zip(second_ch.as_mut()[..frames].iter_mut())
+                    .zip(
+                        second_ch.as_mut()[second_range.start..second_range.start + frames]
+                            .iter_mut(),
+                    )
                 {
                     *second_s = first_s * self.gain_0.target_value()
                         + *second_s * self.gain_1.target_value();

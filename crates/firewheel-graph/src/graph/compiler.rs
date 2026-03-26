@@ -10,7 +10,6 @@ use crate::error::CompileGraphError;
 
 mod schedule;
 
-pub(crate) use schedule::ScheduleProcStatus;
 pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 use schedule::{InBufferAssignment, OutBufferAssignment, PreProcNode, ScheduledNode};
 
@@ -28,7 +27,11 @@ pub struct NodeEntry {
 }
 
 impl NodeEntry {
-    pub fn new(info: AudioNodeInfoInner, dyn_node: Box<dyn DynAudioNode>) -> Self {
+    pub fn new(mut info: AudioNodeInfoInner, dyn_node: Box<dyn DynAudioNode>) -> Self {
+        if info.channel_config.num_outputs.get() == 0 {
+            info.in_place_buffers = false;
+        }
+
         Self {
             id: NodeID::DANGLING,
             info,
@@ -272,6 +275,7 @@ impl<'a> GraphIR<'a> {
                 self.schedule.push(ScheduledNode::new(
                     node_entry.id,
                     node_entry.info.debug_name,
+                    node_entry.info.in_place_buffers,
                 ));
             }
         }
@@ -282,7 +286,7 @@ impl<'a> GraphIR<'a> {
             // been pushed. Otherwise a different leaf node could overwrite
             // the buffers assigned to the graph out node.
             self.schedule
-                .push(ScheduledNode::new(self.graph_out_id, "graph_out"));
+                .push(ScheduledNode::new(self.graph_out_id, "graph_out", false));
         }
 
         // If not all vertices are visited, cycle
@@ -450,6 +454,7 @@ impl<'a> GraphIR<'a> {
             self.pre_proc_nodes,
             self.schedule,
             self.max_num_buffers,
+            self.max_out_buffers,
             self.max_block_frames,
             self.graph_in_id,
         )

@@ -209,6 +209,7 @@ pub(crate) struct NodeEntry {
     pub bypass_declick: Declicker,
     pub is_bypassed: bool,
     pub is_first_process: bool,
+    pub in_place_buffers: bool,
 
     event_data: NodeEventSchedulerData,
 }

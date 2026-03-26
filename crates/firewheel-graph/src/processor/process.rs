@@ -6,7 +6,10 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
-    dsp::declick::{DeclickFadeCurve, Declicker},
+    dsp::{
+        buffer::SequentialBuffer,
+        declick::{DeclickFadeCurve, Declicker},
+    },
     event::ProcEvents,
     log::RealtimeLogger,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
@@ -15,7 +18,6 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
-    graph::ScheduleProcStatus,
     processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, StatusFlags},
     FirewheelFlags,
 };
@@ -296,14 +298,14 @@ impl FirewheelProcessorInner {
              in_connected_mask: ConnectedMask,
              out_connected_mask: ConnectedMask,
              proc_buffers,
-             bypass_gain_buffer: &mut [f32]|
-             -> ScheduleProcStatus {
+             bypass_declick_buffer: &mut SequentialBuffer<f32>|
+             -> ProcessStatus {
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
                 // Add the mask information to proc info.
                 info.in_silence_mask = in_silence_mask;
-                info.out_silence_mask = out_silence_mask;
                 info.in_constant_mask = in_constant_mask;
+                info.out_silence_mask = out_silence_mask;
                 info.out_constant_mask = out_constant_mask;
                 info.in_connected_mask = in_connected_mask;
                 info.out_connected_mask = out_connected_mask;
@@ -314,8 +316,6 @@ impl FirewheelProcessorInner {
 
                 let mut is_bypassed = node_entry.bypass_declick == Declicker::SettledAt0;
                 let mut is_bypass_declicking = !node_entry.bypass_declick.has_settled();
-                let mut prev_is_bypass_declicking = is_bypass_declicking;
-                let original_bypass_declick = node_entry.bypass_declick;
                 let has_outputs = !proc_buffers.outputs.is_empty();
 
                 // Process in sub-chunks for each new scheduled event (or process a single
@@ -403,6 +403,36 @@ impl FirewheelProcessorInner {
                                 node_entry.is_first_process = false;
                             }
 
+                            if is_bypass_declicking {
+                                let mut tmp_buffers = bypass_declick_buffer
+                                    .channels_mut::<MAX_CHANNELS>(
+                                        proc_buffers.outputs.len(),
+                                        sub_chunk_frames,
+                                    );
+
+                                if node_entry.in_place_buffers {
+                                    for (out_ch, tmp_ch) in
+                                        proc_buffers.outputs.iter().zip(tmp_buffers.iter_mut())
+                                    {
+                                        tmp_ch[..sub_chunk_frames]
+                                            .copy_from_slice(&out_ch[sub_chunk_range.clone()]);
+                                    }
+                                } else {
+                                    for (in_ch, tmp_ch) in
+                                        proc_buffers.inputs.iter().zip(tmp_buffers.iter_mut())
+                                    {
+                                        tmp_ch[..sub_chunk_frames]
+                                            .copy_from_slice(&in_ch[sub_chunk_range.clone()]);
+                                    }
+
+                                    for tmp_ch in
+                                        tmp_buffers.iter_mut().skip(proc_buffers.inputs.len())
+                                    {
+                                        tmp_ch[..sub_chunk_frames].fill(0.0);
+                                    }
+                                }
+                            }
+
                             if sub_chunk_frames == block_frames {
                                 // If this is the only sub-chunk (because there are no scheduled
                                 // events), there is no need to edit the buffer slices.
@@ -440,29 +470,19 @@ impl FirewheelProcessorInner {
                         };
 
                         if is_bypass_declicking {
-                            let (wet_buffer, dry_buffer) =
-                                bypass_gain_buffer.split_at_mut(self.max_block_frames);
+                            let tmp_buffers = bypass_declick_buffer.channels::<MAX_CHANNELS>(
+                                proc_buffers.outputs.len(),
+                                sub_chunk_frames,
+                            );
 
-                            if !prev_is_bypass_declicking && sub_chunk_range.start > 0 {
-                                if original_bypass_declick == Declicker::SettledAt0 {
-                                    wet_buffer[..sub_chunk_range.start].fill(0.0);
-                                    dry_buffer[..sub_chunk_range.start].fill(1.0);
-                                } else if original_bypass_declick == Declicker::SettledAt1 {
-                                    wet_buffer[..sub_chunk_range.start].fill(1.0);
-                                    dry_buffer[..sub_chunk_range.start].fill(0.0);
-                                }
-                            }
-                            prev_is_bypass_declicking = true;
-
-                            node_entry
-                                .bypass_declick
-                                .process_into_crossfade_gain_buffers(
-                                    &mut wet_buffer[sub_chunk_range.clone()],
-                                    &mut dry_buffer[sub_chunk_range.clone()],
-                                    false,
-                                    &extra.declick_values,
-                                    DeclickFadeCurve::Linear,
-                                );
+                            node_entry.bypass_declick.process_crossfade(
+                                &tmp_buffers,
+                                proc_buffers.outputs,
+                                0..sub_chunk_frames,
+                                sub_chunk_range.clone(),
+                                &extra.declick_values,
+                                DeclickFadeCurve::Linear,
+                            );
                         }
 
                         node_entry.prev_output_was_silent = match process_status {
@@ -604,19 +624,13 @@ impl FirewheelProcessorInner {
 
                 // -- Done processing in sub-chunks. Return the final process status. ---------
 
-                let status = if let Some(final_mask) = final_mask {
+                if let Some(final_mask) = final_mask {
                     // If we manually handled process statuses, return the calculated silence
                     // mask.
                     ProcessStatus::OutputsModifiedWithMask(final_mask)
                 } else {
                     // Else return the process status returned by the node's proces method.
                     prev_process_status.unwrap()
-                };
-
-                ScheduleProcStatus {
-                    status,
-                    is_bypass_declicking,
-                    is_bypassed,
                 }
             },
         );
