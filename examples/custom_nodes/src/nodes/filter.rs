@@ -6,6 +6,7 @@
 
 use std::f32::consts::PI;
 
+use firewheel::dsp::coeff_update::{CoeffUpdateFactor, CoeffUpdateMask};
 use firewheel::node::NodeError;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -33,8 +34,22 @@ use firewheel::{
 pub struct FilterNode {
     /// The cutoff frequency in hertz in the range `[20.0, 20_000.0]`.
     pub cutoff_hz: f32,
+
     /// The overall volume.
     pub volume: Volume,
+
+    /// An exponent representing the rate at which DSP coefficients are
+    /// updated when parameters are being smoothed.
+    ///
+    /// Smaller values will produce less "stair-stepping" artifacts,
+    /// but will also consume more CPU.
+    ///
+    /// The resulting number of frames (samples in a single channel of audio)
+    /// that will elapse between each update is calculated as
+    /// `2^coeff_update_factor`.
+    ///
+    /// By default this is set to `4`.
+    pub coeff_update_factor: CoeffUpdateFactor,
 }
 
 impl Default for FilterNode {
@@ -42,6 +57,7 @@ impl Default for FilterNode {
         Self {
             cutoff_hz: 1_000.0,
             volume: Volume::default(),
+            coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
 }
@@ -64,7 +80,14 @@ impl AudioNode for FilterNode {
             .channel_config(ChannelConfig {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
-            }))
+            })
+            // Since the number of inputs and outputs are equal and we don't have
+            // a wet/dry mix parameter, we can take advantage of in-place buffer
+            // optimizations.
+            //
+            // With this turned on, the number of inputs buffers in the process
+            // method will be `0`.
+            .in_place_buffers(true))
     }
 
     // Construct the realtime processor counterpart using the given information
@@ -92,6 +115,7 @@ impl AudioNode for FilterNode {
                 cx.stream_info.sample_rate,
             ),
             gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
+            coeff_update_mask: self.coeff_update_factor.mask(),
         })
     }
 }
@@ -105,6 +129,7 @@ struct Processor {
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer
     // for the smoothed values.
     gain: SmoothedParamBuffer,
+    coeff_update_mask: CoeffUpdateMask,
 }
 
 impl Processor {
@@ -141,6 +166,9 @@ impl AudioNodeProcessor for Processor {
                 FilterNodePatch::Volume(volume) => {
                     self.gain.set_value(volume.amp_clamped(DEFAULT_MIN_AMP));
                 }
+                FilterNodePatch::CoeffUpdateFactor(factor) => {
+                    self.coeff_update_mask = factor.mask();
+                }
             }
         }
     }
@@ -173,7 +201,8 @@ impl AudioNodeProcessor for Processor {
         // there is no need to process.
         let gain_is_silent = self.gain.has_settled_at_or_below(DEFAULT_MIN_AMP);
 
-        if info.in_silence_mask.all_channels_silent(2) || gain_is_silent {
+        // Read the output silence mask since we are operating with in-place buffers.
+        if info.out_silence_mask.all_channels_silent(2) || gain_is_silent {
             // Outputs will be silent, so no need to process.
 
             // Reset the smoothers and filters since they don't need to smooth any
@@ -183,12 +212,10 @@ impl AudioNodeProcessor for Processor {
             return ProcessStatus::ClearAllOutputs;
         }
 
-        // Get slices of the input and output buffers.
+        // Get slices of the output buffers.
         //
         // Doing it this way allows the compiler to better optimize the processing
         // loops below.
-        let in1 = &buffers.inputs[0][..info.frames];
-        let in2 = &buffers.inputs[1][..info.frames];
         let (out1, out2) = buffers.outputs.split_first_mut().unwrap();
         let out1 = &mut out1[..info.frames];
         let out2 = &mut out2[0][..info.frames];
@@ -204,15 +231,15 @@ impl AudioNodeProcessor for Processor {
                 let cutoff_hz = self.cutoff_hz.next_smoothed();
 
                 // Because recalculating filter coefficients is expensive, a trick like
-                // this can be used to only recalculate them every 32 frames.
-                if i & (32 - 1) == 0 {
+                // this can be used to only recalculate them every 16 frames.
+                if self.coeff_update_mask.do_update(i) {
                     self.filter_l
                         .set_cutoff(cutoff_hz, info.sample_rate_recip as f32);
                     self.filter_r.copy_cutoff_from(&self.filter_l);
                 }
 
-                let fl = self.filter_l.process(in1[i]);
-                let fr = self.filter_r.process(in2[i]);
+                let fl = self.filter_l.process(out1[i]);
+                let fr = self.filter_r.process(out2[i]);
 
                 out1[i] = fl * gain[i];
                 out2[i] = fr * gain[i];
@@ -229,8 +256,8 @@ impl AudioNodeProcessor for Processor {
             self.filter_r.copy_cutoff_from(&self.filter_l);
 
             for i in 0..info.frames {
-                let fl = self.filter_l.process(in1[i]);
-                let fr = self.filter_r.process(in2[i]);
+                let fl = self.filter_l.process(out1[i]);
+                let fr = self.filter_r.process(out2[i]);
 
                 out1[i] = fl * gain[i];
                 out2[i] = fr * gain[i];

@@ -65,6 +65,16 @@ impl App for DemoApp {
             ui.separator();
             ui.label("Filter");
 
+            if ui
+                .checkbox(&mut self.audio_system.filter_bypassed, "bypassed")
+                .changed()
+            {
+                self.audio_system.cx.queue_bypassed_for(
+                    self.audio_system.filter_node_id,
+                    self.audio_system.filter_bypassed,
+                );
+            }
+
             let mut linear_volume = self.audio_system.filter_node.volume.linear();
             if ui
                 .add(egui::Slider::new(&mut linear_volume, 0.0..=1.0).text("volume"))
@@ -81,16 +91,6 @@ impl App for DemoApp {
                 .text("cutoff")
                 .logarithmic(true),
             );
-
-            if ui
-                .checkbox(&mut self.audio_system.filter_bypassed, "bypassed")
-                .changed()
-            {
-                self.audio_system.cx.queue_bypassed_for(
-                    self.audio_system.filter_node_id,
-                    self.audio_system.filter_bypassed,
-                );
-            }
 
             self.audio_system.filter_node.update_memo(
                 &mut self
