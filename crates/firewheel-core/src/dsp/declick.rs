@@ -7,8 +7,6 @@ use core::{num::NonZeroU32, ops::Range};
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::dsp::filter::smoothing_filter::{SmoothingFilter, SmoothingFilterCoeff};
-
 /// A struct used to declick audio signals using crossfading.
 ///
 /// This approach is more SIMD-friendly than using a smoothing filter
@@ -528,105 +526,5 @@ impl DeclickValues {
 
     pub fn frames(&self) -> usize {
         self.linear_0_to_1_values.len()
-    }
-}
-
-/// A struct used to declick audio signals using a lowpass filter.
-///
-/// Note, this method of declicking does not have as good quality or
-/// performance as the crossfading method used by [`Declicker`]. But
-/// this can be used in situations where crossfading two signals is
-/// infeasible or too expensive.
-#[derive(Debug)]
-pub struct LowpassDeclicker<const MAX_CHANNELS: usize> {
-    filters: [SmoothingFilter; MAX_CHANNELS],
-    coeff: SmoothingFilterCoeff,
-    smooth_secs: f32,
-    smooth_frames: usize,
-    smooth_frames_recip: f32,
-    frames_left: usize,
-}
-
-impl<const MAX_CHANNELS: usize> LowpassDeclicker<MAX_CHANNELS> {
-    pub fn new(sample_rate: NonZeroU32, smooth_secs: f32) -> Self {
-        let smooth_frames = ((smooth_secs * sample_rate.get() as f32).round() as usize).max(1);
-        let smooth_frames_recip = (smooth_frames as f32).recip();
-
-        Self {
-            filters: [SmoothingFilter::new(0.0); MAX_CHANNELS],
-            coeff: SmoothingFilterCoeff::new(sample_rate, smooth_secs),
-            smooth_secs,
-            smooth_frames,
-            smooth_frames_recip,
-            frames_left: 0,
-        }
-    }
-
-    pub fn is_declicking(&self) -> bool {
-        self.frames_left > 0
-    }
-
-    pub fn update_sample_rate(&mut self, sample_rate: NonZeroU32) {
-        self.coeff = SmoothingFilterCoeff::new(sample_rate, self.smooth_secs);
-        self.smooth_frames =
-            ((self.smooth_secs * sample_rate.get() as f32).round() as usize).max(1);
-        self.smooth_frames_recip = (self.smooth_frames as f32).recip();
-    }
-
-    pub fn begin(&mut self) {
-        self.frames_left = self.smooth_frames;
-    }
-
-    pub fn reset(&mut self) {
-        self.frames_left = 0;
-    }
-
-    pub fn process<V: AsMut<[f32]>>(&mut self, buffers: &mut [V], frames: usize) {
-        if frames == 0 {
-            return;
-        }
-
-        if self.frames_left == 0 {
-            for (buf, f) in buffers.iter_mut().zip(self.filters.iter_mut()) {
-                f.z1 = buf.as_mut()[frames - 1];
-            }
-
-            return;
-        }
-
-        let proc_frames = self.frames_left.min(frames);
-
-        if buffers.len().min(MAX_CHANNELS) == 2 {
-            // Provide an optimized loop for stereo.
-
-            let (buf_l, buf_r) = buffers.split_first_mut().unwrap();
-            let buf_l = &mut buf_l.as_mut()[..proc_frames];
-            let buf_r = &mut buf_r[0].as_mut()[..proc_frames];
-
-            let (f_l, f_r) = self.filters.split_first_mut().unwrap();
-            let f_r = &mut f_r[0];
-
-            for i in 0..proc_frames {
-                let filtered_l = f_l.process(buf_l[i], self.coeff);
-                let filtered_r = f_r.process(buf_r[i], self.coeff);
-
-                let filtered_mix = (self.frames_left - i) as f32 * self.smooth_frames_recip;
-
-                buf_l[i] = (filtered_l * filtered_mix) + (buf_l[i] * (1.0 - filtered_mix));
-                buf_r[i] = (filtered_r * filtered_mix) + (buf_r[i] * (1.0 - filtered_mix));
-            }
-        } else {
-            for (buf, f) in buffers.iter_mut().zip(self.filters.iter_mut()) {
-                for (i, s) in buf.as_mut()[..proc_frames].iter_mut().enumerate() {
-                    let filtered_s = f.process(*s, self.coeff);
-
-                    let filtered_mix = (self.frames_left - i) as f32 * self.smooth_frames_recip;
-
-                    *s = (filtered_s * filtered_mix) + (*s * (1.0 - filtered_mix));
-                }
-            }
-        }
-
-        self.frames_left -= proc_frames;
     }
 }
