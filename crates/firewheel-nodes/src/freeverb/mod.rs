@@ -4,6 +4,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::module_inception)]
 
+use firewheel_core::dsp::coeff_update::{CoeffUpdateFactor, CoeffUpdateMask};
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -19,6 +20,8 @@ use firewheel_core::{
     },
     param::smoother::{SmoothedParam, SmootherConfig},
 };
+
+use crate::freeverb::freeverb::Freeverb;
 
 mod all_pass;
 mod comb;
@@ -65,6 +68,19 @@ pub struct FreeverbNode {
     /// roughly equal to a typical block size of 1024 samples (23 ms) to
     /// eliminate stair-stepping for most games.
     pub smooth_seconds: f32,
+
+    /// An exponent representing the rate at which DSP coefficients are
+    /// updated when parameters are being smoothed.
+    ///
+    /// Smaller values will produce less "stair-stepping" artifacts,
+    /// but will also consume more CPU.
+    ///
+    /// The resulting number of frames (samples in a single channel of audio)
+    /// that will elapse between each update is calculated as
+    /// `2^coeff_update_factor`.
+    ///
+    /// By default this is set to `5`.
+    pub coeff_update_factor: CoeffUpdateFactor,
 }
 
 impl Default for FreeverbNode {
@@ -76,6 +92,7 @@ impl Default for FreeverbNode {
             pause: false,
             reset: Notify::new(()),
             smooth_seconds: 0.015,
+            coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
 }
@@ -127,6 +144,7 @@ impl AudioNode for FreeverbNode {
                 Declicker::SettledAt1
             },
             values: DeclickValues::new(cx.stream_info.declick_frames),
+            coeff_update_mask: self.coeff_update_factor.mask(),
         };
 
         processor.apply_parameters();
@@ -143,6 +161,7 @@ struct FreeverbProcessor {
     paused: bool,
     pause_declicker: Declicker,
     values: DeclickValues,
+    coeff_update_mask: CoeffUpdateMask,
 }
 
 impl FreeverbProcessor {
@@ -189,6 +208,9 @@ impl AudioNodeProcessor for FreeverbProcessor {
                     self.width.set_smooth_seconds(value, info.sample_rate);
                     self.damping.set_smooth_seconds(value, info.sample_rate);
                 }
+                FreeverbNodePatch::CoeffUpdateFactor(value) => {
+                    self.coeff_update_mask = value.mask();
+                }
             }
         }
     }
@@ -220,6 +242,11 @@ impl AudioNodeProcessor for FreeverbProcessor {
             self.apply_parameters();
         }
 
+        assert!(buffers.inputs[0].len() >= info.frames);
+        assert!(buffers.inputs[1].len() >= info.frames);
+        assert!(buffers.outputs[0].len() >= info.frames);
+        assert!(buffers.outputs[1].len() >= info.frames);
+
         // just take the slow path if any are smoothing
         if self.damping.is_smoothing() || self.room_size.is_smoothing() || self.width.is_smoothing()
         {
@@ -230,14 +257,8 @@ impl AudioNodeProcessor for FreeverbProcessor {
 
                 // we assume setting these values is more expensive than
                 // calculating their smoothing
-                //
-                // TODO: Use CoeffUpdateFactor and cold path
-                if frame.is_multiple_of(4) {
-                    self.freeverb.set_dampening(damping as f64);
-                    self.freeverb.set_room_size(room_size as f64);
-                    self.freeverb.set_width(width as f64);
-
-                    self.freeverb.update_combs();
+                if self.coeff_update_mask.do_update(frame) {
+                    calc_coeffs(&mut self.freeverb, damping, room_size, width);
                 }
 
                 let (left, right) = self.freeverb.tick((
@@ -310,4 +331,14 @@ impl FreeverbProcessor {
         self.freeverb.set_width(self.width.target_value() as f64);
         self.freeverb.update_combs();
     }
+}
+
+#[cold]
+#[inline(never)]
+fn calc_coeffs(freeverb: &mut Freeverb, damping: f32, room_size: f32, width: f32) {
+    freeverb.set_dampening(damping as f64);
+    freeverb.set_room_size(room_size as f64);
+    freeverb.set_width(width as f64);
+
+    freeverb.update_combs();
 }

@@ -29,6 +29,7 @@ impl Comb {
         self.feedback = value;
     }
 
+    #[inline]
     pub fn tick(&mut self, input: f64) -> f64 {
         let output = self.delay_line.read();
 

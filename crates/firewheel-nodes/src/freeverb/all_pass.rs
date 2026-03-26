@@ -12,6 +12,7 @@ impl AllPass {
         }
     }
 
+    #[inline]
     pub fn tick(&mut self, input: f64) -> f64 {
         let delayed = self.delay_line.read();
         let output = -input + delayed;

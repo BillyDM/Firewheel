@@ -16,10 +16,12 @@ impl DelayLine {
         Self { buffer, index: 0 }
     }
 
+    #[inline]
     pub fn read(&self) -> f64 {
         self.buffer[self.index]
     }
 
+    #[inline]
     pub fn write_and_advance(&mut self, value: f64) {
         self.buffer[self.index] = value;
 
