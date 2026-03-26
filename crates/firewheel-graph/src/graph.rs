@@ -22,9 +22,7 @@ use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
 
-pub(crate) use self::compiler::{
-    CompiledSchedule, NodeHeapData, ScheduleHeapData, ScheduleProcStatus,
-};
+pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
 
 pub use self::compiler::{Edge, EdgeID, NodeEntry, PortIdx};
 
@@ -578,6 +576,7 @@ impl AudioGraph {
                             CompileGraphError::ProcessorConstructionFailed(node_error.to_string())
                         })?,
                     is_pre_process: entry.info.channel_config.is_empty(),
+                    in_place_buffers: entry.info.in_place_buffers,
                 });
             }
         }

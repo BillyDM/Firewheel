@@ -1,10 +1,12 @@
 use arrayvec::ArrayVec;
 use core::fmt::Debug;
+use core::num::NonZeroUsize;
 use smallvec::SmallVec;
 use thunderdome::Arena;
 
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
+    dsp::buffer::SequentialBuffer,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus},
 };
@@ -50,12 +52,14 @@ pub(super) struct ScheduledNode {
 
     pub in_connected_mask: ConnectedMask,
     pub out_connected_mask: ConnectedMask,
+    pub node_wants_in_place_buffers: bool,
+    pub is_in_place_buffers: bool,
 
     pub sum_inputs: Vec<InsertedSum>,
 }
 
 impl ScheduledNode {
-    pub fn new(id: NodeID, debug_name: &'static str) -> Self {
+    pub fn new(id: NodeID, debug_name: &'static str, node_wants_in_place_buffers: bool) -> Self {
         Self {
             id,
             debug_name,
@@ -63,6 +67,8 @@ impl ScheduledNode {
             output_buffers: SmallVec::new(),
             in_connected_mask: ConnectedMask::default(),
             out_connected_mask: ConnectedMask::default(),
+            node_wants_in_place_buffers,
+            is_in_place_buffers: false,
             sum_inputs: Vec::new(),
         }
     }
@@ -120,6 +126,10 @@ impl Debug for ScheduledNode {
             write!(f, "]")?;
         }
 
+        if self.node_wants_in_place_buffers {
+            write!(f, " | in_place: {}", self.is_in_place_buffers)?;
+        }
+
         if !self.input_buffers.is_empty() {
             write!(f, " | in_clear: [")?;
 
@@ -164,7 +174,7 @@ pub struct NodeHeapData {
     pub id: NodeID,
     pub processor: Box<dyn AudioNodeProcessor>,
     pub is_pre_process: bool,
-    //pub event_buffer_indices: Vec<u32>,
+    pub in_place_buffers: bool,
 }
 
 pub struct ScheduleHeapData {
@@ -222,12 +232,6 @@ impl BufferFlags {
     }
 }
 
-pub(crate) struct ScheduleProcStatus {
-    pub status: ProcessStatus,
-    pub is_bypass_declicking: bool,
-    pub is_bypassed: bool,
-}
-
 /// A [CompiledSchedule] is the output of the graph compiler.
 pub struct CompiledSchedule {
     pre_proc_nodes: Vec<PreProcNode>,
@@ -237,8 +241,7 @@ pub struct CompiledSchedule {
     buffer_flags: Vec<BufferFlags>,
     num_buffers: usize,
 
-    /// Containts two buffers, one for wet and one for dry.
-    bypass_gain_buffer: Vec<f32>,
+    bypass_declick_buffer: SequentialBuffer<f32>,
 
     max_block_frames: usize,
     graph_in_node_id: NodeID,
@@ -278,6 +281,7 @@ impl CompiledSchedule {
         pre_proc_nodes: Vec<PreProcNode>,
         schedule: Vec<ScheduledNode>,
         num_buffers: usize,
+        max_num_node_out_buffers: usize,
         max_block_frames: usize,
         graph_in_node_id: NodeID,
     ) -> Self {
@@ -286,11 +290,6 @@ impl CompiledSchedule {
         let mut buffers = Vec::new();
         buffers.reserve_exact(num_buffers * max_block_frames);
         buffers.resize(num_buffers * max_block_frames, 0.0);
-
-        let mut bypass_gain_buffer = Vec::new();
-        // Two buffers, one for wet and one for dry.
-        bypass_gain_buffer.reserve_exact(max_block_frames * 2);
-        bypass_gain_buffer.resize(max_block_frames * 2, 0.0);
 
         Self {
             pre_proc_nodes,
@@ -305,7 +304,10 @@ impl CompiledSchedule {
                 num_buffers
             ],
             num_buffers,
-            bypass_gain_buffer,
+            bypass_declick_buffer: SequentialBuffer::new(
+                NonZeroUsize::new(max_num_node_out_buffers).unwrap_or(NonZeroUsize::MIN),
+                max_block_frames,
+            ),
             max_block_frames,
             graph_in_node_id,
         }
@@ -470,8 +472,8 @@ impl CompiledSchedule {
             ConnectedMask,
             ConnectedMask,
             ProcBuffers,
-            &mut [f32],
-        ) -> ScheduleProcStatus,
+            &mut SequentialBuffer<f32>,
+        ) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
         let frames_u16 = frames as u16;
@@ -498,7 +500,7 @@ impl CompiledSchedule {
                     inputs: &[],
                     outputs: &mut [],
                 },
-                &mut self.bypass_gain_buffer,
+                &mut self.bypass_declick_buffer,
             );
         }
 
@@ -531,7 +533,71 @@ impl CompiledSchedule {
             inputs.clear();
             outputs.clear();
 
-            for (i, b) in scheduled_node.input_buffers.iter().enumerate() {
+            let copy_in_place_buffers =
+                scheduled_node.node_wants_in_place_buffers && !scheduled_node.is_in_place_buffers;
+
+            if copy_in_place_buffers {
+                for (in_buf, out_buf) in scheduled_node
+                    .input_buffers
+                    .iter()
+                    .zip(scheduled_node.output_buffers.iter())
+                {
+                    // SAFETY: Input and output buffer indicies are guaranteed distinct by the buffer
+                    // allocator, and the buffer indicies are gauranteed to be in bounds by the buffer
+                    // allocator.
+                    let (in_buf_slice, out_buf_slice) = unsafe {
+                        (
+                            core::slice::from_raw_parts_mut(
+                                buffers_ptr.add(in_buf.buffer_index * max_block_frames),
+                                frames,
+                            ),
+                            core::slice::from_raw_parts_mut(
+                                buffers_ptr.add(out_buf.buffer_index * max_block_frames),
+                                frames,
+                            ),
+                        )
+                    };
+
+                    let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
+                    let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
+
+                    if in_buf.should_clear {
+                        if !out_flag.silent || force_clear_buffers {
+                            out_buf_slice.fill(0.0);
+                            out_flag.set_silent(true, frames_u16);
+                        }
+                    } else {
+                        if in_flag.constant {
+                            if !out_flag.constant
+                                || out_buf_slice[0] != in_buf_slice[0]
+                                || force_clear_buffers
+                            {
+                                out_buf_slice.fill(in_buf_slice[0]);
+                            }
+                        } else {
+                            out_buf_slice.copy_from_slice(in_buf_slice);
+                        }
+
+                        *out_flag = in_flag;
+                    }
+                }
+            }
+
+            let skip_inputs = if copy_in_place_buffers {
+                scheduled_node
+                    .input_buffers
+                    .len()
+                    .min(scheduled_node.output_buffers.len())
+            } else {
+                0
+            };
+
+            for (i, b) in scheduled_node
+                .input_buffers
+                .iter()
+                .skip(skip_inputs)
+                .enumerate()
+            {
                 // SAFETY: Input buffer indicies within a single node are guaranteed
                 // non-overlapping by the buffer allocator, and the buffer indicies
                 // are gauranteed to be in bounds by the buffer allocator.
@@ -541,6 +607,7 @@ impl CompiledSchedule {
                         frames,
                     )
                 };
+
                 let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
                 if b.should_clear && (!flag.silent || force_clear_buffers) {
@@ -548,14 +615,18 @@ impl CompiledSchedule {
                     flag.set_silent(true, frames_u16);
                 }
 
-                in_silence_mask.set_channel(i, flag.silent);
-                in_constant_mask.set_channel(i, flag.constant);
+                if !scheduled_node.node_wants_in_place_buffers
+                    || i + skip_inputs >= scheduled_node.output_buffers.len()
+                {
+                    in_silence_mask.set_channel(i, flag.silent);
+                    in_constant_mask.set_channel(i, flag.constant);
 
-                inputs.push(buf);
+                    inputs.push(buf);
+                }
             }
 
             for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                // SAFETY: Input buffer indicies within a single node are guaranteed
+                // SAFETY: Output buffer indicies within a single node are guaranteed
                 // non-overlapping by the buffer allocator, and the buffer indicies
                 // are gauranteed to be in bounds by the buffer allocator.
                 let buf = unsafe {
@@ -564,9 +635,19 @@ impl CompiledSchedule {
                         frames,
                     )
                 };
+
                 let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                if force_clear_buffers {
+                let clear_buffer = if scheduled_node.node_wants_in_place_buffers
+                    && i < scheduled_node.input_buffers.len()
+                {
+                    // buffer has already been processed as an input above
+                    false
+                } else {
+                    force_clear_buffers
+                };
+
+                if clear_buffer {
                     buf.fill(0.0);
                     flag.set_silent(true, frames_u16);
                 }
@@ -589,32 +670,46 @@ impl CompiledSchedule {
                     inputs: inputs.as_slice(),
                     outputs: outputs.as_mut_slice(),
                 },
-                &mut self.bypass_gain_buffer,
+                &mut self.bypass_declick_buffer,
             );
 
-            let mut bypass = || {
-                for (in_buf, out_buf) in scheduled_node
-                    .input_buffers
-                    .iter()
-                    .zip(scheduled_node.output_buffers.iter())
-                {
-                    let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
-                    let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
+            match status {
+                ProcessStatus::ClearAllOutputs => {
+                    // Clear output buffers which need cleared.
+                    for b in scheduled_node.output_buffers.iter() {
+                        let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                    if in_flag.silent {
-                        if !out_flag.silent || force_clear_buffers {
-                            // SAFETY: Each buffer index is used once per iteration, and the buffer indicies
-                            // are gauranteed to be in bounds by the buffer allocator.
+                        if !flag.silent || force_clear_buffers {
+                            // SAFETY: Each buffer index is used once per iteration, and the buffer
+                            // indicies are gauranteed to be in bounds by the buffer allocator.
                             unsafe {
                                 core::slice::from_raw_parts_mut(
-                                    buffers_ptr.add(out_buf.buffer_index * max_block_frames),
+                                    buffers_ptr.add(b.buffer_index * max_block_frames),
                                     frames,
                                 )
                             }
                             .fill(0.0);
-                            out_flag.set_silent(true, frames_u16);
+                            flag.set_silent(true, frames_u16);
                         }
+                    }
+                }
+                ProcessStatus::Bypass => {
+                    let skip = if scheduled_node.node_wants_in_place_buffers {
+                        // Input has already been copied to output
+                        scheduled_node.input_buffers.len()
                     } else {
+                        0
+                    };
+
+                    for (in_buf, out_buf) in scheduled_node
+                        .input_buffers
+                        .iter()
+                        .zip(scheduled_node.output_buffers.iter())
+                        .skip(skip)
+                    {
+                        let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
+                        let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
+
                         // SAFETY: Input and output buffer indicies are guaranteed distinct by the buffer
                         // allocator, and the buffer indicies are gauranteed to be in bounds by the buffer
                         // allocator.
@@ -631,119 +726,75 @@ impl CompiledSchedule {
                             )
                         };
 
-                        out_buf_slice.copy_from_slice(in_buf_slice);
+                        if in_flag.constant {
+                            if !out_flag.constant
+                                || out_buf_slice[0] != in_buf_slice[0]
+                                || force_clear_buffers
+                            {
+                                out_buf_slice.fill(in_buf_slice[0]);
+                            }
+                        } else {
+                            out_buf_slice.copy_from_slice(in_buf_slice);
+                        }
+
                         *out_flag = in_flag;
                     }
-                }
 
-                for b in scheduled_node
-                    .output_buffers
-                    .iter()
-                    .skip(scheduled_node.input_buffers.len())
-                {
-                    let s = flag_mut(&mut self.buffer_flags, b.buffer_index);
+                    for b in scheduled_node
+                        .output_buffers
+                        .iter()
+                        .skip(scheduled_node.input_buffers.len())
+                    {
+                        let s = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                    if !s.silent || force_clear_buffers {
-                        // SAFETY: Each buffer index is used once per iteration, and the buffer indicies
-                        // are gauranteed to be in bounds by the buffer allocator.
-                        unsafe {
-                            core::slice::from_raw_parts_mut(
-                                buffers_ptr.add(b.buffer_index * max_block_frames),
-                                frames,
-                            )
+                        if !s.silent || force_clear_buffers {
+                            // SAFETY: Each buffer index is used once per iteration, and the buffer indicies
+                            // are gauranteed to be in bounds by the buffer allocator.
+                            unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    buffers_ptr.add(b.buffer_index * max_block_frames),
+                                    frames,
+                                )
+                            }
+                            .fill(0.0);
+                            s.set_silent(true, frames_u16);
                         }
-                        .fill(0.0);
-                        s.set_silent(true, frames_u16);
                     }
                 }
-            };
-
-            if status.is_bypassed {
-                bypass();
-            } else {
-                match status.status {
-                    ProcessStatus::ClearAllOutputs => {
-                        // Clear output buffers which need cleared.
-                        for b in scheduled_node.output_buffers.iter() {
+                ProcessStatus::OutputsModified => {
+                    for b in scheduled_node.output_buffers.iter() {
+                        flag_mut(&mut self.buffer_flags, b.buffer_index)
+                            .set_silent(false, frames_u16);
+                    }
+                }
+                ProcessStatus::OutputsModifiedWithMask(out_mask) => match out_mask {
+                    MaskType::Silence(silence_mask) => {
+                        for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
+                            flag_mut(&mut self.buffer_flags, b.buffer_index)
+                                .set_silent(silence_mask.is_channel_silent(i), frames_u16);
+                        }
+                    }
+                    MaskType::Constant(constant_mask) => {
+                        for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
                             let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
 
-                            if !flag.silent || force_clear_buffers {
+                            if constant_mask.is_channel_constant(i) {
+                                flag.constant = true;
                                 // SAFETY: Each buffer index is used once per iteration, and the buffer
                                 // indicies are gauranteed to be in bounds by the buffer allocator.
-                                unsafe {
+                                flag.silent = unsafe {
                                     core::slice::from_raw_parts_mut(
                                         buffers_ptr.add(b.buffer_index * max_block_frames),
-                                        frames,
+                                        1,
                                     )
-                                }
-                                .fill(0.0);
-                                flag.set_silent(true, frames_u16);
+                                }[0] == 0.0;
+                                flag.frames = frames_u16;
+                            } else {
+                                flag.set_silent(false, frames_u16);
                             }
                         }
                     }
-                    ProcessStatus::Bypass => bypass(),
-                    ProcessStatus::OutputsModified => {
-                        for b in scheduled_node.output_buffers.iter() {
-                            flag_mut(&mut self.buffer_flags, b.buffer_index)
-                                .set_silent(false, frames_u16);
-                        }
-                    }
-                    ProcessStatus::OutputsModifiedWithMask(out_mask) => match out_mask {
-                        MaskType::Silence(silence_mask) => {
-                            for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                                flag_mut(&mut self.buffer_flags, b.buffer_index)
-                                    .set_silent(silence_mask.is_channel_silent(i), frames_u16);
-                            }
-                        }
-                        MaskType::Constant(constant_mask) => {
-                            for (i, b) in scheduled_node.output_buffers.iter().enumerate() {
-                                let flag = flag_mut(&mut self.buffer_flags, b.buffer_index);
-
-                                if constant_mask.is_channel_constant(i) {
-                                    flag.constant = true;
-                                    // SAFETY: Each buffer index is used once per iteration, and the buffer
-                                    // indicies are gauranteed to be in bounds by the buffer allocator.
-                                    flag.silent = unsafe {
-                                        core::slice::from_raw_parts_mut(
-                                            buffers_ptr.add(b.buffer_index * max_block_frames),
-                                            1,
-                                        )
-                                    }[0] == 0.0;
-                                    flag.frames = frames_u16;
-                                } else {
-                                    flag.set_silent(false, frames_u16);
-                                }
-                            }
-                        }
-                    },
-                }
-
-                if status.is_bypass_declicking
-                    && matches!(
-                        status.status,
-                        ProcessStatus::OutputsModified | ProcessStatus::OutputsModifiedWithMask(_)
-                    )
-                {
-                    let wet_buffer = &self.bypass_gain_buffer[..self.max_block_frames];
-                    let dry_buffer = &self.bypass_gain_buffer[self.max_block_frames..];
-
-                    for (in_buf, out_buf) in inputs.iter().zip(outputs.iter_mut()) {
-                        for (((&in_s, out_s), &gain_wet), &gain_dry) in in_buf
-                            .iter()
-                            .zip(out_buf.iter_mut())
-                            .zip(wet_buffer.iter())
-                            .zip(dry_buffer.iter())
-                        {
-                            *out_s = (*out_s * gain_wet) + (in_s * gain_dry);
-                        }
-                    }
-
-                    for out_buf in outputs.iter_mut().skip(inputs.len()) {
-                        for (out_s, &gain_wet) in out_buf.iter_mut().zip(wet_buffer.iter()) {
-                            *out_s *= gain_wet;
-                        }
-                    }
-                }
+                },
             }
         }
     }
@@ -869,6 +920,7 @@ mod tests {
 
         assert_eq!(schedule.schedule.len(), 2);
         assert!(schedule.buffers.len() > 0);
+        assert!(schedule.bypass_declick_buffer.num_channels().get() >= 1);
 
         // First node must be node 0
         assert_eq!(schedule.schedule[0].id, node0);
@@ -932,6 +984,7 @@ mod tests {
         #[cfg(feature = "std")]
         dbg!(&schedule);
 
+        assert!(schedule.bypass_declick_buffer.num_channels().get() >= 2);
         assert_eq!(schedule.schedule.len(), 7);
         // Node 5 needs at-least 7 buffers
         assert!(schedule.buffers.len() > 6);
@@ -1020,6 +1073,7 @@ mod tests {
         #[cfg(feature = "std")]
         dbg!(&schedule);
 
+        assert!(schedule.bypass_declick_buffer.num_channels().get() >= 1);
         assert_eq!(schedule.schedule.len(), 7);
         // Node 4 needs at-least 8 buffers
         assert!(schedule.buffers.len() > 7);
@@ -1086,12 +1140,18 @@ mod tests {
         let num_inputs = node.info.channel_config.num_inputs.get() as usize;
         let num_outputs = node.info.channel_config.num_outputs.get() as usize;
 
+        assert_eq!(in_ports_that_should_clear.len(), num_inputs);
         assert_eq!(scheduled_node.id, node_id);
-        assert_eq!(scheduled_node.input_buffers.len(), num_inputs);
         assert_eq!(scheduled_node.output_buffers.len(), num_outputs);
         assert_eq!(scheduled_node.sum_inputs.len(), num_sum_ins);
+        assert_eq!(scheduled_node.input_buffers.len(), num_inputs);
 
-        assert_eq!(in_ports_that_should_clear.len(), num_inputs);
+        if node.info.in_place_buffers {
+            assert!(scheduled_node.node_wants_in_place_buffers);
+        } else {
+            assert!(!scheduled_node.node_wants_in_place_buffers);
+            assert!(!scheduled_node.is_in_place_buffers);
+        }
 
         for (buffer, should_clear) in scheduled_node
             .input_buffers
@@ -1117,7 +1177,25 @@ mod tests {
             assert!(buffer_alias_check.insert(buffer.buffer_index));
         }
 
-        for buffer in scheduled_node.output_buffers.iter() {
+        let skip = if scheduled_node.is_in_place_buffers {
+            // The output buffers should be the same as the input buffers.
+            for (in_buf, out_buf) in scheduled_node
+                .input_buffers
+                .iter()
+                .zip(scheduled_node.output_buffers.iter())
+            {
+                assert_eq!(in_buf.buffer_index, out_buf.buffer_index);
+            }
+
+            scheduled_node
+                .output_buffers
+                .len()
+                .saturating_sub(scheduled_node.input_buffers.len())
+        } else {
+            0
+        };
+
+        for buffer in scheduled_node.output_buffers.iter().skip(skip) {
             assert!(buffer_alias_check.insert(buffer.buffer_index));
         }
     }

@@ -102,6 +102,7 @@ impl FirewheelProcessorInner {
                         id: *node_id,
                         processor: node_entry.processor,
                         is_pre_process: false,
+                        in_place_buffers: false,
                     });
                 }
             }
@@ -125,6 +126,7 @@ impl FirewheelProcessorInner {
                         bypass_declick: Declicker::SettledAt1,
                         is_bypassed: false,
                         is_first_process: true,
+                        in_place_buffers: n.in_place_buffers,
                     }
                 )
                 .is_none());
