@@ -79,7 +79,7 @@ pub struct FreeverbNode {
     /// that will elapse between each update is calculated as
     /// `2^coeff_update_factor`.
     ///
-    /// By default this is set to `5`.
+    /// By default this is set to `4`.
     pub coeff_update_factor: CoeffUpdateFactor,
 }
 

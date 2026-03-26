@@ -148,7 +148,7 @@ pub struct SvfNode<const CHANNELS: usize = 2> {
     /// that will elapse between each update is calculated as
     /// `2^coeff_update_factor`.
     ///
-    /// By default this is set to `5`.
+    /// By default this is set to `4`.
     pub coeff_update_factor: CoeffUpdateFactor,
 }
 
@@ -160,7 +160,7 @@ impl<const CHANNELS: usize> Default for SvfNode<CHANNELS> {
             q_factor: DEFAULT_Q,
             gain: Volume::Decibels(0.0),
             smooth_seconds: DEFAULT_SMOOTH_SECONDS,
-            coeff_update_factor: CoeffUpdateFactor(5),
+            coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
 }

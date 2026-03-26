@@ -13,7 +13,7 @@ use crate::{
 /// that will elapse between each update is calculated as
 /// `2^coeff_update_mask`.
 ///
-/// By default this is set to `5`.
+/// By default this is set to `4`.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -21,7 +21,7 @@ use crate::{
 pub struct CoeffUpdateFactor(pub u32);
 
 impl CoeffUpdateFactor {
-    pub const DEFAULT: Self = Self(5);
+    pub const DEFAULT: Self = Self(4);
 
     pub fn interval_frames(&self) -> usize {
         2u32.pow(self.0) as usize
