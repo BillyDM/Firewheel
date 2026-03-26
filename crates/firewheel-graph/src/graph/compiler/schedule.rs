@@ -543,8 +543,8 @@ impl CompiledSchedule {
                     .zip(scheduled_node.output_buffers.iter())
                 {
                     // SAFETY: Input and output buffer indicies are guaranteed distinct by the buffer
-                    // allocator, and the buffer indicies are gauranteed to be in bounds by the buffer
-                    // allocator.
+                    // allocator when `!scheduled_node.node_wants_in_place_buffers || !scheduled_node.is_in_place_buffers`,
+                    // and the buffer indicies are gauranteed to be in bounds by the buffer allocator.
                     let (in_buf_slice, out_buf_slice) = unsafe {
                         (
                             core::slice::from_raw_parts_mut(
@@ -694,51 +694,45 @@ impl CompiledSchedule {
                     }
                 }
                 ProcessStatus::Bypass => {
-                    let skip = if scheduled_node.node_wants_in_place_buffers {
-                        // Input has already been copied to output
-                        scheduled_node.input_buffers.len()
-                    } else {
-                        0
-                    };
+                    if !scheduled_node.node_wants_in_place_buffers {
+                        for (in_buf, out_buf) in scheduled_node
+                            .input_buffers
+                            .iter()
+                            .zip(scheduled_node.output_buffers.iter())
+                        {
+                            let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
+                            let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
 
-                    for (in_buf, out_buf) in scheduled_node
-                        .input_buffers
-                        .iter()
-                        .zip(scheduled_node.output_buffers.iter())
-                        .skip(skip)
-                    {
-                        let in_flag = *flag_mut(&mut self.buffer_flags, in_buf.buffer_index);
-                        let out_flag = flag_mut(&mut self.buffer_flags, out_buf.buffer_index);
+                            // SAFETY: Input and output buffer indicies are guaranteed distinct by the buffer
+                            // allocator when `!scheduled_node.node_wants_in_place_buffers || !scheduled_node.is_in_place_buffers`,
+                            // and the buffer indicies are gauranteed to be in bounds by the buffer allocator.
+                            let (in_buf_slice, out_buf_slice) = unsafe {
+                                (
+                                    core::slice::from_raw_parts_mut(
+                                        buffers_ptr.add(in_buf.buffer_index * max_block_frames),
+                                        frames,
+                                    ),
+                                    core::slice::from_raw_parts_mut(
+                                        buffers_ptr.add(out_buf.buffer_index * max_block_frames),
+                                        frames,
+                                    ),
+                                )
+                            };
 
-                        // SAFETY: Input and output buffer indicies are guaranteed distinct by the buffer
-                        // allocator, and the buffer indicies are gauranteed to be in bounds by the buffer
-                        // allocator.
-                        let (in_buf_slice, out_buf_slice) = unsafe {
-                            (
-                                core::slice::from_raw_parts_mut(
-                                    buffers_ptr.add(in_buf.buffer_index * max_block_frames),
-                                    frames,
-                                ),
-                                core::slice::from_raw_parts_mut(
-                                    buffers_ptr.add(out_buf.buffer_index * max_block_frames),
-                                    frames,
-                                ),
-                            )
-                        };
-
-                        if in_flag.constant {
-                            if !out_flag.constant
-                                || out_buf_slice[0] != in_buf_slice[0]
-                                || force_clear_buffers
-                            {
-                                out_buf_slice.fill(in_buf_slice[0]);
+                            if in_flag.constant {
+                                if !out_flag.constant
+                                    || out_buf_slice[0] != in_buf_slice[0]
+                                    || force_clear_buffers
+                                {
+                                    out_buf_slice.fill(in_buf_slice[0]);
+                                }
+                            } else {
+                                out_buf_slice.copy_from_slice(in_buf_slice);
                             }
-                        } else {
-                            out_buf_slice.copy_from_slice(in_buf_slice);
-                        }
 
-                        *out_flag = in_flag;
-                    }
+                            *out_flag = in_flag;
+                        }
+                    } // Else input has already been copied to output
 
                     for b in scheduled_node
                         .output_buffers
