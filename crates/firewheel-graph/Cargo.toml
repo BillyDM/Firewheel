@@ -26,6 +26,7 @@ std = [
     "thiserror/std",
     "bevy_reflect?/std",
     "num-traits/std",
+    "audioadapter-buffers/std"
 ]
 # Enables scheduling events for audio nodes.
 scheduled_events = ["dep:triple_buffer", "firewheel-core/scheduled_events"]
@@ -76,4 +77,4 @@ serde = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
 
 [dev-dependencies]
-audioadapter-buffers.workspace = true
+audioadapter-buffers = { workspace = true, features = ["alloc"] }
