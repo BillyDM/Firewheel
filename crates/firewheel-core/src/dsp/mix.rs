@@ -1,5 +1,5 @@
 use core::num::NonZeroU32;
-use std::ops::Range;
+use core::ops::Range;
 
 use crate::{
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},

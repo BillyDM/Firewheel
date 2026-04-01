@@ -40,11 +40,9 @@ jobs:
         run: |
           cd crates/firewheel-core && cargo test --locked -- --ignored && cd ../../
 
-      # TODO: Enable once this PR has been published:
-      # https://github.com/HEnquist/audioadapter-rs/pull/37
-      #- name: Check no_std build
-      #  run: |
-      #    cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool, glam-29, glam-30, glam-31"
+      - name: Check no_std build
+        run: |
+          cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool, glam-29, glam-30, glam-31"
 
   # Check formatting.
   format:
