@@ -1,5 +1,8 @@
 use core::{fmt::Debug, num::NonZeroU32, time::Duration};
-use std::sync::mpsc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
 
 use audioadapter_buffers::direct::InterleavedSlice;
 pub use cpal;
@@ -316,6 +319,7 @@ pub struct CpalStream {
     _in_stream_handle: Option<cpal::Stream>,
     from_err_rx: mpsc::Receiver<cpal::StreamError>,
     stream_info: CpalStreamInfo,
+    is_running: Arc<AtomicBool>,
 }
 
 impl CpalStream {
@@ -498,11 +502,14 @@ impl CpalStream {
 
         let processor = cx.activate(activate_info)?;
 
+        let is_running = Arc::new(AtomicBool::new(true));
+
         let mut data_callback = DataCallback::new(
             num_out_channels,
             processor,
             out_stream_config.sample_rate,
             input_stream_cons,
+            Arc::clone(&is_running),
         );
 
         info!(
@@ -516,7 +523,11 @@ impl CpalStream {
                 data_callback.callback(output, info);
             },
             move |err| {
-                let _ = err_to_cx_tx.send(err);
+                if let Err(e) = err_to_cx_tx.send(err) {
+                    // Make sure the error gets logged even if the handle has been dropped.
+                    #[cfg(any(feature = "log", feature = "tracing"))]
+                    error!("Audio stream error occurred: {}", e.0);
+                }
             },
             Some(BUILD_STREAM_TIMEOUT),
         )?;
@@ -538,6 +549,7 @@ impl CpalStream {
             _in_stream_handle: in_stream_handle,
             from_err_rx,
             stream_info,
+            is_running,
         })
     }
 
@@ -546,20 +558,40 @@ impl CpalStream {
         &self.stream_info
     }
 
-    /// Check if a stream error has occured. If one has, then this [`CpalStream`]
-    /// instance should be dropped.
+    /// Poll the status of the audio stream and log any errors/warnings that have occurred.
     ///
-    /// This must be called periodically (i.e. once every frame).
-    pub fn poll_status(&mut self) -> Result<(), StreamError> {
-        if let Ok(e) = self.from_err_rx.try_recv() {
-            if let StreamError::BufferUnderrun = e {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        } else {
-            Ok(())
+    /// Note, if an error is returned, it doesn't always mean that the stream has stopped.
+    /// Instead, use [`CpalStream::is_running()`] to check if the stream is still running.
+    pub fn poll_status(&mut self) -> mpsc::TryIter<'_, StreamError> {
+        self.from_err_rx.try_iter()
+    }
+
+    /// Log any stream errors/warnings that have occurred.
+    ///
+    /// Same as [`CpalStream::poll_status`], but automatically logs all of the errors/
+    /// warnings to the log output.
+    #[cfg(any(feature = "log", feature = "tracing"))]
+    pub fn log_status(&mut self) {
+        for e in self.from_err_rx.try_iter() {
+            error!("Audio stream error occurred: {}", e);
         }
+    }
+
+    /// Returns `true` if the audio stream is currently running.
+    ///
+    /// Returns `false` if the audio stream has stopped unexpectedly (i.e. an audio device
+    /// was disconnected). When this happens, this `CpalStream` instance should be dropped,
+    /// and a new one created.
+    pub fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for CpalStream {
+    fn drop(&mut self) {
+        // Make sure any remaining errors/warnings get logged.
+        #[cfg(any(feature = "log", feature = "tracing"))]
+        self.log_status();
     }
 }
 
@@ -748,6 +780,7 @@ struct DataCallback {
     stream_start_instant: Instant,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
+    is_running: Arc<AtomicBool>,
 }
 
 impl DataCallback {
@@ -756,6 +789,7 @@ impl DataCallback {
         processor: FirewheelProcessor,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
         let stream_start_instant = Instant::now();
 
@@ -778,6 +812,7 @@ impl DataCallback {
             stream_start_instant,
             input_stream_cons,
             input_buffer,
+            is_running,
         }
     }
 
@@ -921,6 +956,12 @@ impl DataCallback {
                 process_to_playback_delay,
             },
         );
+    }
+}
+
+impl Drop for DataCallback {
+    fn drop(&mut self) {
+        self.is_running.store(false, Ordering::Relaxed);
     }
 }
 

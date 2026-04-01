@@ -77,17 +77,20 @@ impl AudioSystem {
             tracing::error!("{:?}", &e);
         }
 
-        if let Err(e) = self.stream.poll_status() {
-            tracing::error!("{:?}", &e);
+        self.cx.is_active();
 
-            // The stream has stopped unexpectedly (i.e the user has
-            // unplugged their headphones.)
-            //
-            // Typically you should start a new stream as soon as
-            // possible to resume processing (even if it's a dummy
-            // output device).
-            //
-            // In this example we just quit the application.
+        // Log any stream errors/warnings that have occurred.
+        self.stream.log_status();
+
+        // The stream has stopped unexpectedly (i.e the user has
+        // unplugged their headphones.)
+        //
+        // Typically you should start a new stream as soon as
+        // possible to resume processing (even if it's a dummy
+        // output device).
+        //
+        // In this example we just quit the application.
+        if !self.stream.is_running() {
             panic!("Stream stopped unexpectedly!");
         }
     }

@@ -9,7 +9,10 @@ use firewheel_graph::{
     ActivateInfo, FirewheelContext,
 };
 use rtaudio::{Api, RtAudioError, StreamConfig};
-use std::sync::mpsc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
 
 pub use rtaudio;
 
@@ -38,6 +41,7 @@ pub struct RtAudioConfig {
 /// The audio stream is automatically stopped when this struct is dropped.
 pub struct RtAudioStream {
     stream_handle: rtaudio::StreamHandle,
+    is_running: Arc<AtomicBool>,
 }
 
 impl RtAudioStream {
@@ -89,7 +93,14 @@ impl RtAudioStream {
 
         let processor = cx.activate(activate_info)?;
 
-        let mut cb = DataCallback::new(processor, info.sample_rate, process_to_playback_delay);
+        let is_running = Arc::new(AtomicBool::new(true));
+
+        let mut cb = DataCallback::new(
+            processor,
+            info.sample_rate,
+            process_to_playback_delay,
+            Arc::clone(&is_running),
+        );
 
         stream_handle.start(
             move |buffers: rtaudio::Buffers<'_>,
@@ -101,34 +112,43 @@ impl RtAudioStream {
 
         info!("{}", &success_msg);
 
-        Ok(Self { stream_handle })
+        Ok(Self {
+            stream_handle,
+            is_running,
+        })
     }
 
-    /// Check if a stream error has occured. If one has, then this [`RtAudioStream`]
-    /// instance should be dropped.
+    /// Poll the status of the audio stream and log any errors/warnings that have occurred.
     ///
-    /// This must be called periodically (i.e. once every frame).
-    pub fn poll_status(&mut self) -> Result<(), RtAudioError> {
+    /// Note, if an error is returned, it doesn't always mean that the stream has stopped.
+    /// Instead, use [`RtAudioStream::is_running()`] to check if the stream is still running.
+    pub fn poll_status(&mut self) -> Vec<RtAudioError> {
         let cb = ERROR_CB_SINGLETON.get_or_init(|| Mutex::new(ErrorCallbackSingleton::new()));
 
-        let errors: Vec<RtAudioError> = match cb.lock() {
+        match cb.lock() {
             Ok(cb_lock) => cb_lock.from_err_rx.try_iter().collect(),
             Err(e) => {
                 panic!("Failed to acquire RtAudio error callback lock: {}", e);
             }
-        };
-
-        if !errors.is_empty() {
-            if errors.len() > 1 {
-                for e in errors.iter() {
-                    error!("RtAudio stream error: {}", e);
-                }
-            }
-
-            Err(errors.last().unwrap().clone())
-        } else {
-            Ok(())
         }
+    }
+
+    /// Same as [`RtAudioStream::poll_status`], but automatically logs all of the errors/
+    /// warnings to the log output.
+    #[cfg(any(feature = "log", feature = "tracing"))]
+    pub fn log_status(&mut self) {
+        for e in self.poll_status() {
+            error!("Audio stream error occurred: {}", e);
+        }
+    }
+
+    /// Returns `true` if the audio stream is currently running.
+    ///
+    /// Returns `false` if the audio stream has stopped unexpectedly (i.e. an audio device
+    /// was disconnected). When this happens, this `RtAudioStream` instance should be dropped,
+    /// and a new one created.
+    pub fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::Relaxed)
     }
 
     /// Information about the running audio stream
@@ -137,11 +157,20 @@ impl RtAudioStream {
     }
 }
 
+impl Drop for RtAudioStream {
+    fn drop(&mut self) {
+        // Make sure any remaining errors/warnings get logged.
+        #[cfg(any(feature = "log", feature = "tracing"))]
+        self.log_status();
+    }
+}
+
 struct DataCallback {
     processor: FirewheelProcessor,
     next_predicted_stream_time: Option<f64>,
     sample_rate_recip: f64,
     process_to_playback_delay: Option<Duration>,
+    is_running: Arc<AtomicBool>,
 }
 
 impl DataCallback {
@@ -149,12 +178,14 @@ impl DataCallback {
         processor: FirewheelProcessor,
         sample_rate: u32,
         process_to_playback_delay: Option<Duration>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
         Self {
             processor,
             next_predicted_stream_time: None,
             sample_rate_recip: (sample_rate as f64).recip(),
             process_to_playback_delay,
+            is_running,
         }
     }
 
@@ -213,6 +244,12 @@ impl DataCallback {
     }
 }
 
+impl Drop for DataCallback {
+    fn drop(&mut self) {
+        self.is_running.store(false, Ordering::Relaxed);
+    }
+}
+
 static ERROR_CB_SINGLETON: OnceLock<Mutex<ErrorCallbackSingleton>> = OnceLock::new();
 
 struct ErrorCallbackSingleton {
@@ -225,7 +262,9 @@ impl ErrorCallbackSingleton {
 
         rtaudio::set_error_callback(move |e| {
             if let Err(e) = to_cb_tx.send(e) {
-                error!("Failed to send error to Firewheel audio callback: {}", e);
+                // Make sure the error gets logged even if the handle has been dropped.
+                #[cfg(any(feature = "log", feature = "tracing"))]
+                error!("Audio stream error occurred: {}", e.0);
             }
         });
 
