@@ -203,7 +203,7 @@ impl FirewheelProcessorInner {
     }
 }
 
-pub(crate) struct NodeEntry {
+pub struct NodeEntry {
     pub processor: Box<dyn AudioNodeProcessor>,
     pub prev_output_was_silent: bool,
     pub bypass_declick: Declicker,
@@ -214,7 +214,7 @@ pub(crate) struct NodeEntry {
     event_data: NodeEventSchedulerData,
 }
 
-pub(crate) enum ContextToProcessorMsg {
+pub enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
     SetFlags(FirewheelFlags),
@@ -234,7 +234,7 @@ pub(crate) enum ProcessorToContextMsg {
 }
 
 #[cfg(feature = "scheduled_events")]
-pub(crate) struct ClearScheduledEventsEvent {
+pub struct ClearScheduledEventsEvent {
     /// If `None`, then clear events for all nodes.
     pub node_id: Option<NodeID>,
     pub event_type: ClearScheduledEventsType,
