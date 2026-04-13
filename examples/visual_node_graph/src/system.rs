@@ -20,7 +20,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     sample_resource::{SampleResource, SampleResourceF32},
-    ContextQueue, FirewheelContext,
+    ContextQueue, DecodedAudioF32, FirewheelContext,
 };
 use symphonium::cache::SymphoniumCache;
 
@@ -73,7 +73,8 @@ impl AudioSystem {
             &mut cx,
             CpalConfig {
                 output: Default::default(),
-                input: Some(Default::default()),
+                input: None,
+                //input: Some(Default::default()),
             },
         )
         .unwrap();
@@ -86,16 +87,40 @@ impl AudioSystem {
         let samples = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file(path, Some(sample_rate), Some(&cache))
-                    .unwrap()
-                    .into_dyn_resource()
+                let probed = symphonium::probe_from_file(
+                    path, None, // Custom container probe
+                )
+                .unwrap();
+                firewheel::dyn_sample_resource(
+                    symphonium::decode(
+                        probed,
+                        &symphonium::DecodeConfig::default(),
+                        Some(sample_rate), // target sample rate
+                        Some(&cache),      // An optional cache
+                        None,              // Custom codec registry
+                    )
+                    .unwrap(),
+                )
             })
             .collect();
 
         let loaded = IR_SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file_f32(path, Some(sample_rate), Some(&cache)).unwrap()
+                let probed = symphonium::probe_from_file(
+                    path, None, // Custom container probe
+                )
+                .unwrap();
+                DecodedAudioF32(
+                    symphonium::decode_f32(
+                        probed,
+                        &symphonium::DecodeConfig::default(),
+                        Some(sample_rate), // target sample rate
+                        Some(&cache),      // An optional cache
+                        None,              // Custom codec registry
+                    )
+                    .unwrap(),
+                )
             })
             .collect::<Vec<_>>();
 

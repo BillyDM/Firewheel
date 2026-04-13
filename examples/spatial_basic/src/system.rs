@@ -27,13 +27,21 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let sample = firewheel::load_audio_file(
+        let probed = symphonium::probe_from_file(
             "assets/test_files/dpren_very-lush-and-swag-loop.ogg",
-            Some(sample_rate),
-            None,
+            None, // Custom container probe
         )
-        .unwrap()
-        .into_dyn_resource();
+        .unwrap();
+        let sample = firewheel::dyn_sample_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
         let graph_out_node_id = cx.graph_out_node_id();
 

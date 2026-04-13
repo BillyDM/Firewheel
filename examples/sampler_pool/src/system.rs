@@ -58,10 +58,21 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let sample =
-            firewheel::load_audio_file("assets/test_files/bird-sound.wav", Some(sample_rate), None)
-                .unwrap()
-                .into_dyn_resource();
+        let probed = symphonium::probe_from_file(
+            "assets/test_files/bird-sound.wav",
+            None, // Custom container probe
+        )
+        .unwrap();
+        let sample = firewheel::dyn_sample_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
         let mut sampler_node = SamplerNode::default();
         sampler_node.set_sample(sample);

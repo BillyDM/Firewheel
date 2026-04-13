@@ -33,9 +33,21 @@ impl AudioSystem {
         let sample_rate = cx.stream_info().unwrap().sample_rate;
         let graph_out = cx.graph_out_node_id();
 
-        let sample = firewheel::load_audio_file(SAMPLE_PATH, Some(sample_rate), None)
-            .unwrap()
-            .into_dyn_resource();
+        let probed = symphonium::probe_from_file(
+            SAMPLE_PATH,
+            None, // Custom container probe
+        )
+        .unwrap();
+        let sample = firewheel::dyn_sample_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
         let mut sampler_params = SamplerNode::default();
         sampler_params.set_sample(sample);

@@ -165,111 +165,14 @@ impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
     }
 }
 
-/// A helper method to load an audio file from a path using Symphonium.
-///
-/// * `path`` - The path to the audio file stored on disk.
-/// * `target_sample_rate` - The sample rate the file will be resampled to. (No
-///   resampling will occur if the audio file's sample rate is already
-///   the target sample rate).
-///     * If this is `None`, or if the `resample` feature is disabled in the symphonium
-///       dependency, then the file will not be resampled.
-///     * Resampling will always convert the sample format to `f32`.
-/// * `cache` - An optional cache to use. You can use a
-///    [`SymphoniumCache`](symphonium::cache::SymphoniumCache) instance.
-pub fn load_audio_file<P: AsRef<std::path::Path>>(
-    path: P,
-    target_sample_rate: Option<core::num::NonZeroU32>,
-    cache: Option<&dyn symphonium::cache::Cache>,
-) -> Result<DecodedAudio, symphonium::error::LoadError> {
-    let probed = symphonium::probe_from_file(path, None)?;
-    symphonium::decode(probed, &Default::default(), target_sample_rate, cache, None)
-        .map(DecodedAudio)
-}
-
-/// A helper method to load an audio file from a custom source using Symphonium.
-///
-/// * `source` - The audio source which implements the [`MediaSource`] trait.
-/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
-/// * `target_sample_rate` - The sample rate the file will be resampled to. (No
-///   resampling will occur if the audio file's sample rate is already
-///   the target sample rate).
-///     * If this is `None`, or if the `resample` feature is disabled in the symphonium
-///       dependency, then the file will not be resampled.
-///     * Resampling will always convert the sample format to `f32`.
-/// * `cache` - An optional cache to use. You can use a
-///    [`SymphoniumCache`](symphonium::cache::SymphoniumCache) instance.
-///
-/// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
-pub fn load_audio_file_from_source(
-    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
-    hint: Option<symphonium::symphonia::core::probe::Hint>,
-    target_sample_rate: Option<core::num::NonZeroU32>,
-    cache: Option<&dyn symphonium::cache::Cache>,
-) -> Result<DecodedAudio, symphonium::error::LoadError> {
-    let probed = symphonium::probe_from_source(source, hint, None)?;
-    symphonium::decode(probed, &Default::default(), target_sample_rate, cache, None)
-        .map(DecodedAudio)
-}
-
-/// A helper method to load an audio file into an `f32` sample format from a path using
-/// Symphonium.
-///
-/// * `path`` - The path to the audio file stored on disk.
-/// * `target_sample_rate` - The sample rate the file will be resampled to. (No
-///   resampling will occur if the audio file's sample rate is already
-///   the target sample rate).
-///     * If this is `None`, or if the `resample` feature is disabled in the symphonium
-///       dependency, then the file will not be resampled.
-/// * `cache` - An optional cache to use. You can use a
-///    [`SymphoniumCache`](symphonium::cache::SymphoniumCache) instance.
-pub fn load_audio_file_f32<P: AsRef<std::path::Path>>(
-    path: P,
-    target_sample_rate: Option<core::num::NonZeroU32>,
-    cache: Option<&dyn symphonium::cache::Cache>,
-) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
-    let probed = symphonium::probe_from_file(path, None)?;
-    symphonium::decode_f32(probed, &Default::default(), target_sample_rate, cache, None)
-        .map(DecodedAudioF32)
-}
-
-/// A helper method to load an audio file into an `f32` sample format from a custom source using
-/// Symphonium.
-///
-/// * `source` - The audio source which implements the [`MediaSource`] trait.
-/// * `hint` -  An optional hint to help the format registry guess what format reader is appropriate.
-/// * `target_sample_rate` - The sample rate the file will be resampled to. (No
-///   resampling will occur if the audio file's sample rate is already
-///   the target sample rate).
-///     * If this is `None`, or if the `resample` feature is disabled in the symphonium
-///       dependency, then the file will not be resampled.
-///     * Resampling will always convert the sample format to `f32`.
-/// * `cache` - An optional cache to use. You can use a
-///    [`SymphoniumCache`](symphonium::cache::SymphoniumCache) instance.
-///
-/// [`MediaSource`]: symphonium::symphonia::core::io::MediaSource
-pub fn load_audio_file_from_source_f32(
-    source: Box<dyn symphonium::symphonia::core::io::MediaSource>,
-    hint: Option<symphonium::symphonia::core::probe::Hint>,
-    target_sample_rate: Option<core::num::NonZeroU32>,
-    cache: Option<&dyn symphonium::cache::Cache>,
-) -> Result<DecodedAudioF32, symphonium::error::LoadError> {
-    let probed = symphonium::probe_from_source(source, hint, None)?;
-    symphonium::decode_f32(probed, &Default::default(), target_sample_rate, cache, None)
-        .map(DecodedAudioF32)
-}
-
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into
 /// a [`SampleResource`].
-pub fn decoded_to_resource(
-    data: symphonium::DecodedAudio,
-) -> bevy_platform::sync::Arc<dyn SampleResource> {
-    bevy_platform::sync::Arc::new(DecodedAudio(data))
+pub fn dyn_sample_resource(data: symphonium::DecodedAudio) -> ArcGc<dyn SampleResource> {
+    DecodedAudio(data).into_dyn_resource()
 }
 
 /// A helper method to convert a [`symphonium::DecodedAudioF32`] resource into
 /// a [`SampleResource`].
-pub fn decoded_f32_to_resource(
-    data: symphonium::DecodedAudioF32,
-) -> bevy_platform::sync::Arc<dyn SampleResource> {
-    bevy_platform::sync::Arc::new(DecodedAudioF32(data))
+pub fn dyn_sample_resource_f32(data: symphonium::DecodedAudioF32) -> ArcGc<dyn SampleResourceF32> {
+    DecodedAudioF32(data).into_dyn_resource()
 }

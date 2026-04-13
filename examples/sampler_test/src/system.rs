@@ -58,9 +58,20 @@ impl AudioSystem {
         let samplers = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                let sample = firewheel::load_audio_file(path, Some(sample_rate), Some(&cache))
-                    .unwrap()
-                    .into_dyn_resource();
+                let probed = symphonium::probe_from_file(
+                    path, None, // Custom container probe
+                )
+                .unwrap();
+                let sample = firewheel::dyn_sample_resource(
+                    symphonium::decode(
+                        probed,
+                        &symphonium::DecodeConfig::default(),
+                        Some(sample_rate), // target sample rate
+                        Some(&cache),      // An optional cache
+                        None,              // Custom codec registry
+                    )
+                    .unwrap(),
+                );
 
                 let mut params = SamplerNode::default();
                 params.set_sample(sample);
