@@ -28,7 +28,6 @@ default = [
     "std",
     "cpal",
     "symphonium",
-    "symphonium_resample",
     "sampler_node",
     "tracing",
 ]
@@ -81,11 +80,6 @@ rtaudio = ["std", "firewheel-rtaudio"]
 # Enables using Symphonium for loading audio files.
 # Requires the standard library.
 symphonium = ["dep:firewheel-symphonium"]
-# Enables resampling audio files when loading them with Symphonium.
-symphonium_resample = ["symphonium", "firewheel-symphonium?/resample"]
-# Enables the "arbitrary sinc" resampler for changing the pitch/length
-# of samples at load time.
-symphonium_stretch = ["symphonium", "firewheel-symphonium?/stretch"]
 # Enables the `AudioNodePool` helper type for constructing a pool of
 # audio node chains that can dynamically be assigned work.
 pool = ["dep:firewheel-pool"]
@@ -218,8 +212,8 @@ bevy_platform = { version = "0.18", default-features = false, features = [
 ] }
 bevy_ecs = { version = "0.18", default-features = false }
 bevy_reflect = { version = "0.18", default-features = false }
-fixed-resample = { version = "0.10", default-features = false }
-symphonium = { version = "0.8", default-features = false }
+fixed-resample = { version = "0.11.1", default-features = false }
+symphonium = { version = "0.9.0", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 # TODO: Update once this PR has been published:
 # https://github.com/HEnquist/audioadapter-rs/pull/37

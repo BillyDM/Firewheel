@@ -8,7 +8,6 @@ use firewheel::{
     },
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
@@ -28,12 +27,10 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let mut loader = SymphoniumLoader::new();
         let sample = firewheel::load_audio_file(
-            &mut loader,
             "assets/test_files/dpren_very-lush-and-swag-loop.ogg",
             Some(sample_rate),
-            Default::default(),
+            None,
         )
         .unwrap()
         .into_dyn_resource();

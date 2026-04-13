@@ -22,7 +22,7 @@ use firewheel::{
     sample_resource::{SampleResource, SampleResourceF32},
     ContextQueue, FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
+use symphonium::cache::SymphoniumCache;
 
 use crate::ui::{GuiAudioNode, GuiAudioNodeType};
 
@@ -80,13 +80,13 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let mut loader = SymphoniumLoader::new();
+        let cache = SymphoniumCache::default();
 
         // Load all samples
         let samples = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file(&mut loader, path, Some(sample_rate), Default::default())
+                firewheel::load_audio_file(path, Some(sample_rate), Some(&cache))
                     .unwrap()
                     .into_dyn_resource()
             })
@@ -95,13 +95,7 @@ impl AudioSystem {
         let loaded = IR_SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file_f32(
-                    &mut loader,
-                    path,
-                    Some(sample_rate),
-                    Default::default(),
-                )
-                .unwrap()
+                firewheel::load_audio_file_f32(path, Some(sample_rate), Some(&cache)).unwrap()
             })
             .collect::<Vec<_>>();
 

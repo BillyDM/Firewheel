@@ -10,7 +10,6 @@ use firewheel::{
     pool::{AudioNodePool, FxChain, SamplerPool, SamplerPoolVolumePan},
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 /// The maximum number of samples that can be played in parallel in the `SamplerPool`.
 ///
@@ -58,16 +57,11 @@ impl AudioSystem {
         .expect("Sampler pool should construct without error");
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
-        let mut loader = SymphoniumLoader::new();
 
-        let sample = firewheel::load_audio_file(
-            &mut loader,
-            "assets/test_files/bird-sound.wav",
-            Some(sample_rate),
-            Default::default(),
-        )
-        .unwrap()
-        .into_dyn_resource();
+        let sample =
+            firewheel::load_audio_file("assets/test_files/bird-sound.wav", Some(sample_rate), None)
+                .unwrap()
+                .into_dyn_resource();
 
         let mut sampler_node = SamplerNode::default();
         sampler_node.set_sample(sample);

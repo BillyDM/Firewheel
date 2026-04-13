@@ -9,7 +9,7 @@ use firewheel::{
     },
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
+use symphonium::cache::SymphoniumCache;
 
 pub const SAMPLE_PATHS: [&'static str; 4] = [
     "assets/test_files/swosh-sword-swing.flac",
@@ -41,7 +41,7 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let mut loader = SymphoniumLoader::new();
+        let cache = SymphoniumCache::default();
 
         let graph_out = cx.graph_out_node_id();
 
@@ -58,14 +58,9 @@ impl AudioSystem {
         let samplers = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                let sample = firewheel::load_audio_file(
-                    &mut loader,
-                    path,
-                    Some(sample_rate),
-                    Default::default(),
-                )
-                .unwrap()
-                .into_dyn_resource();
+                let sample = firewheel::load_audio_file(path, Some(sample_rate), Some(&cache))
+                    .unwrap()
+                    .into_dyn_resource();
 
                 let mut params = SamplerNode::default();
                 params.set_sample(sample);

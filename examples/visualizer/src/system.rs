@@ -9,7 +9,6 @@ use firewheel::{
     },
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 pub const SAMPLE_PATH: &'static str = "assets/test_files/bird-sound.wav";
 
@@ -32,17 +31,11 @@ impl AudioSystem {
         let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
-        let mut loader = SymphoniumLoader::new();
         let graph_out = cx.graph_out_node_id();
 
-        let sample = firewheel::load_audio_file(
-            &mut loader,
-            SAMPLE_PATH,
-            Some(sample_rate),
-            Default::default(),
-        )
-        .unwrap()
-        .into_dyn_resource();
+        let sample = firewheel::load_audio_file(SAMPLE_PATH, Some(sample_rate), None)
+            .unwrap()
+            .into_dyn_resource();
 
         let mut sampler_params = SamplerNode::default();
         sampler_params.set_sample(sample);

@@ -6,7 +6,7 @@ use firewheel::{
     nodes::sampler::{SamplerNode, SamplerState},
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
+use symphonium::cache::SymphoniumCache;
 
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
@@ -48,15 +48,12 @@ fn main() {
 
     // --- Load a sample into memory, and tell the node to use it and play it. -----------
 
-    let mut loader = SymphoniumLoader::new();
-    let sample = firewheel::load_audio_file(
-        &mut loader,
-        args.path,
-        Some(sample_rate),
-        Default::default(),
-    )
-    .unwrap()
-    .into_dyn_resource();
+    // An optional cache to re-use decoders and resamplers.
+    let cache = SymphoniumCache::default();
+
+    let sample = firewheel::load_audio_file(args.path, Some(sample_rate), Some(&cache))
+        .unwrap()
+        .into_dyn_resource();
 
     sampler_node.set_sample(sample);
     cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());
