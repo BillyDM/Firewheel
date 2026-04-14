@@ -159,9 +159,6 @@ impl ProfilerTx {
         }
         self.is_profiling_bookkeeping = new_is_profiling_bookkeeping;
 
-        #[cfg(not(feature = "node_profiling"))]
-        let _ = flags;
-
         #[cfg(feature = "node_profiling")]
         {
             let new_is_profiling_nodes =
