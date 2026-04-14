@@ -202,17 +202,17 @@ impl EventScheduler {
         if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
             match self.buffer_out_of_space_mode {
                 BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                    let _ = logger.try_error("Firewheel immediate event buffer is full! Please increase capacity to avoid audio glitches.");
+                    let _ = logger.try_error("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid audio glitches.");
 
                     self.immediate_event_buffer
                         .reserve(self.immediate_event_buffer_capacity);
                     self.immediate_event_buffer_capacity *= 2;
                 }
                 BufferOutOfSpaceMode::Panic => {
-                    panic!("Firewheel immediate event buffer is full! Please increase buffer capacity.");
+                    panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
                 }
                 BufferOutOfSpaceMode::DropEvents => {
-                    let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase capacity.");
+                    let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity.");
                     return;
                 }
             }
@@ -573,15 +573,7 @@ impl EventScheduler {
         extra: &mut ProcExtra,
         proc_event_queue: &mut Vec<ProcEventsIndex>,
         mut proc_buffers: ProcBuffers,
-        mut on_sub_chunk: impl FnMut(
-            SubChunkInfo,
-            &mut NodeEntry,
-            &mut ProcInfo,
-            &mut ProcBuffers,
-            &mut ProcEvents,
-            &mut ProcExtra,
-            Option<bool>,
-        ),
+        mut on_sub_chunk: impl FnMut(ProcessSubChunkInfo),
     ) {
         let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
                           immediate_event_buffer: &[Option<NodeEvent>],
@@ -621,13 +613,13 @@ impl EventScheduler {
             if node_event_queue.len() == node_event_queue.capacity() {
                 match self.buffer_out_of_space_mode {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                        let _ = logger.try_error("Firewheel event queue is full! Please increase capacity to avoid audio glitches.");
+                        let _ = logger.try_error("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity to avoid audio glitches.");
                     }
                     BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel event queue is full! Please increase buffer capacity.");
+                        panic!("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity.");
                     }
                     BufferOutOfSpaceMode::DropEvents => {
-                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase buffer capacity.");
+                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase FirewheelConfig::event_queue_capacity.");
                     }
                 }
             }
@@ -775,18 +767,16 @@ impl EventScheduler {
                 proc_event_queue,
             );
 
-            (on_sub_chunk)(
-                SubChunkInfo {
-                    sub_chunk_range: frames_processed..frames_processed + sub_chunk_frames,
-                    sub_clock_samples,
-                },
+            (on_sub_chunk)(ProcessSubChunkInfo {
+                sub_chunk_range: frames_processed..frames_processed + sub_chunk_frames,
+                sub_clock_samples,
                 node_entry,
                 info,
-                &mut proc_buffers,
-                &mut node_event_list,
+                proc_buffers: &mut proc_buffers,
+                events: &mut node_event_list,
                 extra,
                 set_bypassed,
-            );
+            });
 
             // Ensure that all `ArcGc`s have been cleaned up.
             for event in node_event_list.drain() {
@@ -866,7 +856,7 @@ impl EventScheduler {
     fn extend_scheduled_event_buffer(&mut self, logger: &mut RealtimeLogger) -> bool {
         match self.buffer_out_of_space_mode {
             BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                let _ = logger.try_error("Firewheel scheduled event buffer is full! Please increase capacity to avoid audio glitches.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity to avoid audio glitches.");
 
                 let old_len = self.scheduled_event_arena.len();
 
@@ -882,15 +872,26 @@ impl EventScheduler {
             }
             BufferOutOfSpaceMode::Panic => {
                 panic!(
-                    "Firewheel scheduled event buffer is full! Please increase buffer capactiy."
+                    "Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity."
                 );
             }
             BufferOutOfSpaceMode::DropEvents => {
-                let _ = logger.try_error("Firewheel scheduled event buffer is full and event was dropped! Please increase capacity.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full and event was dropped! Please increase FirewheelConfig::scheduled_event_capacity.");
                 true
             }
         }
     }
+}
+
+pub(super) struct ProcessSubChunkInfo<'a, 'b, 'c, 'd> {
+    pub sub_chunk_range: Range<usize>,
+    pub sub_clock_samples: InstantSamples,
+    pub node_entry: &'a mut NodeEntry,
+    pub info: &'a mut ProcInfo,
+    pub proc_buffers: &'a mut ProcBuffers<'b, 'c>,
+    pub events: &'a mut ProcEvents<'d>,
+    pub extra: &'a mut ProcExtra,
+    pub set_bypassed: Option<bool>,
 }
 
 pub(super) struct NodeEventSchedulerData {
@@ -929,9 +930,4 @@ impl NodeEventSchedulerData {
             is_pre_process,
         }
     }
-}
-
-pub(super) struct SubChunkInfo {
-    pub sub_chunk_range: Range<usize>,
-    pub sub_clock_samples: InstantSamples,
 }

@@ -725,6 +725,13 @@ pub struct ProcInfo {
     /// block, such as when the sample rate of the stream has been changed.
     pub clock_samples: InstantSamples,
 
+    /// The reciprocal of the total amount of seconds that the CPU can
+    /// spend in this call to the Firewheel Processor's process method
+    /// before underruns will occur.
+    ///
+    /// This can be used for performance profiling.
+    pub total_cpu_seconds_recip: f64,
+
     /// The duration between when the stream was started an when the
     /// Firewheel processor's `process` method was called.
     ///

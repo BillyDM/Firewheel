@@ -16,7 +16,7 @@ exclude.workspace = true
 all-features = true
 
 [features]
-default = ["std", "tracing"]
+default = ["std", "tracing", "node_profiling"]
 std = [
     "arrayvec/std",
     "bevy_platform/std",
@@ -29,7 +29,7 @@ std = [
     "audioadapter-buffers/std"
 ]
 # Enables scheduling events for audio nodes.
-scheduled_events = ["dep:triple_buffer", "firewheel-core/scheduled_events"]
+scheduled_events = ["firewheel-core/scheduled_events"]
 # Enables the musical transport feature.
 musical_transport = ["scheduled_events", "firewheel-core/musical_transport"]
 # Enables serde derives for types
@@ -40,6 +40,8 @@ bevy_reflect = ["dep:bevy_reflect"]
 tracing = ["dep:tracing", "std"]
 # Use the `log` crate for logging
 log = ["dep:log"]
+# Enables performance profiling for each individual node.
+node_profiling = []
 # Enables setting the "flush to zero" CPU flag to avoid denormal numbers when
 # processing. This can lead to a significant performance increases in some cases.
 #
@@ -65,9 +67,10 @@ firewheel-core = { path = "../firewheel-core", version = "0.10.0", default-featu
 tracing = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 ringbuf.workspace = true
-triple_buffer = { workspace = true, optional = true }
+triple_buffer.workspace = true
 smallvec.workspace = true
 arrayvec.workspace = true
+bitflags.workspace = true
 thunderdome.workspace = true
 thiserror.workspace = true
 bevy_platform.workspace = true
