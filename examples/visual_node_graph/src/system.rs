@@ -73,8 +73,7 @@ impl AudioSystem {
             &mut cx,
             CpalConfig {
                 output: Default::default(),
-                //input: Some(Default::default()),
-                input: None,
+                input: Some(Default::default()),
             },
         )
         .unwrap();
