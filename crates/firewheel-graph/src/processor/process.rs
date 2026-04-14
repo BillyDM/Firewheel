@@ -730,28 +730,23 @@ fn validate_output(
     if flags.contains(FirewheelBitFlags::DETECT_CLIPPING_ON_OUTPUT) {
         let mut clipping_occurred = false;
 
-        if flags.contains(FirewheelBitFlags::HARD_CLIP_OUTPUTS) {
-            for ch in output.iter_mut() {
-                for s in ch.iter_mut() {
-                    // Try to optimize for auto-vectorization
-                    let ss = *s;
-                    *s = s.clamp(-1.0, 1.0);
+        for ch in output.iter() {
+            let max_peak = firewheel_core::dsp::algo::max_peak(ch);
 
-                    clipping_occurred |= ss != *s;
-                }
-            }
-        } else {
-            for ch in output.iter_mut() {
-                for s in ch.iter() {
-                    clipping_occurred |= *s < -1.0 || *s > 1.0;
-                }
+            if max_peak > 1.0 {
+                clipping_occurred = true;
+                break;
             }
         }
 
         if clipping_occurred {
-            shared_flags.clipping_occured.store(true, Ordering::Relaxed);
+            shared_flags
+                .clipping_occurred
+                .store(true, Ordering::Relaxed);
         }
-    } else if flags.contains(FirewheelBitFlags::HARD_CLIP_OUTPUTS) {
+    }
+
+    if flags.contains(FirewheelBitFlags::HARD_CLIP_OUTPUTS) {
         for ch in output.iter_mut() {
             for s in ch.iter_mut() {
                 *s = s.clamp(-1.0, 1.0);

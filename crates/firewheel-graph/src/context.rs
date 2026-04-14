@@ -780,7 +780,7 @@ impl FirewheelContext {
     /// Calling this method resets the internal flag.
     pub fn clipping_occurred(&self) -> bool {
         self.shared_flags
-            .clipping_occured
+            .clipping_occurred
             .swap(false, Ordering::Relaxed)
     }
 

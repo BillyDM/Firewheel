@@ -318,5 +318,5 @@ pub enum BufferOutOfSpaceMode {
 
 #[derive(Default)]
 pub(crate) struct SharedFlags {
-    pub clipping_occured: AtomicBool,
+    pub clipping_occurred: AtomicBool,
 }
