@@ -573,15 +573,7 @@ impl EventScheduler {
         extra: &mut ProcExtra,
         proc_event_queue: &mut Vec<ProcEventsIndex>,
         mut proc_buffers: ProcBuffers,
-        mut on_sub_chunk: impl FnMut(
-            SubChunkInfo,
-            &mut NodeEntry,
-            &mut ProcInfo,
-            &mut ProcBuffers,
-            &mut ProcEvents,
-            &mut ProcExtra,
-            Option<bool>,
-        ),
+        mut on_sub_chunk: impl FnMut(ProcessSubChunkInfo),
     ) {
         let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
                           immediate_event_buffer: &[Option<NodeEvent>],
@@ -775,18 +767,16 @@ impl EventScheduler {
                 proc_event_queue,
             );
 
-            (on_sub_chunk)(
-                SubChunkInfo {
-                    sub_chunk_range: frames_processed..frames_processed + sub_chunk_frames,
-                    sub_clock_samples,
-                },
+            (on_sub_chunk)(ProcessSubChunkInfo {
+                sub_chunk_range: frames_processed..frames_processed + sub_chunk_frames,
+                sub_clock_samples,
                 node_entry,
                 info,
-                &mut proc_buffers,
-                &mut node_event_list,
+                proc_buffers: &mut proc_buffers,
+                events: &mut node_event_list,
                 extra,
                 set_bypassed,
-            );
+            });
 
             // Ensure that all `ArcGc`s have been cleaned up.
             for event in node_event_list.drain() {
@@ -893,6 +883,17 @@ impl EventScheduler {
     }
 }
 
+pub(super) struct ProcessSubChunkInfo<'a, 'b, 'c, 'd> {
+    pub sub_chunk_range: Range<usize>,
+    pub sub_clock_samples: InstantSamples,
+    pub node_entry: &'a mut NodeEntry,
+    pub info: &'a mut ProcInfo,
+    pub proc_buffers: &'a mut ProcBuffers<'b, 'c>,
+    pub events: &'a mut ProcEvents<'d>,
+    pub extra: &'a mut ProcExtra,
+    pub set_bypassed: Option<bool>,
+}
+
 pub(super) struct NodeEventSchedulerData {
     num_immediate_events: usize,
     /// The index of the first event in a clump of events for this node.
@@ -929,9 +930,4 @@ impl NodeEventSchedulerData {
             is_pre_process,
         }
     }
-}
-
-pub(super) struct SubChunkInfo {
-    pub sub_chunk_range: Range<usize>,
-    pub sub_clock_samples: InstantSamples,
 }

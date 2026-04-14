@@ -7,17 +7,16 @@ use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
     dsp::declick::{DeclickFadeCurve, Declicker},
-    event::ProcEvents,
     log::RealtimeLogger,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
-    node::{ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
+    node::{ProcBuffers, ProcInfo, ProcessStatus, StreamStatus},
 };
 
 use crate::{
     backend::BackendProcessInfo,
     context::FirewheelBitFlags,
     graph::ProcessNodeInfo,
-    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, SharedFlags},
+    processor::{event_scheduler::ProcessSubChunkInfo, FirewheelProcessorInner, SharedFlags},
 };
 
 #[cfg(feature = "scheduled_events")]
@@ -350,17 +349,18 @@ impl FirewheelProcessorInner {
                     &mut self.extra,
                     &mut self.proc_event_queue,
                     proc_buffers,
-                    |sub_chunk_info: SubChunkInfo,
-                     node_entry: &mut NodeEntry,
-                     info: &mut ProcInfo,
-                     proc_buffers: &mut ProcBuffers,
-                     events: &mut ProcEvents,
-                     extra: &mut ProcExtra,
-                     set_bypassed: Option<bool>| {
-                        let SubChunkInfo {
+                    |proc_sub_chunk_info: ProcessSubChunkInfo| {
+                        let ProcessSubChunkInfo {
                             sub_chunk_range,
                             sub_clock_samples,
-                        } = sub_chunk_info;
+                            node_entry,
+                            info,
+                            proc_buffers,
+                            events,
+                            extra,
+                            set_bypassed,
+                        } = proc_sub_chunk_info;
+
                         let sub_chunk_frames = sub_chunk_range.end - sub_chunk_range.start;
 
                         if let Some(bypassed) = set_bypassed {
