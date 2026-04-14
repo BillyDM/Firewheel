@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use eframe::App;
 use egui::{Color32, Id, Ui, UiKind};
 use egui_snarl::{
@@ -807,6 +809,8 @@ pub struct DemoApp {
     style: SnarlStyle,
     snarl_ui_id: Option<Id>,
     audio_system: AudioSystem,
+    overall_cpu_usage_percent: u32,
+    last_cpu_usage_update: Instant,
 }
 
 impl DemoApp {
@@ -822,6 +826,8 @@ impl DemoApp {
             style,
             snarl_ui_id: None,
             audio_system: AudioSystem::new(),
+            last_cpu_usage_update: Instant::now(),
+            overall_cpu_usage_percent: 0,
         };
 
         new_self.add_graph_in_out_nodes();
@@ -880,6 +886,17 @@ impl App for DemoApp {
                     );
                 }
             });
+
+            if self.last_cpu_usage_update.elapsed() >= Duration::from_secs(1) {
+                self.last_cpu_usage_update = Instant::now();
+                self.overall_cpu_usage_percent =
+                    (self.audio_system.cx.profiling_data().overall_cpu_usage * 100.0).round()
+                        as u32;
+            };
+            ui.label(format!(
+                "overall cpu usage: {}",
+                self.overall_cpu_usage_percent
+            ));
         });
 
         egui::CentralPanel::default().show(cx, |ui| {

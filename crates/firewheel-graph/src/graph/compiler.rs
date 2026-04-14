@@ -10,7 +10,7 @@ use crate::error::CompileGraphError;
 
 mod schedule;
 
-pub use schedule::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
+pub(crate) use schedule::{CompiledSchedule, NodeHeapData, ProcessNodeInfo, ScheduleHeapData};
 use schedule::{InBufferAssignment, OutBufferAssignment, PreProcNode, ScheduledNode};
 
 pub struct NodeEntry {

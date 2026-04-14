@@ -36,10 +36,13 @@ use bevy_platform::prelude::Box;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::Vec;
 
-use crate::processor::BufferOutOfSpaceMode;
+use crate::processor::{
+    profiling::{ProfilerRx, ProfilerTx},
+    BufferOutOfSpaceMode, FirewheelProcessorConfig, ProfilingData,
+};
 use crate::{
     error::{ActivateError, RemoveNodeError},
-    processor::StatusFlags,
+    processor::SharedFlags,
 };
 use crate::{
     error::{AddEdgeError, UpdateError},
@@ -89,7 +92,7 @@ pub struct FirewheelConfig {
 
     /// An initial capacity to allocate for the nodes in the audio graph.
     ///
-    /// By default this is set to `64`.
+    /// By default this is set to `128`.
     pub initial_node_capacity: u32,
     /// An initial capacity to allocate for the edges in the audio graph.
     ///
@@ -127,8 +130,9 @@ pub struct FirewheelConfig {
     /// This can be set to `0` to save some memory if you do not plan on using
     /// scheduled events.
     ///
+    /// This has no effect if the `scheduled_events` feature is disabled.
+    ///
     /// By default this is set to `512`.
-    #[cfg(feature = "scheduled_events")]
     pub scheduled_event_capacity: usize,
     /// How to handle event buffers on the audio thread running out of space.
     ///
@@ -170,7 +174,6 @@ impl Default for FirewheelConfig {
             channel_capacity: 64,
             event_queue_capacity: 128,
             immediate_event_capacity: 512,
-            #[cfg(feature = "scheduled_events")]
             scheduled_event_capacity: 512,
             buffer_out_of_space_mode: BufferOutOfSpaceMode::AllocateOnAudioThread,
             logger_config: RealtimeLoggerConfig::default(),
@@ -219,17 +222,65 @@ pub struct FirewheelFlags {
     ///
     /// By default this is set to `false`.
     pub force_clear_buffers: bool,
-    // TODO: Add a flag to profile the performance of nodes and a flag to profile
-    // the performance of the entire graph.
+
+    /// Enables performance profiling for engine bookkeeping operations on the
+    /// audio thread such as message handling, event sorting, event searching,
+    /// and final output processing.
+    ///
+    /// By default this is set to `false`.
+    pub profile_engine_bookkeeping: bool,
+
+    /// Enable per-node performance profiling.
+    ///
+    /// This has no effect when the `node_profiling` feature is disabled.
+    ///
+    /// By default this is set to `false`.
+    pub profile_nodes: bool,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct FirewheelBitFlags: u32 {
+        const HARD_CLIP_OUTPUTS = 1 << 0;
+        const DETECT_CLIPPING_ON_OUTPUT = 1 << 1;
+        const VALIDATE_OUTPUT_IS_FINITE = 1 << 2;
+        const FORCE_CLEAR_BUFFERS = 1 << 3;
+        const PROFILE_ENGINE_BOOKKEEPING = 1 << 4;
+        const PROFILE_NODES = 1 << 5;
+    }
+}
+
+impl From<FirewheelFlags> for FirewheelBitFlags {
+    fn from(value: FirewheelFlags) -> Self {
+        let mut b = Self::empty();
+        b.set(Self::HARD_CLIP_OUTPUTS, value.hard_clip_outputs);
+        b.set(
+            Self::DETECT_CLIPPING_ON_OUTPUT,
+            value.detect_clipping_on_output,
+        );
+        b.set(
+            Self::VALIDATE_OUTPUT_IS_FINITE,
+            value.validate_output_is_finite,
+        );
+        b.set(Self::FORCE_CLEAR_BUFFERS, value.force_clear_buffers);
+        b.set(
+            Self::PROFILE_ENGINE_BOOKKEEPING,
+            value.profile_engine_bookkeeping,
+        );
+        b.set(Self::PROFILE_NODES, value.profile_nodes);
+        b
+    }
 }
 
 pub(crate) struct ProcessorChannel {
+    pub(crate) shared_flags: Arc<SharedFlags>,
     pub(crate) from_context_rx: ringbuf::HeapCons<ContextToProcessorMsg>,
     pub(crate) to_context_tx: ringbuf::HeapProd<ProcessorToContextMsg>,
-    #[cfg(feature = "scheduled_events")]
-    pub(crate) shared_clock_input: triple_buffer::Input<SharedClock>,
     pub(crate) logger: RealtimeLogger,
     pub(crate) store: ProcStore,
+    pub(crate) profiler_tx: ProfilerTx,
+    #[cfg(feature = "scheduled_events")]
+    pub(crate) shared_clock_input: triple_buffer::Input<SharedClock>,
 }
 
 /// A Firewheel context
@@ -239,9 +290,10 @@ pub struct FirewheelContext {
     to_processor_tx: ringbuf::HeapProd<ContextToProcessorMsg>,
     from_processor_rx: ringbuf::HeapCons<ProcessorToContextMsg>,
     processor_drop_flag: Option<Arc<AtomicBool>>,
+    profiler_rx: ProfilerRx,
     logger_rx: RealtimeLoggerMainThread,
 
-    processor_channel: Option<ProcessorChannel>,
+    pending_processor_channel: Option<ProcessorChannel>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
     #[cfg(feature = "scheduled_events")]
@@ -250,7 +302,7 @@ pub struct FirewheelContext {
     sample_rate: NonZeroU32,
     sample_rate_recip: f64,
     stream_info: Option<StreamInfo>,
-    status_flags: Arc<StatusFlags>,
+    shared_flags: Arc<SharedFlags>,
 
     #[cfg(feature = "musical_transport")]
     transport_state: Box<TransportState>,
@@ -288,6 +340,15 @@ impl FirewheelContext {
             triple_buffer::triple_buffer(&SharedClock::default());
 
         let (logger, logger_rx) = firewheel_core::log::realtime_logger(config.logger_config);
+        let (profiler_tx, profiler_rx) = crate::processor::profiling::profiler_channel(
+            #[cfg(feature = "node_profiling")]
+            {
+                config.initial_node_capacity as usize
+            },
+            #[cfg(feature = "node_profiling")]
+            config.buffer_out_of_space_mode,
+        );
+        let shared_flags = Arc::new(SharedFlags::default());
 
         let store = ProcStore::with_capacity(config.proc_store_capacity);
 
@@ -296,14 +357,17 @@ impl FirewheelContext {
             to_processor_tx,
             from_processor_rx,
             processor_drop_flag: None,
+            profiler_rx,
             logger_rx,
-            processor_channel: Some(ProcessorChannel {
+            pending_processor_channel: Some(ProcessorChannel {
+                shared_flags: Arc::clone(&shared_flags),
                 from_context_rx,
                 to_context_tx,
-                #[cfg(feature = "scheduled_events")]
-                shared_clock_input,
                 logger,
                 store,
+                profiler_tx,
+                #[cfg(feature = "scheduled_events")]
+                shared_clock_input,
             }),
             processor_drop_rx: None,
             #[cfg(feature = "scheduled_events")]
@@ -311,7 +375,7 @@ impl FirewheelContext {
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
             stream_info: None,
-            status_flags: Arc::new(StatusFlags::default()),
+            shared_flags,
             #[cfg(feature = "musical_transport")]
             transport_state: Box::new(TransportState::default()),
             #[cfg(feature = "musical_transport")]
@@ -329,7 +393,7 @@ impl FirewheelContext {
     ///
     /// If an audio stream is currently running, this will return `None`.
     pub fn proc_store(&self) -> Option<&ProcStore> {
-        if let Some(proc_channel) = &self.processor_channel {
+        if let Some(proc_channel) = &self.pending_processor_channel {
             Some(&proc_channel.store)
         } else if let Some(processor) = self.processor_drop_rx.as_ref() {
             if let Some(processor) = processor.last() {
@@ -350,7 +414,7 @@ impl FirewheelContext {
     ///
     /// If an audio stream is currently running, this will return `None`.
     pub fn proc_store_mut(&mut self) -> Option<&mut ProcStore> {
-        if let Some(proc_channel) = &mut self.processor_channel {
+        if let Some(proc_channel) = &mut self.pending_processor_channel {
             Some(&mut proc_channel.store)
         } else if let Some(processor) = self.processor_drop_rx.as_mut() {
             if let Some(processor) = processor.last_mut() {
@@ -398,7 +462,7 @@ impl FirewheelContext {
             return Err(ActivateError::AlreadyActive);
         }
 
-        let maybe_proc_channel = self.processor_channel.take();
+        let maybe_proc_channel = self.pending_processor_channel.take();
 
         let prev_sample_rate = if maybe_proc_channel.is_some() {
             sample_rate
@@ -429,16 +493,20 @@ impl FirewheelContext {
 
         let processor = if let Some(proc_channel) = maybe_proc_channel {
             FirewheelProcessorInner::new(
+                FirewheelProcessorConfig {
+                    flags: self.config.flags.into(),
+                    immediate_event_buffer_capacity: self.config.immediate_event_capacity,
+                    buffer_out_of_space_mode: self.config.buffer_out_of_space_mode,
+                    clamp_graph_inputs_below_amp: self
+                        .config
+                        .clamp_graph_inputs_below
+                        .map(|v| v.amp()),
+                    node_event_buffer_capacity: self.config.event_queue_capacity,
+                    #[cfg(feature = "scheduled_events")]
+                    scheduled_event_buffer_capacity: self.config.scheduled_event_capacity,
+                },
                 proc_channel,
-                self.config.immediate_event_capacity,
-                #[cfg(feature = "scheduled_events")]
-                self.config.scheduled_event_capacity,
-                self.config.event_queue_capacity,
                 &stream_info,
-                self.config.flags,
-                Arc::clone(&self.status_flags),
-                self.config.buffer_out_of_space_mode,
-                self.config.clamp_graph_inputs_below.map(|v| v.amp()),
             )
         } else {
             let mut processor = self.processor_drop_rx.as_mut().unwrap().try_pop().unwrap();
@@ -701,7 +769,7 @@ impl FirewheelContext {
         }
         self.config.flags = flags;
 
-        self.send_message_to_processor(ContextToProcessorMsg::SetFlags(flags))
+        self.send_message_to_processor(ContextToProcessorMsg::SetFlags(flags.into()))
             .map_err(|(_, e)| e)
     }
 
@@ -711,9 +779,14 @@ impl FirewheelContext {
     ///
     /// Calling this method resets the internal flag.
     pub fn clipping_occurred(&self) -> bool {
-        self.status_flags
+        self.shared_flags
             .clipping_occured
             .swap(false, Ordering::Relaxed)
+    }
+
+    /// Retrieve the latest performance profiling data.
+    pub fn profiling_data(&mut self) -> &ProfilingData {
+        self.profiler_rx.fetch_info()
     }
 
     /// Update the firewheel context.

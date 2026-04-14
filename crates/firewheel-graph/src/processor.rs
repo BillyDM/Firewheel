@@ -26,10 +26,15 @@ use firewheel_core::{
 
 use crate::{
     backend::BackendProcessInfo,
-    context::{FirewheelFlags, ProcessorChannel},
+    context::{FirewheelBitFlags, ProcessorChannel},
     graph::ScheduleHeapData,
-    processor::event_scheduler::{EventScheduler, NodeEventSchedulerData},
+    processor::{
+        event_scheduler::{EventScheduler, NodeEventSchedulerData},
+        profiling::ProfilerTx,
+    },
 };
+
+pub use profiling::ProfilingData;
 
 #[cfg(feature = "scheduled_events")]
 use crate::context::ClearScheduledEventsType;
@@ -44,6 +49,7 @@ use firewheel_core::clock::{InstantMusical, TransportState};
 mod event_scheduler;
 mod handle_messages;
 mod process;
+pub(crate) mod profiling;
 
 #[cfg(feature = "musical_transport")]
 mod transport;
@@ -130,12 +136,13 @@ pub(crate) struct FirewheelProcessorInner {
     clock_samples: InstantSamples,
     #[cfg(feature = "scheduled_events")]
     shared_clock_input: triple_buffer::Input<SharedClock>,
+    profiler_tx: ProfilerTx,
 
     #[cfg(feature = "musical_transport")]
     proc_transport_state: ProcTransportState,
 
-    flags: FirewheelFlags,
-    status_flags: Arc<StatusFlags>,
+    flags: FirewheelBitFlags,
+    shared_flags: Arc<SharedFlags>,
     clamp_graph_inputs_below_amp: Option<f32>,
 
     pub(crate) extra: ProcExtra,
@@ -146,27 +153,44 @@ pub(crate) struct FirewheelProcessorInner {
     pub(crate) poisoned: bool,
 }
 
+pub(crate) struct FirewheelProcessorConfig {
+    pub flags: FirewheelBitFlags,
+    pub immediate_event_buffer_capacity: usize,
+    pub buffer_out_of_space_mode: BufferOutOfSpaceMode,
+    pub clamp_graph_inputs_below_amp: Option<f32>,
+    pub node_event_buffer_capacity: usize,
+    #[cfg(feature = "scheduled_events")]
+    pub scheduled_event_buffer_capacity: usize,
+}
+
 impl FirewheelProcessorInner {
     /// Note, this method gets called on the main thread, not the audio thread.
     pub(crate) fn new(
+        config: FirewheelProcessorConfig,
         proc_channel: ProcessorChannel,
-        immediate_event_buffer_capacity: usize,
-        #[cfg(feature = "scheduled_events")] scheduled_event_buffer_capacity: usize,
-        node_event_buffer_capacity: usize,
         stream_info: &StreamInfo,
-        flags: FirewheelFlags,
-        status_flags: Arc<StatusFlags>,
-        buffer_out_of_space_mode: BufferOutOfSpaceMode,
-        clamp_graph_inputs_below_amp: Option<f32>,
     ) -> Self {
+        let FirewheelProcessorConfig {
+            flags,
+            immediate_event_buffer_capacity,
+            buffer_out_of_space_mode,
+            clamp_graph_inputs_below_amp,
+            node_event_buffer_capacity,
+            #[cfg(feature = "scheduled_events")]
+            scheduled_event_buffer_capacity,
+        } = config;
+
         let ProcessorChannel {
+            shared_flags,
             from_context_rx,
             to_context_tx,
-            #[cfg(feature = "scheduled_events")]
-            shared_clock_input,
             logger,
             store,
+            profiler_tx,
+            #[cfg(feature = "scheduled_events")]
+            shared_clock_input,
         } = proc_channel;
+
         Self {
             nodes: Arena::new(),
             schedule_data: None,
@@ -185,10 +209,11 @@ impl FirewheelProcessorInner {
             clock_samples: InstantSamples(0),
             #[cfg(feature = "scheduled_events")]
             shared_clock_input,
+            profiler_tx,
             #[cfg(feature = "musical_transport")]
             proc_transport_state: ProcTransportState::new(),
             flags,
-            status_flags,
+            shared_flags,
             clamp_graph_inputs_below_amp,
             extra: ProcExtra {
                 scratch_buffers: ConstSequentialBuffer::new(
@@ -217,7 +242,7 @@ pub(crate) struct NodeEntry {
 pub(crate) enum ContextToProcessorMsg {
     EventGroup(Vec<NodeEvent>),
     NewSchedule(Box<ScheduleHeapData>),
-    SetFlags(FirewheelFlags),
+    SetFlags(FirewheelBitFlags),
     #[cfg(feature = "musical_transport")]
     SetTransportState(Box<TransportState>),
     #[cfg(feature = "scheduled_events")]
@@ -292,6 +317,6 @@ pub enum BufferOutOfSpaceMode {
 }
 
 #[derive(Default)]
-pub(crate) struct StatusFlags {
+pub(crate) struct SharedFlags {
     pub clipping_occured: AtomicBool,
 }

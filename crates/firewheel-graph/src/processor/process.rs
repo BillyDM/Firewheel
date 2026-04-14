@@ -6,29 +6,30 @@ use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
-    dsp::{
-        buffer::SequentialBuffer,
-        declick::{DeclickFadeCurve, Declicker},
-    },
+    dsp::declick::{DeclickFadeCurve, Declicker},
     event::ProcEvents,
     log::RealtimeLogger,
     mask::{ConnectedMask, ConstantMask, MaskType, SilenceMask},
-    node::{NodeID, ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
+    node::{ProcBuffers, ProcExtra, ProcInfo, ProcessStatus, StreamStatus},
 };
 
 use crate::{
     backend::BackendProcessInfo,
-    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, StatusFlags},
-    FirewheelFlags,
+    context::FirewheelBitFlags,
+    graph::ProcessNodeInfo,
+    processor::{event_scheduler::SubChunkInfo, FirewheelProcessorInner, NodeEntry, SharedFlags},
 };
 
 #[cfg(feature = "scheduled_events")]
 use crate::processor::SharedClock;
-#[cfg(feature = "scheduled_events")]
 use bevy_platform::time::Instant;
 
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::ProcTransportInfo;
+
+/// A rough estimate of the amount of overhead occured by the OS's audio thread.
+// TODO: Do research to find the optimal value.
+const SYSTEM_OVERHEAD_DURATION_SECS: f64 = 1.0 / 1_000.0;
 
 impl FirewheelProcessorInner {
     /// Process the given buffers of audio data.
@@ -48,13 +49,18 @@ impl FirewheelProcessorInner {
             process_to_playback_delay,
         } = info;
 
+        let process_timestamp = process_timestamp.unwrap_or_else(|| Instant::now());
+
+        let total_cpu_seconds_recip = ((frames as f64 * self.sample_rate_recip)
+            - SYSTEM_OVERHEAD_DURATION_SECS)
+            .max(SYSTEM_OVERHEAD_DURATION_SECS)
+            .recip();
+
+        self.profiler_tx
+            .new_process_loop(process_timestamp, total_cpu_seconds_recip, &self.flags);
+
         let num_in_channels = input.channels();
         let num_out_channels = output.channels();
-
-        #[cfg(feature = "scheduled_events")]
-        let process_timestamp = process_timestamp.unwrap_or_else(|| Instant::now());
-        #[cfg(not(feature = "scheduled_events"))]
-        let _ = process_timestamp;
 
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
             let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
@@ -116,7 +122,7 @@ impl FirewheelProcessorInner {
                 .prepare_graph_inputs(
                     block_frames,
                     num_in_channels,
-                    self.flags.force_clear_buffers,
+                    self.flags.contains(FirewheelBitFlags::FORCE_CLEAR_BUFFERS),
                     |channels: &mut [&mut [f32]]| -> SilenceMask {
                         let mut silence_mask = SilenceMask::NONE_SILENT;
 
@@ -166,6 +172,7 @@ impl FirewheelProcessorInner {
                 self.sample_rate,
                 self.sample_rate_recip,
                 clock_samples,
+                total_cpu_seconds_recip,
                 duration_since_stream_start,
                 output_stream_status,
                 dropped_frames,
@@ -186,7 +193,7 @@ impl FirewheelProcessorInner {
                         validate_output(
                             channels,
                             &self.flags,
-                            &self.status_flags,
+                            &self.shared_flags,
                             &mut self.extra.logger,
                         );
 
@@ -210,6 +217,8 @@ impl FirewheelProcessorInner {
             output_stream_status = StreamStatus::empty();
             dropped_frames = 0;
         }
+
+        self.profiler_tx.process_loop_completed();
     }
 
     #[cfg(feature = "scheduled_events")]
@@ -240,6 +249,7 @@ impl FirewheelProcessorInner {
         sample_rate: NonZeroU32,
         sample_rate_recip: f64,
         clock_samples: InstantSamples,
+        total_cpu_seconds_recip: f64,
         duration_since_stream_start: Duration,
         stream_status: StreamStatus,
         dropped_frames: u32,
@@ -270,14 +280,17 @@ impl FirewheelProcessorInner {
             sample_rate,
             sample_rate_recip,
             clock_samples,
+            total_cpu_seconds_recip,
             duration_since_stream_start,
             stream_status,
             dropped_frames,
             process_to_playback_delay,
+            did_just_unbypass: false,
             #[cfg(feature = "musical_transport")]
             transport_info,
-            did_just_unbypass: false,
         };
+
+        let force_clear_buffers = self.flags.contains(FirewheelBitFlags::FORCE_CLEAR_BUFFERS);
 
         // -- Find scheduled events that have elapsed this block ------------------------------
 
@@ -287,19 +300,27 @@ impl FirewheelProcessorInner {
 
         // -- Audio graph node processing closure ---------------------------------------------
 
+        self.profiler_tx.bookkeeping_part_completed();
+
+        #[cfg(feature = "node_profiling")]
+        self.profiler_tx.begin_node_profiling();
+
         schedule_data.schedule.process(
             block_frames,
-            self.flags.force_clear_buffers,
-            |node_id: NodeID,
-             in_silence_mask: SilenceMask,
-             out_silence_mask: SilenceMask,
-             in_constant_mask: ConstantMask,
-             out_constant_mask: ConstantMask,
-             in_connected_mask: ConnectedMask,
-             out_connected_mask: ConnectedMask,
-             proc_buffers,
-             bypass_declick_buffer: &mut SequentialBuffer<f32>|
-             -> ProcessStatus {
+            force_clear_buffers,
+            |proc_node_info: ProcessNodeInfo| -> ProcessStatus {
+                let ProcessNodeInfo {
+                    node_id,
+                    in_silence_mask,
+                    out_silence_mask,
+                    in_constant_mask,
+                    out_constant_mask,
+                    in_connected_mask,
+                    out_connected_mask,
+                    proc_buffers,
+                    bypass_declick_buffer,
+                } = proc_node_info;
+
                 let node_entry = self.nodes.get_mut(node_id.0).unwrap();
 
                 // Add the mask information to proc info.
@@ -624,6 +645,9 @@ impl FirewheelProcessorInner {
 
                 // -- Done processing in sub-chunks. Return the final process status. ---------
 
+                #[cfg(feature = "node_profiling")]
+                self.profiler_tx.node_completed();
+
                 if let Some(final_mask) = final_mask {
                     // If we manually handled process statuses, return the calculated silence
                     // mask.
@@ -636,6 +660,8 @@ impl FirewheelProcessorInner {
         );
 
         // -- Clean up event buffers ----------------------------------------------------------
+
+        self.profiler_tx.begin_new_bookkeeping_part();
 
         self.event_scheduler.cleanup_process_block();
     }
@@ -664,11 +690,11 @@ impl FirewheelProcessorInner {
 
 fn validate_output(
     output: &mut [&mut [f32]],
-    flags: &FirewheelFlags,
-    status_flags: &Arc<StatusFlags>,
+    flags: &FirewheelBitFlags,
+    shared_flags: &Arc<SharedFlags>,
     logger: &mut RealtimeLogger,
 ) {
-    if flags.validate_output_is_finite {
+    if flags.contains(FirewheelBitFlags::VALIDATE_OUTPUT_IS_FINITE) {
         let mut non_finite_value = 0.0;
 
         for ch in output.iter_mut() {
@@ -701,10 +727,10 @@ fn validate_output(
         }
     }
 
-    if flags.detect_clipping_on_output {
+    if flags.contains(FirewheelBitFlags::DETECT_CLIPPING_ON_OUTPUT) {
         let mut clipping_occurred = false;
 
-        if flags.hard_clip_outputs {
+        if flags.contains(FirewheelBitFlags::HARD_CLIP_OUTPUTS) {
             for ch in output.iter_mut() {
                 for s in ch.iter_mut() {
                     // Try to optimize for auto-vectorization
@@ -723,9 +749,9 @@ fn validate_output(
         }
 
         if clipping_occurred {
-            status_flags.clipping_occured.store(true, Ordering::Relaxed);
+            shared_flags.clipping_occured.store(true, Ordering::Relaxed);
         }
-    } else if flags.hard_clip_outputs {
+    } else if flags.contains(FirewheelBitFlags::HARD_CLIP_OUTPUTS) {
         for ch in output.iter_mut() {
             for s in ch.iter_mut() {
                 *s = s.clamp(-1.0, 1.0);

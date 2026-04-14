@@ -22,7 +22,9 @@ use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
 
-pub(crate) use self::compiler::{CompiledSchedule, NodeHeapData, ScheduleHeapData};
+pub(crate) use self::compiler::{
+    CompiledSchedule, NodeHeapData, ProcessNodeInfo, ScheduleHeapData,
+};
 
 pub use self::compiler::{Edge, EdgeID, NodeEntry, PortIdx};
 

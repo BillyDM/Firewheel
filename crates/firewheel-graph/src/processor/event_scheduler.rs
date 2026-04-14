@@ -202,17 +202,17 @@ impl EventScheduler {
         if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
             match self.buffer_out_of_space_mode {
                 BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                    let _ = logger.try_error("Firewheel immediate event buffer is full! Please increase capacity to avoid audio glitches.");
+                    let _ = logger.try_error("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity to avoid audio glitches.");
 
                     self.immediate_event_buffer
                         .reserve(self.immediate_event_buffer_capacity);
                     self.immediate_event_buffer_capacity *= 2;
                 }
                 BufferOutOfSpaceMode::Panic => {
-                    panic!("Firewheel immediate event buffer is full! Please increase buffer capacity.");
+                    panic!("Firewheel immediate event buffer is full! Please increase FirewheelConfig::immediate_event_capacity.");
                 }
                 BufferOutOfSpaceMode::DropEvents => {
-                    let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase capacity.");
+                    let _ = logger.try_error("Firewheel immediate event buffer is full and event was dropped! Please increase FirewheelConfig::immediate_event_capacity.");
                     return;
                 }
             }
@@ -621,13 +621,13 @@ impl EventScheduler {
             if node_event_queue.len() == node_event_queue.capacity() {
                 match self.buffer_out_of_space_mode {
                     BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                        let _ = logger.try_error("Firewheel event queue is full! Please increase capacity to avoid audio glitches.");
+                        let _ = logger.try_error("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity to avoid audio glitches.");
                     }
                     BufferOutOfSpaceMode::Panic => {
-                        panic!("Firewheel event queue is full! Please increase buffer capacity.");
+                        panic!("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity.");
                     }
                     BufferOutOfSpaceMode::DropEvents => {
-                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase buffer capacity.");
+                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase FirewheelConfig::event_queue_capacity.");
                     }
                 }
             }
@@ -866,7 +866,7 @@ impl EventScheduler {
     fn extend_scheduled_event_buffer(&mut self, logger: &mut RealtimeLogger) -> bool {
         match self.buffer_out_of_space_mode {
             BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                let _ = logger.try_error("Firewheel scheduled event buffer is full! Please increase capacity to avoid audio glitches.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity to avoid audio glitches.");
 
                 let old_len = self.scheduled_event_arena.len();
 
@@ -882,11 +882,11 @@ impl EventScheduler {
             }
             BufferOutOfSpaceMode::Panic => {
                 panic!(
-                    "Firewheel scheduled event buffer is full! Please increase buffer capactiy."
+                    "Firewheel scheduled event buffer is full! Please increase FirewheelConfig::scheduled_event_capacity."
                 );
             }
             BufferOutOfSpaceMode::DropEvents => {
-                let _ = logger.try_error("Firewheel scheduled event buffer is full and event was dropped! Please increase capacity.");
+                let _ = logger.try_error("Firewheel scheduled event buffer is full and event was dropped! Please increase FirewheelConfig::scheduled_event_capacity.");
                 true
             }
         }

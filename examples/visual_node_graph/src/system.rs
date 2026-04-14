@@ -55,7 +55,7 @@ pub enum NodeType {
 }
 
 pub struct AudioSystem {
-    cx: FirewheelContext,
+    pub cx: FirewheelContext,
     pub stream: CpalStream,
     pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
     pub(crate) ir_samples: Vec<(&'static str, ArcGc<dyn SampleResourceF32>)>,
@@ -73,7 +73,8 @@ impl AudioSystem {
             &mut cx,
             CpalConfig {
                 output: Default::default(),
-                input: Some(Default::default()),
+                //input: Some(Default::default()),
+                input: None,
             },
         )
         .unwrap();
