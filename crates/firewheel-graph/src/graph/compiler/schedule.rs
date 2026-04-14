@@ -313,6 +313,24 @@ impl CompiledSchedule {
         }
     }
 
+    #[cfg(feature = "node_profiling")]
+    pub fn num_nodes(&self) -> usize {
+        self.pre_proc_nodes.len() + self.schedule.len()
+    }
+
+    #[cfg(feature = "node_profiling")]
+    pub fn iter_node_ids(&self) -> impl Iterator<Item = NodeID> + use<'_> {
+        self.pre_proc_nodes
+            .iter()
+            .map(|n| n.id)
+            .chain(self.schedule.iter().map(|n| n.id))
+    }
+
+    #[cfg(feature = "node_profiling")]
+    pub fn graph_in_node_id(&self) -> NodeID {
+        self.graph_in_node_id
+    }
+
     pub fn max_block_frames(&self) -> usize {
         self.max_block_frames
     }
@@ -463,17 +481,7 @@ impl CompiledSchedule {
         &mut self,
         frames: usize,
         force_clear_buffers: bool,
-        mut process: impl FnMut(
-            NodeID,
-            SilenceMask,
-            SilenceMask,
-            ConstantMask,
-            ConstantMask,
-            ConnectedMask,
-            ConnectedMask,
-            ProcBuffers,
-            &mut SequentialBuffer<f32>,
-        ) -> ProcessStatus,
+        mut process: impl FnMut(ProcessNodeInfo<'_, '_>) -> ProcessStatus,
     ) {
         let frames = frames.min(self.max_block_frames);
         let frames_u16 = frames as u16;
@@ -483,32 +491,32 @@ impl CompiledSchedule {
         let mut inputs: ArrayVec<&[f32], MAX_CHANNELS> = ArrayVec::new();
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
-        for pre_proc_node in self.pre_proc_nodes.iter() {
-            if pre_proc_node.id == self.graph_in_node_id {
-                continue;
-            }
-
-            (process)(
-                pre_proc_node.id,
-                SilenceMask::NONE_SILENT,
-                SilenceMask::NONE_SILENT,
-                ConstantMask::NONE_CONSTANT,
-                ConstantMask::NONE_CONSTANT,
-                ConnectedMask::NONE_CONNECTED,
-                ConnectedMask::NONE_CONNECTED,
-                ProcBuffers {
+        for pre_proc_node in self
+            .pre_proc_nodes
+            .iter()
+            .filter(|n| n.id != self.graph_in_node_id)
+        {
+            (process)(ProcessNodeInfo {
+                node_id: pre_proc_node.id,
+                in_silence_mask: SilenceMask::NONE_SILENT,
+                out_silence_mask: SilenceMask::NONE_SILENT,
+                in_constant_mask: ConstantMask::NONE_CONSTANT,
+                out_constant_mask: ConstantMask::NONE_CONSTANT,
+                in_connected_mask: ConnectedMask::NONE_CONNECTED,
+                out_connected_mask: ConnectedMask::NONE_CONNECTED,
+                proc_buffers: ProcBuffers {
                     inputs: &[],
                     outputs: &mut [],
                 },
-                &mut self.bypass_declick_buffer,
-            );
+                bypass_declick_buffer: &mut self.bypass_declick_buffer,
+            });
         }
 
-        for scheduled_node in self.schedule.iter() {
-            if scheduled_node.id == self.graph_in_node_id {
-                continue;
-            }
-
+        for scheduled_node in self
+            .schedule
+            .iter()
+            .filter(|n| n.id != self.graph_in_node_id)
+        {
             for inserted_sum in scheduled_node.sum_inputs.iter() {
                 // SAFETY: buffers_ptr is derived from &mut self.buffers.
                 // Buffer indicies in sum_inputs are guaranteed non-overlapping by
@@ -658,20 +666,20 @@ impl CompiledSchedule {
                 outputs.push(buf);
             }
 
-            let status = (process)(
-                scheduled_node.id,
+            let status = (process)(ProcessNodeInfo {
+                node_id: scheduled_node.id,
                 in_silence_mask,
                 out_silence_mask,
                 in_constant_mask,
                 out_constant_mask,
-                scheduled_node.in_connected_mask,
-                scheduled_node.out_connected_mask,
-                ProcBuffers {
+                in_connected_mask: scheduled_node.in_connected_mask,
+                out_connected_mask: scheduled_node.out_connected_mask,
+                proc_buffers: ProcBuffers {
                     inputs: inputs.as_slice(),
                     outputs: outputs.as_mut_slice(),
                 },
-                &mut self.bypass_declick_buffer,
-            );
+                bypass_declick_buffer: &mut self.bypass_declick_buffer,
+            });
 
             match status {
                 ProcessStatus::ClearAllOutputs => {
@@ -792,6 +800,18 @@ impl CompiledSchedule {
             }
         }
     }
+}
+
+pub(crate) struct ProcessNodeInfo<'a, 'b> {
+    pub node_id: NodeID,
+    pub in_silence_mask: SilenceMask,
+    pub out_silence_mask: SilenceMask,
+    pub in_constant_mask: ConstantMask,
+    pub out_constant_mask: ConstantMask,
+    pub in_connected_mask: ConnectedMask,
+    pub out_connected_mask: ConnectedMask,
+    pub proc_buffers: ProcBuffers<'a, 'b>,
+    pub bypass_declick_buffer: &'a mut SequentialBuffer<f32>,
 }
 
 /// # Safety

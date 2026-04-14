@@ -80,6 +80,13 @@ rtaudio = ["std", "firewheel-rtaudio"]
 # Enables using Symphonium for loading audio files.
 # Requires the standard library.
 symphonium = ["dep:firewheel-symphonium"]
+# Enables resampling audio files when loading them with Symphonium.
+symphonium_resample = ["symphonium", "firewheel-symphonium?/resample"]
+# Enables the "arbitrary sinc" resampler for changing the pitch/length
+# of samples at load time.
+symphonium_stretch = ["symphonium", "firewheel-symphonium?/stretch"]
+# Enables performance profiling for each individual node.
+node_profiling = ["firewheel-graph/node_profiling"]
 # Enables the `AudioNodePool` helper type for constructing a pool of
 # audio node chains that can dynamically be assigned work.
 pool = ["dep:firewheel-pool"]
