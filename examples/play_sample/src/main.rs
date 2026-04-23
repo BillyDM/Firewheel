@@ -51,7 +51,7 @@ fn main() {
         args.path, None, // Custom container probe
     )
     .unwrap();
-    let sample = firewheel::dyn_sample_resource(
+    let sample = firewheel::dyn_symphonium_resource(
         symphonium::decode(
             probed,
             &symphonium::DecodeConfig::default(),

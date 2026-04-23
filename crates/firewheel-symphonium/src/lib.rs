@@ -11,17 +11,15 @@ use firewheel_core::{
 /// A wrapper around [`symphonium::DecodedAudio`] which implements the
 /// [`SampleResource`] trait.
 #[derive(Debug, Clone)]
-pub struct DecodedAudio(pub symphonium::DecodedAudio);
+pub struct SymphoniumAudio(pub symphonium::DecodedAudio);
 
-impl DecodedAudio {
+impl SymphoniumAudio {
     pub fn duration_seconds(&self) -> f64 {
         self.0.frames() as f64 / self.0.sample_rate().get() as f64
     }
 
     pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
-        ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
-        })
+        self.into()
     }
 
     /// The sample rate of this resource.
@@ -35,7 +33,7 @@ impl DecodedAudio {
     }
 }
 
-impl SampleResourceInfo for DecodedAudio {
+impl SampleResourceInfo for SymphoniumAudio {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
     }
@@ -49,34 +47,27 @@ impl SampleResourceInfo for DecodedAudio {
     }
 }
 
-impl SampleResource for DecodedAudio {
+impl SampleResource for SymphoniumAudio {
     fn fill_buffers(
         &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
         start_frame: u64,
     ) {
-        let channels = self.0.channels().min(buffers.len());
+        if start_frame > self.0.frames() as u64 {
+            return;
+        }
+        let start_frame = start_frame as usize;
 
-        if channels == 2 {
-            let (b1, b2) = buffers.split_first_mut().unwrap();
-
-            self.0.fill_stereo(
-                start_frame as usize,
-                &mut b1[buffer_range.clone()],
-                &mut b2[0][buffer_range.clone()],
-            );
-        } else {
-            for (ch_i, b) in buffers[0..channels].iter_mut().enumerate() {
-                self.0
-                    .fill_channel(ch_i, start_frame as usize, &mut b[buffer_range.clone()])
-                    .unwrap();
-            }
+        for (ch_i, out_ch) in out_buffer.iter_mut().enumerate().take(self.0.channels()) {
+            self.0
+                .fill_channel(ch_i, start_frame, &mut out_ch[out_buffer_range.clone()])
+                .unwrap();
         }
     }
 }
 
-impl From<symphonium::DecodedAudio> for DecodedAudio {
+impl From<symphonium::DecodedAudio> for SymphoniumAudio {
     fn from(data: symphonium::DecodedAudio) -> Self {
         Self(data)
     }
@@ -85,17 +76,15 @@ impl From<symphonium::DecodedAudio> for DecodedAudio {
 /// A wrapper around [`symphonium::DecodedAudioF32`] which implements the
 /// [`SampleResource`] trait.
 #[derive(Debug, Clone)]
-pub struct DecodedAudioF32(pub symphonium::DecodedAudioF32);
+pub struct SymphoniumAudioF32(pub symphonium::DecodedAudioF32);
 
-impl DecodedAudioF32 {
+impl SymphoniumAudioF32 {
     pub fn duration_seconds(&self, sample_rate: NonZeroU32) -> f64 {
         self.0.frames() as f64 / sample_rate.get() as f64
     }
 
     pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResourceF32> {
-        ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResourceF32>
-        })
+        self.into()
     }
 
     /// The sample rate of this resource.
@@ -109,7 +98,7 @@ impl DecodedAudioF32 {
     }
 }
 
-impl Index<usize> for DecodedAudioF32 {
+impl Index<usize> for SymphoniumAudioF32 {
     type Output = Vec<f32>;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -117,13 +106,13 @@ impl Index<usize> for DecodedAudioF32 {
     }
 }
 
-impl IndexMut<usize> for DecodedAudioF32 {
+impl IndexMut<usize> for SymphoniumAudioF32 {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0.data[index]
     }
 }
 
-impl SampleResourceInfo for DecodedAudioF32 {
+impl SampleResourceInfo for SymphoniumAudioF32 {
     fn num_channels(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.channels()).unwrap()
     }
@@ -137,42 +126,45 @@ impl SampleResourceInfo for DecodedAudioF32 {
     }
 }
 
-impl SampleResource for DecodedAudioF32 {
+impl SampleResource for SymphoniumAudioF32 {
     fn fill_buffers(
         &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
         start_frame: u64,
     ) {
         firewheel_core::sample_resource::fill_buffers_deinterleaved_f32(
-            buffers,
-            buffer_range,
-            start_frame as usize,
+            out_buffer,
+            out_buffer_range,
+            start_frame,
             &self.0.data,
+            self.0.frames(),
         );
     }
 }
 
-impl SampleResourceF32 for DecodedAudioF32 {
+impl SampleResourceF32 for SymphoniumAudioF32 {
     fn channel(&self, i: usize) -> Option<&[f32]> {
         self.0.data.get(i).map(|ch| ch.as_slice())
     }
 }
 
-impl From<symphonium::DecodedAudioF32> for DecodedAudioF32 {
+impl From<symphonium::DecodedAudioF32> for SymphoniumAudioF32 {
     fn from(data: symphonium::DecodedAudioF32) -> Self {
         Self(data)
     }
 }
 
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into
-/// a [`SampleResource`].
-pub fn dyn_sample_resource(data: symphonium::DecodedAudio) -> ArcGc<dyn SampleResource> {
-    DecodedAudio(data).into_dyn_resource()
+/// a type erased [`SampleResource`].
+pub fn dyn_symphonium_resource(data: symphonium::DecodedAudio) -> ArcGc<dyn SampleResource> {
+    SymphoniumAudio(data).into_dyn_resource()
 }
 
 /// A helper method to convert a [`symphonium::DecodedAudioF32`] resource into
-/// a [`SampleResource`].
-pub fn dyn_sample_resource_f32(data: symphonium::DecodedAudioF32) -> ArcGc<dyn SampleResourceF32> {
-    DecodedAudioF32(data).into_dyn_resource()
+/// a type erased [`SampleResource`].
+pub fn dyn_symphonium_resource_f32(
+    data: symphonium::DecodedAudioF32,
+) -> ArcGc<dyn SampleResourceF32> {
+    SymphoniumAudioF32(data).into_dyn_resource()
 }

@@ -20,7 +20,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     sample_resource::{SampleResource, SampleResourceF32},
-    ContextQueue, DecodedAudioF32, FirewheelContext,
+    ContextQueue, FirewheelContext, SymphoniumAudioF32,
 };
 use symphonium::cache::SymphoniumCache;
 
@@ -91,7 +91,7 @@ impl AudioSystem {
                     path, None, // Custom container probe
                 )
                 .unwrap();
-                firewheel::dyn_sample_resource(
+                firewheel::dyn_symphonium_resource(
                     symphonium::decode(
                         probed,
                         &symphonium::DecodeConfig::default(),
@@ -111,7 +111,7 @@ impl AudioSystem {
                     path, None, // Custom container probe
                 )
                 .unwrap();
-                DecodedAudioF32(
+                SymphoniumAudioF32(
                     symphonium::decode_f32(
                         probed,
                         &symphonium::DecodeConfig::default(),

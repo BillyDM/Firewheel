@@ -215,6 +215,7 @@ num-traits = { version = "0.2", default-features = false }
 # https://github.com/HEnquist/audioadapter-rs/pull/37
 audioadapter = { version = "3.0.0", default-features = false }
 audioadapter-buffers = { version = "3.0.0", default-features = false }
+audioadapter-sample = { version = "3.0.0", default-features = false }
 serde = { version = "1", features = ["derive"] }
 egui = "0.33.3"
 eframe = { version = "0.33.3", default-features = false, features = [
