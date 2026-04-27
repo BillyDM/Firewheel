@@ -15,7 +15,7 @@ use bevy_platform::prelude::Vec;
 use crate::collector::ArcGc;
 
 /// Trait returning information about a resource of audio samples
-pub trait SampleResourceInfo: Send + Sync + 'static {
+pub trait SampleResourceInfo {
     /// The number of channels in this resource.
     fn num_channels(&self) -> NonZeroUsize;
 
@@ -45,6 +45,10 @@ pub trait SampleResource: SampleResourceInfo {
     /// * `start_frame` - The sample (of a single channel of audio) in the
     ///   resource at which to start copying from. Not to be confused with video
     ///   frames.
+    ///
+    /// If the length of `out_buffer_range` is all or partly out of bounds of
+    /// the resource, then the frames which are out of bounds will be left
+    /// untouched.
     fn fill_buffers(
         &self,
         out_buffer: &mut [&mut [f32]],
@@ -59,18 +63,24 @@ pub trait SampleResourceF32: SampleResourceInfo {
     fn channel(&self, i: usize) -> Option<&[f32]>;
 }
 
-impl<T: SampleResource> From<T> for ArcGc<dyn SampleResource> {
+impl<T: SampleResource + Send + Sync + 'static> From<T>
+    for ArcGc<dyn SampleResource + Send + Sync + 'static>
+{
     fn from(value: T) -> Self {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(value) as bevy_platform::sync::Arc<dyn SampleResource>
+            bevy_platform::sync::Arc::new(value)
+                as bevy_platform::sync::Arc<dyn SampleResource + Send + Sync + 'static>
         })
     }
 }
 
-impl<T: SampleResourceF32> From<T> for ArcGc<dyn SampleResourceF32> {
+impl<T: SampleResourceF32 + Send + Sync + 'static> From<T>
+    for ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>
+{
     fn from(value: T) -> Self {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(value) as bevy_platform::sync::Arc<dyn SampleResourceF32>
+            bevy_platform::sync::Arc::new(value)
+                as bevy_platform::sync::Arc<dyn SampleResourceF32 + Send + Sync + 'static>
         })
     }
 }
@@ -83,9 +93,10 @@ pub struct InterleavedResourceF32 {
 }
 
 impl InterleavedResourceF32 {
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
+    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource + Send + Sync + 'static> {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
+            bevy_platform::sync::Arc::new(self)
+                as bevy_platform::sync::Arc<dyn SampleResource + Send + Sync + 'static>
         })
     }
 }

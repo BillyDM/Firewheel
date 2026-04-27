@@ -63,7 +63,7 @@ fn main() {
     );
 
     sampler_node.set_sample(sample);
-    cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());
+    cx.queue_event_for(sampler_id, sampler_node.sync_sample_event().unwrap());
 
     sampler_node.start_or_restart();
     cx.queue_event_for(sampler_id, sampler_node.sync_play_event());

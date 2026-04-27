@@ -647,6 +647,16 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         })
                         .wrap_mode(egui::TextWrapMode::Truncate)
                         .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(&mut params.sample, None, "None")
+                                .clicked()
+                            {
+                                ui.memory_mut(|mem| {
+                                    mem.data.insert_temp::<Option<usize>>(mem_id, None);
+                                });
+                                params.sample = None;
+                            }
+
                             for sample_index in 0..SAMPLE_PATHS.len() {
                                 if ui
                                     .selectable_value(
@@ -662,9 +672,8 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                                             Some(sample_index),
                                         );
                                     });
-                                    params.set_sample(
-                                        self.audio_system.samples[sample_index].clone(),
-                                    );
+                                    params.sample =
+                                        Some(self.audio_system.samples[sample_index].clone());
                                 }
                             }
                         });

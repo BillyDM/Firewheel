@@ -52,6 +52,12 @@ impl Default for NodeID {
 #[derive(Debug)]
 pub struct NodeError(Box<dyn Error>);
 
+impl NodeError {
+    pub const fn from_boxed(error: Box<dyn Error>) -> Self {
+        Self(error)
+    }
+}
+
 impl<E> From<E> for NodeError
 where
     E: Error + 'static,

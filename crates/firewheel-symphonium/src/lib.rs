@@ -18,7 +18,7 @@ impl SymphoniumAudio {
         self.0.frames() as f64 / self.0.sample_rate().get() as f64
     }
 
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
+    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource + Send + Sync + 'static> {
         self.into()
     }
 
@@ -83,7 +83,7 @@ impl SymphoniumAudioF32 {
         self.0.frames() as f64 / sample_rate.get() as f64
     }
 
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResourceF32> {
+    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResourceF32 + Send + Sync + 'static> {
         self.into()
     }
 
@@ -157,7 +157,9 @@ impl From<symphonium::DecodedAudioF32> for SymphoniumAudioF32 {
 
 /// A helper method to convert a [`symphonium::DecodedAudio`] resource into
 /// a type erased [`SampleResource`].
-pub fn dyn_symphonium_resource(data: symphonium::DecodedAudio) -> ArcGc<dyn SampleResource> {
+pub fn dyn_symphonium_resource(
+    data: symphonium::DecodedAudio,
+) -> ArcGc<dyn SampleResource + Send + Sync + 'static> {
     SymphoniumAudio(data).into_dyn_resource()
 }
 
@@ -165,6 +167,6 @@ pub fn dyn_symphonium_resource(data: symphonium::DecodedAudio) -> ArcGc<dyn Samp
 /// a type erased [`SampleResource`].
 pub fn dyn_symphonium_resource_f32(
     data: symphonium::DecodedAudioF32,
-) -> ArcGc<dyn SampleResourceF32> {
+) -> ArcGc<dyn SampleResourceF32 + Send + Sync + 'static> {
     SymphoniumAudioF32(data).into_dyn_resource()
 }
