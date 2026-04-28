@@ -227,7 +227,11 @@ impl Patch for Notify<()> {
 impl Diff for Notify<bool> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as u32));
+            let mut bytes: [u8; 20] = [0; 20];
+            bytes[0..8].copy_from_slice(&self.id().to_ne_bytes());
+            bytes[8] = (**self) as u8;
+
+            event_queue.push_param(ParamData::CustomBytes(bytes), path);
         }
     }
 }
@@ -235,191 +239,16 @@ impl Diff for Notify<bool> {
 impl Patch for Notify<bool> {
     type Patch = Self;
 
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = match path.first() {
-            Some(0) => false,
-            Some(1) => true,
-            _ => return Err(PatchError::InvalidData),
-        };
-
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
         match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
+            ParamData::CustomBytes(bytes) => {
+                let (counter_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
+                let counter = u64::from_ne_bytes(counter_bytes.try_into().unwrap());
 
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
+                let value = rest_bytes[0] != 0;
 
-impl Diff for Notify<i8> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as i32 as u32));
-        }
-    }
-}
-
-impl Patch for Notify<i8> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = (*path.first().ok_or(PatchError::InvalidData)?) as i8;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<i16> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as i32 as u32));
-        }
-    }
-}
-
-impl Patch for Notify<i16> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = (*path.first().ok_or(PatchError::InvalidData)?) as i16;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<i32> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as u32));
-        }
-    }
-}
-
-impl Patch for Notify<i32> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = (*path.first().ok_or(PatchError::InvalidData)?) as i32;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<u8> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as u32));
-        }
-    }
-}
-
-impl Patch for Notify<u8> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = (*path.first().ok_or(PatchError::InvalidData)?) as u8;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<u16> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self as u32));
-        }
-    }
-}
-
-impl Patch for Notify<u16> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = (*path.first().ok_or(PatchError::InvalidData)?) as u16;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<u32> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path.with(**self));
-        }
-    }
-}
-
-impl Patch for Notify<u32> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = *path.first().ok_or(PatchError::InvalidData)?;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(value, *counter)),
-            _ => Err(PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, value: Self::Patch) {
-        *self = value;
-    }
-}
-
-impl Diff for Notify<f32> {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self != baseline {
-            let value: f32 = **self;
-            event_queue.push_param(ParamData::U64(self.id()), path.with(value.to_bits()));
-        }
-    }
-}
-
-impl Patch for Notify<f32> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, path: &[u32]) -> Result<Self::Patch, PatchError> {
-        let value = *path.first().ok_or(PatchError::InvalidData)?;
-
-        match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw(f32::from_bits(value), *counter)),
+                Ok(Notify::from_raw(value, counter))
+            }
             _ => Err(PatchError::InvalidData),
         }
     }
@@ -430,6 +259,46 @@ impl Patch for Notify<f32> {
 }
 
 macro_rules! trivial_notify {
+    ($ty:path) => {
+        impl Diff for Notify<$ty> {
+            fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
+                if self != baseline {
+                    let mut bytes: [u8; 20] = [0; 20];
+                    bytes[0..8].copy_from_slice(&self.id().to_ne_bytes());
+                    let value_bytes = self.to_ne_bytes();
+                    bytes[8..8 + value_bytes.len()].copy_from_slice(&value_bytes);
+
+                    event_queue.push_param(ParamData::CustomBytes(bytes), path);
+                }
+            }
+        }
+
+        impl Patch for Notify<$ty> {
+            type Patch = Self;
+
+            fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
+                match data {
+                    ParamData::CustomBytes(bytes) => {
+                        let (counter_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
+                        let counter = u64::from_ne_bytes(counter_bytes.try_into().unwrap());
+
+                        let (value_bytes, _) = rest_bytes.split_at(size_of::<$ty>());
+                        let value = <$ty>::from_ne_bytes(value_bytes.try_into().unwrap());
+
+                        Ok(Notify::from_raw(value, counter))
+                    }
+                    _ => Err(PatchError::InvalidData),
+                }
+            }
+
+            fn apply(&mut self, value: Self::Patch) {
+                *self = value;
+            }
+        }
+    };
+}
+
+macro_rules! non_trivial_notify {
     ($ty:path) => {
         impl Diff for Notify<$ty> {
             fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
@@ -455,31 +324,38 @@ macro_rules! trivial_notify {
     };
 }
 
-// No good optimizations possible for these large values.
-trivial_notify!(f64);
+trivial_notify!(i8);
+trivial_notify!(u8);
+trivial_notify!(i16);
+trivial_notify!(u16);
+trivial_notify!(i32);
+trivial_notify!(u32);
 trivial_notify!(i64);
 trivial_notify!(u64);
+trivial_notify!(f32);
+trivial_notify!(f64);
 
-trivial_notify!(Volume);
-trivial_notify!(InstantSamples);
-trivial_notify!(DurationSamples);
-trivial_notify!(InstantSeconds);
-trivial_notify!(DurationSeconds);
+// No good optimizations possible for these large values.
+non_trivial_notify!(Volume);
+non_trivial_notify!(InstantSamples);
+non_trivial_notify!(DurationSamples);
+non_trivial_notify!(InstantSeconds);
+non_trivial_notify!(DurationSeconds);
 
 #[cfg(feature = "musical_transport")]
-trivial_notify!(InstantMusical);
+non_trivial_notify!(InstantMusical);
 #[cfg(feature = "musical_transport")]
-trivial_notify!(DurationMusical);
+non_trivial_notify!(DurationMusical);
 
-trivial_notify!(Vec2);
-trivial_notify!(Vec3);
+non_trivial_notify!(Vec2);
+non_trivial_notify!(Vec3);
 
 #[cfg(feature = "glam-29")]
-trivial_notify!(glam_29::Vec2);
+non_trivial_notify!(glam_29::Vec2);
 #[cfg(feature = "glam-29")]
-trivial_notify!(glam_29::Vec3);
+non_trivial_notify!(glam_29::Vec3);
 
 #[cfg(feature = "glam-30")]
-trivial_notify!(glam_30::Vec2);
+non_trivial_notify!(glam_30::Vec2);
 #[cfg(feature = "glam-30")]
-trivial_notify!(glam_30::Vec3);
+non_trivial_notify!(glam_30::Vec3);
