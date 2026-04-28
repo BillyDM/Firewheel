@@ -76,7 +76,7 @@ fn main() {
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if cx.node_state::<SamplerState>(sampler_id).unwrap().stopped() && false {
+        if cx.node_state::<SamplerState>(sampler_id).unwrap().stopped() {
             // Sample has finished playing.
             break;
         }
