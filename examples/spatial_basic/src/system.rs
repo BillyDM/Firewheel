@@ -46,13 +46,14 @@ impl AudioSystem {
         let graph_out_node_id = cx.graph_out_node_id();
 
         let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample);
         sampler_node.repeat_mode = RepeatMode::RepeatEndlessly;
         sampler_node.start_or_restart();
 
         let sampler_node_id = cx
             .add_node(sampler_node.clone(), None)
             .expect("Sampler node should construct without error");
+
+        cx.queue_event_for(sampler_node_id, SamplerNode::set_dyn_sample_event(sample));
 
         let spatial_basic_node = SpatialBasicNode::default();
         let spatial_basic_node_id = cx

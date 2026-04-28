@@ -13,13 +13,13 @@ use firewheel::{
         freeverb::FreeverbNode,
         mix::{MixNode, MixNodeConfig},
         noise_generator::{pink::PinkNoiseGenNode, white::WhiteNoiseGenNode},
-        sampler::{SampleHandle, SamplerNode},
+        sampler::SamplerNode,
         svf::SvfNode,
         volume::{VolumeNode, VolumeNodeConfig},
         volume_pan::VolumePanNode,
         StereoToMonoNode,
     },
-    sample_resource::SampleResourceF32,
+    sample_resource::{SampleResource, SampleResourceF32},
     ContextQueue, FirewheelContext, SymphoniumAudioF32,
 };
 use symphonium::cache::SymphoniumCache;
@@ -57,7 +57,7 @@ pub enum NodeType {
 pub struct AudioSystem {
     pub cx: FirewheelContext,
     pub stream: CpalStream,
-    pub(crate) samples: Vec<SampleHandle>,
+    pub(crate) samples: Vec<ArcGc<dyn SampleResource + Send + Sync + 'static>>,
     pub(crate) ir_samples: Vec<(
         &'static str,
         ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>,

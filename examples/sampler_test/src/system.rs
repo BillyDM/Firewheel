@@ -73,12 +73,13 @@ impl AudioSystem {
                     .unwrap(),
                 );
 
-                let mut params = SamplerNode::default();
-                params.set_sample(sample);
+                let params = SamplerNode::default();
 
                 let node_id = cx
                     .add_node(params.clone(), None)
                     .expect("Sampler node should construct without error");
+
+                cx.queue_event_for(node_id, SamplerNode::set_dyn_sample_event(sample));
 
                 cx.connect(node_id, peak_meter_id, &[(0, 0), (1, 1)], false)
                     .unwrap();

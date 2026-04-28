@@ -49,12 +49,16 @@ pub trait SampleResource: SampleResourceInfo {
     /// If the length of `out_buffer_range` is all or partly out of bounds of
     /// the resource, then the frames which are out of bounds will be left
     /// untouched.
+    ///
+    /// Returns the number of frames that were successfully filled. This may
+    /// be less than the length of `out_buffer_range` if the range is all or
+    /// partly out of bounds of the resource
     fn fill_buffers(
         &self,
         out_buffer: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
         start_frame: u64,
-    );
+    ) -> usize;
 }
 
 /// A resource of audio samples stored as de-interleaved f32 values.
@@ -121,7 +125,7 @@ impl SampleResource for InterleavedResourceF32 {
         out_buffer: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
+    ) -> usize {
         fill_buffers_interleaved(
             out_buffer,
             out_buffer_range,
@@ -129,7 +133,7 @@ impl SampleResource for InterleavedResourceF32 {
             self.channels,
             &self.data,
             self.len_frames() as usize,
-        );
+        )
     }
 }
 
@@ -160,14 +164,14 @@ impl SampleResource for Vec<Vec<f32>> {
         out_buffer: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
+    ) -> usize {
         fill_buffers_deinterleaved_f32(
             out_buffer,
             out_buffer_range,
             start_frame,
             self,
             self[0].len(),
-        );
+        )
     }
 }
 
@@ -178,6 +182,10 @@ impl SampleResourceF32 for Vec<Vec<f32>> {
 }
 
 /// A helper method to fill buffers from a resource of interleaved samples.
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
 pub fn fill_buffers_interleaved<T: RawSample + Clone>(
     out_buffer: &mut [&mut [f32]],
     out_buffer_range: Range<usize>,
@@ -185,7 +193,7 @@ pub fn fill_buffers_interleaved<T: RawSample + Clone>(
     channels: NonZeroUsize,
     resource: &[T],
     resource_len_frames: usize,
-) {
+) -> usize {
     let channels = channels.get();
 
     let Some((frames, start_frame)) = constrain_frames(
@@ -193,7 +201,7 @@ pub fn fill_buffers_interleaved<T: RawSample + Clone>(
         start_frame,
         resource_len_frames,
     ) else {
-        return;
+        return 0;
     };
 
     // Provide an optimized loop for stereo.
@@ -212,7 +220,7 @@ pub fn fill_buffers_interleaved<T: RawSample + Clone>(
             *buf1_s = src_chunk[1].to_scaled_float();
         }
 
-        return;
+        return frames;
     }
 
     let src_slice = &resource[start_frame * channels..(start_frame + frames) * channels];
@@ -227,21 +235,27 @@ pub fn fill_buffers_interleaved<T: RawSample + Clone>(
             &mut out_ch[out_buffer_range.start..out_buffer_range.start + frames],
         );
     }
+
+    frames
 }
 
 /// A helper method to fill buffers from a resource of deinterleaved samples.
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
 pub fn fill_channel_deinterleaved<T: RawSample + Clone>(
     out_buffer_channel: &mut [f32],
     out_buffer_range: Range<usize>,
     start_frame: u64,
     resource_channel: &[T],
-) {
+) -> usize {
     let Some((frames, start_frame)) = constrain_frames(
         out_buffer_range.end - out_buffer_range.start,
         start_frame,
         resource_channel.len(),
     ) else {
-        return;
+        return 0;
     };
 
     let adapter = SequentialSlice::new(resource_channel, 1, frames).unwrap();
@@ -252,36 +266,50 @@ pub fn fill_channel_deinterleaved<T: RawSample + Clone>(
         start_frame,
         &mut out_buffer_channel[out_buffer_range.start..out_buffer_range.start + frames],
     );
+
+    frames
 }
 
 /// A helper method to fill buffers from a resource of deinterleaved `f32` samples.
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
 pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
     out_buffer: &mut [&mut [f32]],
     out_buffer_range: Range<usize>,
     start_frame: u64,
     resource_channels: &[V],
     resource_len_frames: usize,
-) {
+) -> usize {
     let Some((frames, start_frame)) = constrain_frames(
         out_buffer_range.end - out_buffer_range.start,
         start_frame,
         resource_len_frames,
     ) else {
-        return;
+        return 0;
     };
 
     for (out_ch, in_ch) in out_buffer.iter_mut().zip(resource_channels.iter()) {
         out_ch[out_buffer_range.start..out_buffer_range.start + frames]
             .copy_from_slice(&in_ch.as_ref()[start_frame..start_frame + frames]);
     }
+
+    frames
 }
 
-fn constrain_frames(
-    out_buffer_len: usize,
+/// A helper to constrain the requested number of frames to the available frames
+/// in the sample resource.
+///
+/// Returns `Some((available_frames, start_frame as usize))` if the range is all
+/// or partly contained in the resource, or `None` if the range is fully outside
+/// the resource (`available_frames == 0`).
+pub fn constrain_frames(
+    requested_frames: usize,
     start_frame: u64,
     resource_len_frames: usize,
 ) -> Option<(usize, usize)> {
-    let frames = (out_buffer_len as u64)
+    let frames = (requested_frames as u64)
         .min((resource_len_frames as u64).saturating_sub(start_frame)) as usize;
     if frames == 0 {
         None

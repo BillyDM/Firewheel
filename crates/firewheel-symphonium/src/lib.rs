@@ -53,17 +53,26 @@ impl SampleResource for SymphoniumAudio {
         out_buffer: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
-        if start_frame > self.0.frames() as u64 {
-            return;
-        }
-        let start_frame = start_frame as usize;
+    ) -> usize {
+        let Some((frames, start_frame)) = firewheel_core::sample_resource::constrain_frames(
+            out_buffer_range.end - out_buffer_range.start,
+            start_frame,
+            self.0.frames(),
+        ) else {
+            return 0;
+        };
 
         for (ch_i, out_ch) in out_buffer.iter_mut().enumerate().take(self.0.channels()) {
             self.0
-                .fill_channel(ch_i, start_frame, &mut out_ch[out_buffer_range.clone()])
+                .fill_channel(
+                    ch_i,
+                    start_frame,
+                    &mut out_ch[out_buffer_range.start..out_buffer_range.start + frames],
+                )
                 .unwrap();
         }
+
+        frames
     }
 }
 
@@ -132,14 +141,14 @@ impl SampleResource for SymphoniumAudioF32 {
         out_buffer: &mut [&mut [f32]],
         out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
+    ) -> usize {
         firewheel_core::sample_resource::fill_buffers_deinterleaved_f32(
             out_buffer,
             out_buffer_range,
             start_frame,
             &self.0.data,
             self.0.frames(),
-        );
+        )
     }
 }
 

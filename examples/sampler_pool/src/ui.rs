@@ -1,5 +1,9 @@
 use eframe::App;
-use firewheel::{nodes::volume_pan::VolumePanNode, Volume};
+use firewheel::{
+    diff::EventQueue,
+    nodes::{sampler::SamplerNode, volume_pan::VolumePanNode},
+    Volume,
+};
 
 use crate::system::AudioSystem;
 
@@ -45,6 +49,12 @@ impl App for DemoApp {
                     None, // Apply the changes immediately
                     true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
+                    |event_queue| {
+                        // Additional events to send to the first node in the worker.
+                        event_queue.push(SamplerNode::set_dyn_sample_event(
+                            self.audio_system.sample.clone(),
+                        ));
+                    },
                     |fx_chain_state, cx| {
                         // While we don't change these parameters in this example, in a typical app
                         // you would want to reset the parameters to the desired state when playing
@@ -77,6 +87,12 @@ impl App for DemoApp {
                     None, // Apply the changes immediately
                     true, // Steal worker if pool is full
                     &mut self.audio_system.cx,
+                    |event_queue| {
+                        // Additional events to send to the first node in the worker.
+                        event_queue.push(SamplerNode::set_dyn_sample_event(
+                            self.audio_system.sample.clone(),
+                        ));
+                    },
                     |fx_chain_state, cx| {
                         // While we don't change these parameters in this example, in a typical app
                         // you would want to reset the parameters to the desired state when playing

@@ -647,21 +647,26 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                         })
                         .wrap_mode(egui::TextWrapMode::Truncate)
                         .show_ui(ui, |ui| {
+                            let mut tmp_selection = selection;
+
                             if ui
-                                .selectable_value(&mut params.sample, None, "None")
+                                .selectable_value(&mut tmp_selection, None, "None")
                                 .clicked()
                             {
                                 ui.memory_mut(|mem| {
                                     mem.data.insert_temp::<Option<usize>>(mem_id, None);
                                 });
-                                params.sample = None;
+
+                                self.audio_system
+                                    .cx
+                                    .queue_event_for(node.id, SamplerNode::clear_sample_event());
                             }
 
                             for sample_index in 0..SAMPLE_PATHS.len() {
                                 if ui
                                     .selectable_value(
-                                        &mut params.sample,
-                                        Some(self.audio_system.samples[sample_index].clone()),
+                                        &mut tmp_selection,
+                                        Some(sample_index),
                                         SAMPLE_PATHS[sample_index].rsplit("/").next().unwrap(),
                                     )
                                     .clicked()
@@ -672,8 +677,13 @@ impl<'a> SnarlViewer<GuiAudioNode> for DemoViewer<'a> {
                                             Some(sample_index),
                                         );
                                     });
-                                    params.sample =
-                                        Some(self.audio_system.samples[sample_index].clone());
+
+                                    self.audio_system.cx.queue_event_for(
+                                        node.id,
+                                        SamplerNode::set_dyn_sample_event(
+                                            self.audio_system.samples[sample_index].clone(),
+                                        ),
+                                    );
                                 }
                             }
                         });

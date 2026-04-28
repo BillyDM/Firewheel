@@ -12,12 +12,10 @@ use firewheel_core::clock::{DurationSamples, DurationSeconds};
 use firewheel_core::collector::{OwnedGc, OwnedGcUnsized};
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcStreamCtx};
 
-use bevy_platform::sync::atomic::{AtomicU64, Ordering};
-use bevy_platform::sync::Arc;
+use bevy_platform::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use bevy_platform::time::Instant;
 use core::sync::atomic::AtomicU32;
 use core::{
-    error::Error,
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
 };
@@ -105,34 +103,144 @@ pub enum PlaybackSpeedQuality {
     // TODO: more quality options
 }
 
-/// A resource for a [`SamplerNode`] that streams its data from disk or over
-/// a network.
-pub trait StreamedSample: Send + Sync + 'static {
-    /// Information about this streamed sample resource.
-    fn info(&self) -> StreamedSampleInfo;
-
-    /// Spawn a new stream, returning the resulting [`StreamedSampleProcessor`]
-    /// counterpart.
-    fn spawn_stream(&self) -> Result<OwnedGcUnsized<dyn StreamedSampleProcessor>, Box<dyn Error>>;
-}
-
-/// Information about a [`StreamedSample`] resource.
-pub struct StreamedSampleInfo {
-    /// The maximum supported playback speed, where `1.0` is playing at the
-    /// sample rate of this resource, `0.5` is playing at half the sample rate,
-    /// and `2.0` is playing at twice the sample rate.
+/// A source of audio samples for a [`SamplerNode`].
+pub enum SamplerNodeResource {
+    /// A resource of audio samples where the entire contents of the sample are
+    /// already loaded into memory.
     ///
-    /// This is usually limited by how quickly the stream can reliably get new
-    /// samples.f this resource
-    pub max_speed: f64,
+    /// Prefer this for resources which are less than 20 or so seconds long
+    /// (i.e. sound effects).
+    InMemory(ArcGc<dyn SampleResource + Send + Sync + 'static>),
 
-    /// Whether or not this resource supports playing a sample backwards.
-    pub can_play_backwards: bool,
+    /// NOT IMPLEMENTED YET! Will lead to a panic if used.
+    ///
+    /// A resource of audio samples that are streamed from disk or over a network.
+    ///
+    /// Prefer this for resources which are greather than 20 or so seconds long
+    /// (i.e. music tracks and ambience).
+    ///
+    /// This uses considerably less memory, but requires a more complicated setup.
+    /// It also has the potential to run into cache misses if the playhead is moved
+    /// to a region that hasn't been loaded yet, or if the stream fails to send
+    /// enough samples in time.
+    Streamed(OwnedGcUnsized<dyn StreamedSample>),
 }
 
-/// The realtime audio thread counterpart to spawned stream in a
-/// [`StreamedSample`].
-pub trait StreamedSampleProcessor: SampleResourceInfo + Send + Sync + 'static {
+impl SamplerNodeResource {
+    pub fn from_sample<T: SampleResource + Send + Sync + 'static>(sample: T) -> Self {
+        Self::InMemory(sample.into())
+    }
+
+    pub fn from_streamed<T: StreamedSample>(sample: T) -> Self {
+        Self::Streamed(OwnedGcUnsized::new_unsized(Box::new(sample)))
+    }
+
+    /// The number of channels in this resource.
+    pub fn num_channels(&self) -> NonZeroUsize {
+        match self {
+            Self::InMemory(s) => s.num_channels(),
+            Self::Streamed(s) => s.num_channels(),
+        }
+    }
+
+    /// The length of this resource in samples (of a single channel of audio).
+    ///
+    /// Not to be confused with video frames.
+    pub fn len_frames(&self) -> u64 {
+        match self {
+            Self::InMemory(s) => s.len_frames(),
+            Self::Streamed(s) => s.len_frames(),
+        }
+    }
+
+    /// The sample rate of this resource.
+    ///
+    /// Returns `None` if the sample rate is unknown.
+    pub fn sample_rate(&self) -> Option<NonZeroU32> {
+        match self {
+            Self::InMemory(s) => s.sample_rate(),
+            Self::Streamed(s) => s.sample_rate(),
+        }
+    }
+
+    /// Fill the given buffers with audio data starting from the given
+    /// starting frame in the resource.
+    ///
+    /// * `out_buffer` - The buffers to fill with data. If the length of `buffers`
+    ///   is greater than the number of channels in this resource, then ignore
+    ///   the extra buffers.
+    /// * `out_buffer_range` - The range inside each buffer slice in which to
+    ///   fill with data. Do not fill any data outside of this range.
+    /// * `start_frame` - The sample (of a single channel of audio) in the
+    ///   resource at which to start copying from. Not to be confused with video
+    ///   frames.
+    /// * `speed` - The speed at which playback is occuring, where `1.0` is
+    /// playing at the sample rate of this resource, `0.5` is playing at half
+    /// the sample rate, and `2.0` is playing at twice the sample rate.
+    ///
+    /// Returns the number of frames that were successfully filled. This may
+    /// be less than the length of `out_buffer_range` if the range is all or
+    /// partly out of bounds of the resource, or if a cache miss occured.
+    /// Any frames that were not successfully filled will be left untouched.
+    pub fn fill_buffers(
+        &mut self,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
+        start_frame: u64,
+        speed: f64,
+        is_playing_backwards: bool,
+    ) -> usize {
+        match self {
+            SamplerNodeResource::InMemory(s) => {
+                s.fill_buffers(out_buffer, out_buffer_range.clone(), start_frame)
+            }
+            SamplerNodeResource::Streamed(s) => s.fill_buffers(
+                out_buffer,
+                out_buffer_range,
+                start_frame,
+                speed,
+                is_playing_backwards,
+            ),
+        }
+    }
+
+    /// Returns `true` if the given range of frames is loaded
+    /// into memory and ready to be read.
+    pub fn range_is_ready(&mut self, range: Range<u64>) -> bool {
+        if let SamplerNodeResource::Streamed(s) = self {
+            s.range_is_ready(range)
+        } else {
+            true
+        }
+    }
+
+    /// Request to cache a new region at the given starting frame.
+    pub fn cache_new_starting_frame(&mut self, frame: u64, speed: f64, will_play_backwards: bool) {
+        if let SamplerNodeResource::Streamed(s) = self {
+            s.cache_new_starting_frame(frame, speed, will_play_backwards);
+        }
+    }
+}
+
+impl From<ArcGc<dyn SampleResource + Send + Sync + 'static>> for SamplerNodeResource {
+    fn from(value: ArcGc<dyn SampleResource + Send + Sync + 'static>) -> Self {
+        Self::InMemory(value)
+    }
+}
+
+impl From<OwnedGcUnsized<dyn StreamedSample>> for SamplerNodeResource {
+    fn from(value: OwnedGcUnsized<dyn StreamedSample>) -> Self {
+        Self::Streamed(value)
+    }
+}
+
+/// A resource of audio samples that are streamed from disk or over a network.
+///
+/// This uses considerably less memory, but requires a more complicated setup. It
+/// also has the potential to run into cache misses if the playhead is moved to a
+/// region that hasn't been loaded yet, or if the stream fails to send enough samples
+/// in time.
+pub trait StreamedSample: SampleResourceInfo + Send + Sync + 'static {
     /// Fill the given buffers with audio data starting from the given
     /// starting frame in the resource.
     ///
@@ -169,92 +277,14 @@ pub trait StreamedSampleProcessor: SampleResourceInfo + Send + Sync + 'static {
     fn cache_new_starting_frame(&mut self, frame: u64, speed: f64, will_play_backwards: bool);
 }
 
-#[derive(Clone)]
-/// A source of audio samples for a [`SamplerNode`].
-pub enum SampleHandle {
-    /// A resource that has all of its data loaded into memory.
-    InMemory(ArcGc<dyn SampleResource + Send + Sync + 'static>),
-    /// A resource that streams its data from disk or over a network.
-    ///
-    /// NOT IMPLEMENTED YET! Will lead to a panic if used.
-    Streamed(Arc<dyn StreamedSample>),
-}
-
-impl SampleHandle {
-    pub fn from_sample(sample: impl SampleResource + Send + Sync + 'static) -> Self {
-        Self::InMemory(sample.into())
-    }
-
-    pub fn from_streamed(sample: impl StreamedSample) -> Self {
-        Self::Streamed(Arc::new(sample))
-    }
-
-    /// Information about the streamed sample resource.
-    ///
-    /// Returns `None` if this sample is not of type [`SampleHandle::Streamed`].
-    pub fn streamed_sample_info(&self) -> Option<StreamedSampleInfo> {
-        if let SampleHandle::Streamed(s) = self {
-            Some(s.info())
-        } else {
-            None
-        }
-    }
-
-    fn spawn_inner(&self) -> Result<SampleInner, Box<dyn Error>> {
-        Ok(match self {
-            SampleHandle::InMemory(r) => SampleInner::InMemory(ArcGc::clone(r)),
-            SampleHandle::Streamed(r) => r.spawn_stream().map(|r| SampleInner::Streamed(r))?,
-        })
-    }
-}
-
-fn spawn_sample_handle_event(
-    sample: &Option<SampleHandle>,
-) -> Result<NodeEventType, Box<dyn Error>> {
-    let data = if let Some(sample) = sample.as_ref() {
-        Some(sample.spawn_inner()?)
-    } else {
-        None
-    };
-
-    Ok(NodeEventType::Custom(OwnedGc::new(Box::new(data))))
-}
-
-impl From<ArcGc<dyn SampleResource + Send + Sync + 'static>> for SampleHandle {
-    fn from(value: ArcGc<dyn SampleResource + Send + Sync + 'static>) -> Self {
-        Self::InMemory(value)
-    }
-}
-
-impl From<Arc<dyn StreamedSample + Send + Sync + 'static>> for SampleHandle {
-    fn from(value: Arc<dyn StreamedSample + Send + Sync + 'static>) -> Self {
-        Self::Streamed(value)
-    }
-}
-
-impl PartialEq for SampleHandle {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (SampleHandle::InMemory(s), SampleHandle::InMemory(o)) => ArcGc::ptr_eq(s, o),
-            (SampleHandle::Streamed(s), SampleHandle::Streamed(o)) => Arc::ptr_eq(s, o),
-            _ => false,
-        }
-    }
-}
-
 /// A node that plays samples
 ///
 /// It supports pausing, resuming, looping, and changing the playback speed.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, Diff, Patch, PartialEq)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::prelude::Component))]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SamplerNode {
-    /// The source of audio samples to use.
-    #[cfg_attr(feature = "bevy_reflect", reflect(ignore))]
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub sample: Option<SampleHandle>,
-
     /// The volume to play the sample at.
     ///
     /// Note, this gain parameter is *NOT* smoothed! If you need the gain to be
@@ -302,7 +332,6 @@ pub struct SamplerNode {
 impl Default for SamplerNode {
     fn default() -> Self {
         Self {
-            sample: None,
             volume: Volume::default(),
             play: Default::default(),
             play_from: PlayFrom::default(),
@@ -315,73 +344,59 @@ impl Default for SamplerNode {
     }
 }
 
-impl Diff for SamplerNode {
-    fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
-        if self.sample != baseline.sample {
-            match spawn_sample_handle_event(&self.sample) {
-                Ok(event) => event_queue.push(event),
-                Err(_e) => {
-                    // TODO: log error
-                }
-            }
-        }
-
-        self.volume
-            .diff(&baseline.volume, path.with(0), event_queue);
-        self.play.diff(&baseline.play, path.with(1), event_queue);
-        self.play_from
-            .diff(&baseline.play_from, path.with(2), event_queue);
-        self.repeat_mode
-            .diff(&baseline.repeat_mode, path.with(3), event_queue);
-        self.speed.diff(&baseline.speed, path.with(4), event_queue);
-        self.mono_to_stereo
-            .diff(&baseline.mono_to_stereo, path.with(5), event_queue);
-        self.crossfade_on_seek
-            .diff(&baseline.crossfade_on_seek, path.with(6), event_queue);
-        self.min_gain
-            .diff(&baseline.min_gain, path.with(7), event_queue);
-    }
-}
-
-impl core::fmt::Debug for SamplerNode {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut f = f.debug_struct("SamplerNode");
-        f.field("has_sample", &self.sample.is_some());
-        f.field("volume", &self.volume);
-        f.field("play", &self.play);
-        f.field("play_from", &self.play_from);
-        f.field("repeat_mode", &self.repeat_mode);
-        f.field("speed", &self.speed);
-        f.field("mono_to_stereo", &self.mono_to_stereo);
-        f.field("crossfade_on_seek", &self.crossfade_on_seek);
-        f.field("min_gain", &self.min_gain);
-        f.finish()
-    }
-}
-
 impl SamplerNode {
-    pub fn set_sample(&mut self, sample: ArcGc<dyn SampleResource + Send + Sync + 'static>) {
-        self.sample = Some(sample.into());
+    /// Returns an event to clear the sample resource from a sampler node.
+    pub fn clear_sample_event() -> NodeEventType {
+        NodeEventType::Custom(OwnedGc::new(Box::<Option<SamplerNodeResource>>::new(None)))
     }
 
-    /// Returns an event type to sync the changed `sample` parameter.
-    pub fn sync_sample_event(&self) -> Result<NodeEventType, Box<dyn Error>> {
-        spawn_sample_handle_event(&self.sample)
+    /// Returns an event to set the sample resource for a sampler node from the
+    /// given sample resource.
+    pub fn set_sample_event<T: SampleResource + Send + Sync + 'static>(sample: T) -> NodeEventType {
+        Self::set_resource_event(SamplerNodeResource::from_sample(sample))
+    }
+
+    /// Returns an event to set the sample resource for a sampler node from the
+    /// given streamed sample resource.
+    pub fn set_streamed_sample_event<T: StreamedSample>(sample: T) -> NodeEventType {
+        Self::set_resource_event(SamplerNodeResource::from_streamed(sample))
+    }
+
+    /// Returns an event to set the sample resource for a sampler node from the
+    /// given type-erased sample resource.
+    pub fn set_dyn_sample_event(
+        sample: ArcGc<dyn SampleResource + Send + Sync + 'static>,
+    ) -> NodeEventType {
+        Self::set_resource_event(sample.into())
+    }
+
+    /// Returns an event to set the sample resource for a sampler node from the
+    /// given type-erased streamed sample resource.
+    pub fn set_dyn_streamed_sample_event(
+        sample: OwnedGcUnsized<dyn StreamedSample>,
+    ) -> NodeEventType {
+        Self::set_resource_event(sample.into())
+    }
+
+    /// Returns an event to set the sample resource for a sampler node.
+    pub fn set_resource_event(sample: SamplerNodeResource) -> NodeEventType {
+        NodeEventType::Custom(OwnedGc::new(Box::new(Some(sample))))
     }
 
     /// Returns an event type to sync the `volume` parameter.
     pub fn sync_volume_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: ParamData::Volume(self.volume),
-            path: ParamPath::Single(1),
+            path: ParamPath::Single(0),
         }
     }
 
     /// Returns an event type to sync the `play` parameter.
     pub fn sync_play_event(&self) -> NodeEventType {
         NodeEventType::Param {
+            // TODO: This is not how `Patch` for `Notify<bool>` is implemented.
             data: ParamData::Bool(*self.play),
-            path: ParamPath::Single(2),
+            path: ParamPath::Single(1),
         }
     }
 
@@ -389,7 +404,7 @@ impl SamplerNode {
     pub fn sync_play_from_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: self.play_from.as_param_data(),
-            path: ParamPath::Single(3),
+            path: ParamPath::Single(2),
         }
     }
 
@@ -397,7 +412,7 @@ impl SamplerNode {
     pub fn sync_repeat_mode_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: ParamData::any(self.repeat_mode),
-            path: ParamPath::Single(4),
+            path: ParamPath::Single(3),
         }
     }
 
@@ -405,7 +420,31 @@ impl SamplerNode {
     pub fn sync_speed_event(&self) -> NodeEventType {
         NodeEventType::Param {
             data: ParamData::F64(self.speed),
+            path: ParamPath::Single(4),
+        }
+    }
+
+    /// Returns an event type to sync the `mono_to_stereo` parameter.
+    pub fn sync_mono_to_stereo_event(&self) -> NodeEventType {
+        NodeEventType::Param {
+            data: ParamData::Bool(self.mono_to_stereo),
             path: ParamPath::Single(5),
+        }
+    }
+
+    /// Returns an event type to sync the `crossfade_on_seek` parameter.
+    pub fn sync_crossfade_on_seek_event(&self) -> NodeEventType {
+        NodeEventType::Param {
+            data: ParamData::Bool(self.crossfade_on_seek),
+            path: ParamPath::Single(6),
+        }
+    }
+
+    /// Returns an event type to sync the `min_gain` parameter.
+    pub fn sync_min_gain_event(&self) -> NodeEventType {
+        NodeEventType::Param {
+            data: ParamData::F32(self.min_gain),
+            path: ParamPath::Single(7),
         }
     }
 
@@ -541,6 +580,13 @@ impl SamplerState {
         )
     }
 
+    /// Returns `true` if the processor currently has a sample resource.
+    pub fn has_sample_resource(&self) -> bool {
+        self.shared_state
+            .has_sample_resource
+            .load(Ordering::Relaxed)
+    }
+
     /// Returns `true` if the sample is currently playing.
     pub fn playing(&self) -> bool {
         SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed))
@@ -597,36 +643,35 @@ impl SamplerState {
     /// A score of how suitable this node is to start new work (Play a new sample). The
     /// higher the score, the better the candidate.
     pub fn worker_score(&self, params: &SamplerNode) -> u64 {
-        if params.sample.is_some() {
-            let playback_state = SharedPlaybackState::from_u32(
-                self.shared_state.playback_state.load(Ordering::Relaxed),
-            );
+        if !self.has_sample_resource() {
+            return u64::MAX;
+        }
 
-            if *params.play {
-                let playhead_frames = self.playhead_frames();
+        let playback_state =
+            SharedPlaybackState::from_u32(self.shared_state.playback_state.load(Ordering::Relaxed));
 
-                if playback_state == SharedPlaybackState::Stopped {
-                    if playhead_frames.0 > 0 {
-                        // Sequence has likely finished playing.
-                        u64::MAX - 4
-                    } else {
-                        // Sequence has likely not started playing yet.
-                        u64::MAX - 5
-                    }
+        if *params.play {
+            let playhead_frames = self.playhead_frames();
+
+            if playback_state == SharedPlaybackState::Stopped {
+                if playhead_frames.0 > 0 {
+                    // Sequence has likely finished playing.
+                    u64::MAX - 4
                 } else {
-                    // The older the sample is, the better it is as a candidate to steal
-                    // work from.
-                    playhead_frames.0 as u64
+                    // Sequence has likely not started playing yet.
+                    u64::MAX - 5
                 }
             } else {
-                match playback_state {
-                    SharedPlaybackState::Stopped => u64::MAX - 1,
-                    SharedPlaybackState::Paused => u64::MAX - 2,
-                    SharedPlaybackState::Playing => u64::MAX - 3,
-                }
+                // The older the sample is, the better it is as a candidate to steal
+                // work from.
+                playhead_frames.0 as u64
             }
         } else {
-            u64::MAX
+            match playback_state {
+                SharedPlaybackState::Stopped => u64::MAX - 1,
+                SharedPlaybackState::Paused => u64::MAX - 2,
+                SharedPlaybackState::Playing => u64::MAX - 3,
+            }
         }
     }
 }
@@ -763,26 +808,10 @@ impl AudioNode for SamplerNode {
             ))
         };
 
-        let pending_sample = if let Some(sample) = &self.sample {
-            Some(sample.spawn_inner().map_err(|e| NodeError::from_boxed(e))?)
-        } else {
-            None
-        };
-
         Ok(SamplerProcessor {
             config: *config,
-            params: ProcessorParams {
-                volume: self.volume,
-                play: self.play,
-                play_from: self.play_from,
-                repeat_mode: self.repeat_mode,
-                speed: self.speed,
-                mono_to_stereo: self.mono_to_stereo,
-                crossfade_on_seek: self.crossfade_on_seek,
-                min_gain: self.min_gain,
-            },
+            params: *self,
             shared_state: ArcGc::clone(&cx.custom_state::<SamplerState>().unwrap().shared_state),
-            initial_sample: Some(pending_sample),
             loaded_sample_state: None,
             declicker: Declicker::SettledAt1,
             stop_declicker_buffers,
@@ -797,28 +826,16 @@ impl AudioNode for SamplerNode {
             min_gain: self.min_gain.max(0.0),
             max_block_frames: cx.stream_info.max_block_frames.get() as usize,
             num_out_channels: config.channels.get().get() as usize,
+            is_first_process: true,
         })
     }
 }
 
-#[derive(Patch)]
-struct ProcessorParams {
-    volume: Volume,
-    play: Notify<bool>,
-    play_from: PlayFrom,
-    repeat_mode: RepeatMode,
-    speed: f64,
-    mono_to_stereo: bool,
-    crossfade_on_seek: bool,
-    min_gain: f32,
-}
-
 struct SamplerProcessor {
     config: SamplerConfig,
-    params: ProcessorParams,
+    params: SamplerNode,
     shared_state: ArcGc<SharedState>,
 
-    initial_sample: Option<Option<SampleInner>>,
     loaded_sample_state: Option<LoadedSampleState>,
 
     declicker: Declicker,
@@ -840,6 +857,7 @@ struct SamplerProcessor {
 
     max_block_frames: usize,
     num_out_channels: usize,
+    is_first_process: bool,
 }
 
 impl SamplerProcessor {
@@ -925,14 +943,14 @@ impl SamplerProcessor {
 
         if first_copy_frames > 0 {
             match &mut state.sample {
-                SampleInner::InMemory(sample) => {
+                SamplerNodeResource::InMemory(sample) => {
                     sample.fill_buffers(
                         buffers,
                         range_in_buffer.start..range_in_buffer.start + first_copy_frames,
                         state.playhead_frames,
                     );
                 }
-                SampleInner::Streamed(_) => {
+                SamplerNodeResource::Streamed(_) => {
                     todo!()
                 }
             }
@@ -950,7 +968,7 @@ impl SamplerProcessor {
                         as usize;
 
                     match &mut state.sample {
-                        SampleInner::InMemory(sample) => {
+                        SamplerNodeResource::InMemory(sample) => {
                             sample.fill_buffers(
                                 buffers,
                                 range_in_buffer.start + frames_copied
@@ -958,7 +976,7 @@ impl SamplerProcessor {
                                 0,
                             );
                         }
-                        SampleInner::Streamed(_) => {
+                        SamplerNodeResource::Streamed(_) => {
                             todo!()
                         }
                     }
@@ -1050,15 +1068,15 @@ impl SamplerProcessor {
         }
     }
 
-    fn load_sample(&mut self, sample: SampleInner) {
+    fn load_sample(&mut self, sample: SamplerNodeResource) {
         let mut gain = self.params.volume.amp_clamped(self.min_gain);
         if gain > 0.99999 && gain < 1.00001 {
             gain = 1.0;
         }
 
         let (sample_len_frames, sample_num_channels) = match &sample {
-            SampleInner::InMemory(s) => (s.len_frames(), s.num_channels()),
-            SampleInner::Streamed(s) => (s.len_frames(), s.num_channels()),
+            SamplerNodeResource::InMemory(s) => (s.len_frames(), s.num_channels()),
+            SamplerNodeResource::Streamed(s) => (s.len_frames(), s.num_channels()),
         };
 
         let sample_mono_to_stereo = self.params.mono_to_stereo
@@ -1079,13 +1097,15 @@ impl SamplerProcessor {
 
 impl AudioNodeProcessor for SamplerProcessor {
     fn events(&mut self, info: &ProcInfo, events: &mut ProcEvents, extra: &mut ProcExtra) {
-        let is_first_process = self.initial_sample.is_some();
+        let is_first_process = self.is_first_process;
+        self.is_first_process = false;
+
         let mut new_playing: Option<bool> = if is_first_process {
             Some(self.playing)
         } else {
             None
         };
-        let mut new_sample = self.initial_sample.take();
+        let mut new_sample = None;
         let mut repeat_mode_changed = false;
         let mut speed_changed = false;
         let mut volume_changed = false;
@@ -1096,20 +1116,20 @@ impl AudioNodeProcessor for SamplerProcessor {
         #[cfg(feature = "scheduled_events")]
         for (mut event, timestamp) in events.drain_with_timestamps() {
             let mut s = None;
-            if event.downcast_swap::<Option<SampleInner>>(&mut s) {
+            if event.downcast_swap::<Option<SamplerNodeResource>>(&mut s) {
                 new_sample = Some(s);
             }
 
-            if let Some(patch) = ProcessorParams::patch_event(&event) {
+            if let Some(patch) = SamplerNode::patch_event(&event) {
                 match patch {
-                    ProcessorParamsPatch::Volume(_) => volume_changed = true,
-                    ProcessorParamsPatch::Play(play) => {
+                    SamplerNodePatch::Volume(_) => volume_changed = true,
+                    SamplerNodePatch::Play(play) => {
                         playback_instant = timestamp;
                         new_playing = Some(*play);
                     }
-                    ProcessorParamsPatch::RepeatMode(_) => repeat_mode_changed = true,
-                    ProcessorParamsPatch::Speed(_) => speed_changed = true,
-                    ProcessorParamsPatch::MinGain(min_gain) => {
+                    SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
+                    SamplerNodePatch::Speed(_) => speed_changed = true,
+                    SamplerNodePatch::MinGain(min_gain) => {
                         self.min_gain = min_gain.max(0.0);
                     }
                     _ => {}
@@ -1122,19 +1142,19 @@ impl AudioNodeProcessor for SamplerProcessor {
         #[cfg(not(feature = "scheduled_events"))]
         for mut event in events.drain() {
             let mut s = None;
-            if event.downcast_swap::<Option<SampleInner>>(&mut s) {
+            if event.downcast_swap::<Option<SamplerNodeResource>>(&mut s) {
                 new_sample = Some(s);
             }
 
-            if let Some(patch) = ProcessorParams::patch_event(&event) {
+            if let Some(patch) = SamplerNode::patch_event(&event) {
                 match patch {
-                    ProcessorParamsPatch::Volume(_) => volume_changed = true,
-                    ProcessorParamsPatch::Play(play) => {
+                    SamplerNodePatch::Volume(_) => volume_changed = true,
+                    SamplerNodePatch::Play(play) => {
                         new_playing = Some(*play);
                     }
-                    ProcessorParamsPatch::RepeatMode(_) => repeat_mode_changed = true,
-                    ProcessorParamsPatch::Speed(_) => speed_changed = true,
-                    ProcessorParamsPatch::MinGain(min_gain) => {
+                    SamplerNodePatch::RepeatMode(_) => repeat_mode_changed = true,
+                    SamplerNodePatch::Speed(_) => speed_changed = true,
+                    SamplerNodePatch::MinGain(min_gain) => {
                         self.min_gain = min_gain.max(0.0);
                     }
                     _ => {}
@@ -1168,6 +1188,10 @@ impl AudioNodeProcessor for SamplerProcessor {
         }
 
         if let Some(maybe_sample) = new_sample {
+            self.shared_state
+                .has_sample_resource
+                .store(maybe_sample.is_some(), Ordering::Relaxed);
+
             self.stop(extra);
 
             #[cfg(feature = "scheduled_events")]
@@ -1474,6 +1498,7 @@ impl AudioNodeProcessor for SamplerProcessor {
 
 struct SharedState {
     sample_playhead_frames: AtomicU64,
+    has_sample_resource: AtomicBool,
     playback_state: AtomicU32,
     finished: AtomicU64,
 }
@@ -1482,6 +1507,7 @@ impl Default for SharedState {
     fn default() -> Self {
         Self {
             sample_playhead_frames: AtomicU64::new(0),
+            has_sample_resource: AtomicBool::new(false),
             playback_state: AtomicU32::new(SharedPlaybackState::Stopped as u32),
             finished: AtomicU64::new(0),
         }
@@ -1506,13 +1532,8 @@ impl SharedPlaybackState {
     }
 }
 
-enum SampleInner {
-    InMemory(ArcGc<dyn SampleResource + Send + Sync + 'static>),
-    Streamed(OwnedGcUnsized<dyn StreamedSampleProcessor>),
-}
-
 struct LoadedSampleState {
-    sample: SampleInner,
+    sample: SamplerNodeResource,
     sample_len_frames: u64,
     sample_num_channels: NonZeroUsize,
     sample_mono_to_stereo: bool,
