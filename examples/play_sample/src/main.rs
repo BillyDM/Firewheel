@@ -98,7 +98,7 @@ fn main() {
         // output device).
         //
         // In this example we just quit the application.
-        if !stream.is_running() {
+        if !stream.all_streams_ok() {
             break;
         }
 

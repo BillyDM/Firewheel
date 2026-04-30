@@ -17,7 +17,7 @@ use firewheel_graph::{
     processor::FirewheelProcessor,
     ActivateInfo, FirewheelContext,
 };
-use fixed_resample::{ReadStatus, ResamplingChannelConfig};
+use fixed_resample::{ReadStatus, ResamplingChannelConfig, ResamplingProd};
 
 #[cfg(all(feature = "log", not(feature = "tracing")))]
 use log::{error, info, warn};
@@ -29,6 +29,7 @@ use tracing::{error, info, warn};
 const DEFAULT_MAX_BLOCK_FRAMES: u32 = 1024;
 const INPUT_ALLOC_BLOCK_FRAMES: usize = 4096;
 const BUILD_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
+const UNDERRUN_LOG_COOLDOWN: Duration = Duration::from_secs(3);
 
 /// The configuration of an output audio stream in the CPAL backend.
 #[derive(Debug, Clone, PartialEq)]
@@ -317,9 +318,10 @@ pub fn host_enumerator(api: HostId) -> Result<HostEnumerator, HostUnavailable> {
 pub struct CpalStream {
     _out_stream_handle: cpal::Stream,
     _in_stream_handle: Option<cpal::Stream>,
-    from_err_rx: mpsc::Receiver<cpal::StreamError>,
+    from_err_rx: mpsc::Receiver<IoStreamError>,
     stream_info: CpalStreamInfo,
-    is_running: Arc<AtomicBool>,
+    input_stream_running: Option<Arc<AtomicBool>>,
+    output_stream_running: Arc<AtomicBool>,
 }
 
 impl CpalStream {
@@ -472,11 +474,13 @@ impl CpalStream {
             num_stream_in_channels,
             in_device_id,
             input_to_output_latency_seconds,
+            input_stream_running,
         ) = if let StartInputStreamResult::Started {
             stream_handle,
             cons,
             num_stream_in_channels,
             in_device_id,
+            input_stream_running,
         } = input_stream
         {
             let input_to_output_latency_seconds = cons.latency_seconds();
@@ -487,9 +491,10 @@ impl CpalStream {
                 num_stream_in_channels,
                 in_device_id,
                 input_to_output_latency_seconds,
+                Some(input_stream_running),
             )
         } else {
-            (None, None, 0, None, 0.0)
+            (None, None, 0, None, 0.0, None)
         };
 
         let activate_info = ActivateInfo {
@@ -502,14 +507,16 @@ impl CpalStream {
 
         let processor = cx.activate(activate_info)?;
 
-        let is_running = Arc::new(AtomicBool::new(true));
+        let output_stream_running = Arc::new(AtomicBool::new(true));
 
-        let mut data_callback = DataCallback::new(
+        let mut callback = OutputCallback::new(
             num_out_channels,
             processor,
             out_stream_config.sample_rate,
             input_stream_cons,
-            Arc::clone(&is_running),
+            err_to_cx_tx.clone(),
+            input_stream_running.as_ref().map(|r| Arc::clone(r)),
+            Arc::clone(&output_stream_running),
         );
 
         info!(
@@ -517,16 +524,39 @@ impl CpalStream {
             &out_device_id, &out_stream_config
         );
 
+        let mut last_underrun_msg_instant: Option<Instant> = None;
+        let output_stream_running_2 = Arc::clone(&output_stream_running);
+
         let out_stream_handle = out_device.build_output_stream(
             &out_stream_config,
             move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                data_callback.callback(output, info);
+                callback.callback(output, info);
             },
             move |err| {
-                if let Err(e) = err_to_cx_tx.send(err) {
-                    // Make sure the error gets logged even if the handle has been dropped.
-                    #[cfg(any(feature = "log", feature = "tracing"))]
-                    error!("Audio stream error occurred: {}", e.0);
+                let do_send = if let StreamError::BufferUnderrun = err {
+                    let mut do_send = true;
+                    if let Some(instant) = last_underrun_msg_instant {
+                        if instant.elapsed() < UNDERRUN_LOG_COOLDOWN {
+                            do_send = false;
+                        }
+                    }
+
+                    if do_send {
+                        last_underrun_msg_instant = Some(Instant::now());
+                    }
+
+                    do_send
+                } else {
+                    output_stream_running_2.store(false, Ordering::Relaxed);
+                    true
+                };
+
+                if do_send {
+                    if let Err(e) = err_to_cx_tx.send(IoStreamError::Output(err)) {
+                        // Make sure the error gets logged even if the handle has been dropped.
+                        #[cfg(any(feature = "log", feature = "tracing"))]
+                        error!("Audio stream error occurred: {}", e.0);
+                    }
                 }
             },
             Some(BUILD_STREAM_TIMEOUT),
@@ -549,7 +579,8 @@ impl CpalStream {
             _in_stream_handle: in_stream_handle,
             from_err_rx,
             stream_info,
-            is_running,
+            input_stream_running,
+            output_stream_running,
         })
     }
 
@@ -561,8 +592,13 @@ impl CpalStream {
     /// Poll the status of the audio stream and log any errors/warnings that have occurred.
     ///
     /// Note, if an error is returned, it doesn't always mean that the stream has stopped.
-    /// Instead, use [`CpalStream::is_running()`] to check if the stream is still running.
-    pub fn poll_status(&mut self) -> mpsc::TryIter<'_, StreamError> {
+    /// Instead, use [`CpalStream::all_streams_ok()`] to check if the stream is still running
+    /// or if the stream needs to be recreated.
+    pub fn poll_status(&mut self) -> mpsc::TryIter<'_, IoStreamError> {
+        if self._in_stream_handle.is_some() && !self.input_stream_ok() {
+            self._in_stream_handle = None;
+        }
+
         self.from_err_rx.try_iter()
     }
 
@@ -577,13 +613,35 @@ impl CpalStream {
         }
     }
 
-    /// Returns `true` if the audio stream is currently running.
+    /// Returns `true` if the output audio stream is still running.
     ///
-    /// Returns `false` if the audio stream has stopped unexpectedly (i.e. an audio device
+    /// Returns `false` if the stream has stopped unexpectedly (i.e. an audio device
     /// was disconnected). When this happens, this `CpalStream` instance should be dropped,
     /// and a new one created.
-    pub fn is_running(&self) -> bool {
-        self.is_running.load(Ordering::Relaxed)
+    pub fn output_stream_ok(&self) -> bool {
+        self.output_stream_running.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` if the input audio stream is still running or if an input audio
+    /// stream was never created.
+    ///
+    /// Returns `false` if there is no input stream, or if the input stream has stopped
+    /// unexpectedly (i.e. an audio device was disconnected). When this happens, this
+    /// `CpalStream` instance should be dropped, and a new one created.
+    pub fn input_stream_ok(&self) -> bool {
+        self.input_stream_running
+            .as_ref()
+            .map(|r| r.load(Ordering::Relaxed))
+            .unwrap_or(true)
+    }
+
+    /// Returns `true` if the all audio streams (input and/or output) are still running.
+    ///
+    /// Returns `false` if any audio stream has stopped unexpectedly (i.e. an audio device
+    /// was disconnected). When this happens, this `CpalStream` instance should be dropped,
+    /// and a new one created.
+    pub fn all_streams_ok(&self) -> bool {
+        self.output_stream_ok() && self.input_stream_ok()
     }
 }
 
@@ -598,7 +656,7 @@ impl Drop for CpalStream {
 fn start_input_stream(
     config: &CpalInputConfig,
     output_sample_rate: cpal::SampleRate,
-    err_to_cx_tx: mpsc::Sender<cpal::StreamError>,
+    err_to_cx_tx: mpsc::Sender<IoStreamError>,
 ) -> Result<StartInputStreamResult, StartStreamError> {
     let host = if let Some(host_id) = config.host {
         match cpal::host_from_id(host_id) {
@@ -703,7 +761,7 @@ fn start_input_stream(
         buffer_size: desired_buffer_size,
     };
 
-    let (mut prod, cons) = fixed_resample::resampling_channel::<f32>(
+    let (prod, cons) = fixed_resample::resampling_channel::<f32>(
         num_in_channels,
         sample_rate,
         output_sample_rate,
@@ -711,18 +769,49 @@ fn start_input_stream(
         config.channel_config,
     );
 
+    let input_stream_running = Arc::new(AtomicBool::new(true));
+
     info!(
         "Starting input audio stream with device \"{:?}\" with configuration {:?}",
         &in_device_id, &stream_config
     );
 
+    let mut callback = InputCallback {
+        prod,
+        err_to_cx_tx: err_to_cx_tx.clone(),
+        input_stream_running: Arc::clone(&input_stream_running),
+    };
+
+    let mut last_underrun_msg_instant: Option<Instant> = None;
+    let input_stream_running_2 = Arc::clone(&input_stream_running);
+
     let stream_handle = match in_device.build_input_stream(
         &stream_config,
         move |input: &[f32], _info: &cpal::InputCallbackInfo| {
-            let _ = prod.push_interleaved(input);
+            callback.callback(input);
         },
         move |err| {
-            let _ = err_to_cx_tx.send(err);
+            let do_send = if let StreamError::BufferUnderrun = err {
+                let mut do_send = true;
+                if let Some(instant) = last_underrun_msg_instant {
+                    if instant.elapsed() < UNDERRUN_LOG_COOLDOWN {
+                        do_send = false;
+                    }
+                }
+
+                if do_send {
+                    last_underrun_msg_instant = Some(Instant::now());
+                }
+
+                do_send
+            } else {
+                input_stream_running_2.store(false, Ordering::Relaxed);
+                true
+            };
+
+            if do_send {
+                let _ = err_to_cx_tx.send(IoStreamError::Input(err));
+            }
         },
         Some(BUILD_STREAM_TIMEOUT),
     ) {
@@ -757,6 +846,7 @@ fn start_input_stream(
         cons,
         num_stream_in_channels: num_in_channels as u32,
         in_device_id,
+        input_stream_running,
     })
 }
 
@@ -767,10 +857,32 @@ enum StartInputStreamResult {
         cons: fixed_resample::ResamplingCons<f32>,
         num_stream_in_channels: u32,
         in_device_id: Option<DeviceId>,
+        input_stream_running: Arc<AtomicBool>,
     },
 }
 
-struct DataCallback {
+struct InputCallback {
+    prod: ResamplingProd<f32>,
+    err_to_cx_tx: mpsc::Sender<IoStreamError>,
+    input_stream_running: Arc<AtomicBool>,
+}
+
+impl InputCallback {
+    fn callback(&mut self, input: &[f32]) {
+        let _ = self.prod.push_interleaved(input);
+    }
+}
+
+impl Drop for InputCallback {
+    fn drop(&mut self) {
+        self.input_stream_running.store(false, Ordering::Relaxed);
+        let _ = self
+            .err_to_cx_tx
+            .send(IoStreamError::Input(StreamError::DeviceNotAvailable));
+    }
+}
+
+struct OutputCallback {
     num_out_channels: usize,
     processor: FirewheelProcessor,
     sample_rate: u32,
@@ -780,16 +892,20 @@ struct DataCallback {
     stream_start_instant: Instant,
     input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
     input_buffer: Vec<f32>,
-    is_running: Arc<AtomicBool>,
+    err_to_cx_tx: mpsc::Sender<IoStreamError>,
+    input_stream_running: Option<Arc<AtomicBool>>,
+    output_stream_running: Arc<AtomicBool>,
 }
 
-impl DataCallback {
+impl OutputCallback {
     fn new(
         num_out_channels: usize,
         processor: FirewheelProcessor,
         sample_rate: u32,
         input_stream_cons: Option<fixed_resample::ResamplingCons<f32>>,
-        is_running: Arc<AtomicBool>,
+        err_to_cx_tx: mpsc::Sender<IoStreamError>,
+        input_stream_running: Option<Arc<AtomicBool>>,
+        output_stream_running: Arc<AtomicBool>,
     ) -> Self {
         let stream_start_instant = Instant::now();
 
@@ -812,7 +928,9 @@ impl DataCallback {
             stream_start_instant,
             input_stream_cons,
             input_buffer,
-            is_running,
+            err_to_cx_tx,
+            input_stream_running,
+            output_stream_running,
         }
     }
 
@@ -904,8 +1022,8 @@ impl DataCallback {
         let (num_in_channels, input_stream_status) = if let Some(cons) = &mut self.input_stream_cons
         {
             let num_in_channels = cons.num_channels();
-
             let num_input_samples = frames * num_in_channels;
+
             // Some platforms like wasapi might occasionally send a really large number of frames
             // to process. Since CPAL doesn't tell us the actual maximum block size of the stream,
             // there is not much we can do about it except to allocate when that happens.
@@ -913,19 +1031,31 @@ impl DataCallback {
                 self.input_buffer.resize(num_input_samples, 0.0);
             }
 
-            let status = cons.read_interleaved(&mut self.input_buffer[..num_input_samples], false);
+            if self
+                .input_stream_running
+                .as_ref()
+                .unwrap()
+                .load(Ordering::Relaxed)
+            {
+                let status =
+                    cons.read_interleaved(&mut self.input_buffer[..num_input_samples], false);
 
-            let status = match status {
-                ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
-                    StreamStatus::OUTPUT_UNDERFLOW
-                }
-                ReadStatus::OverflowCorrected {
-                    num_frames_discarded: _,
-                } => StreamStatus::INPUT_OVERFLOW,
-                _ => StreamStatus::empty(),
-            };
+                let status = match status {
+                    ReadStatus::UnderflowOccurred { num_frames_read: _ } => {
+                        StreamStatus::OUTPUT_UNDERFLOW
+                    }
+                    ReadStatus::OverflowCorrected {
+                        num_frames_discarded: _,
+                    } => StreamStatus::INPUT_OVERFLOW,
+                    _ => StreamStatus::empty(),
+                };
 
-            (num_in_channels, status)
+                (num_in_channels, status)
+            } else {
+                self.input_buffer[..num_input_samples].fill(0.0);
+
+                (num_in_channels, StreamStatus::CLOSED)
+            }
         } else {
             (0, StreamStatus::empty())
         };
@@ -959,9 +1089,12 @@ impl DataCallback {
     }
 }
 
-impl Drop for DataCallback {
+impl Drop for OutputCallback {
     fn drop(&mut self) {
-        self.is_running.store(false, Ordering::Relaxed);
+        self.output_stream_running.store(false, Ordering::Relaxed);
+        let _ = self
+            .err_to_cx_tx
+            .send(IoStreamError::Output(StreamError::DeviceNotAvailable));
     }
 }
 
@@ -1011,4 +1144,14 @@ impl From<ActivateError> for StartStreamError {
             ActivateError::GraphCompileError(e) => Self::GraphCompileError(e),
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IoStreamError {
+    /// An error on the input stream occured.
+    #[error("Input audio stream error: {0}")]
+    Input(cpal::StreamError),
+    /// An error on the output stream occured.
+    #[error("Output audio stream error: {0}")]
+    Output(cpal::StreamError),
 }

@@ -90,7 +90,7 @@ impl AudioSystem {
         // output device).
         //
         // In this example we just quit the application.
-        if !self.stream.is_running() {
+        if !self.stream.all_streams_ok() {
             panic!("Stream stopped unexpectedly!");
         }
     }

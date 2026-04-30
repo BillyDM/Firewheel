@@ -29,6 +29,7 @@ use firewheel_core::clock::ProcTransportInfo;
 /// A rough estimate of the amount of overhead occured by the OS's audio thread.
 // TODO: Do research to find the optimal value.
 const SYSTEM_OVERHEAD_DURATION_SECS: f64 = 1.0 / 1_000.0;
+const UNDERFLOW_LOG_COOLDOWN: Duration = Duration::from_secs(3);
 
 impl FirewheelProcessorInner {
     /// Process the given buffers of audio data.
@@ -62,10 +63,30 @@ impl FirewheelProcessorInner {
         let num_out_channels = output.channels();
 
         if input_stream_status.contains(StreamStatus::INPUT_OVERFLOW) {
-            let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
+            let mut do_send = true;
+            if let Some(instant) = self.last_input_overflow_log_instant {
+                if let Some(duration) = process_timestamp.checked_duration_since(instant) {
+                    do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
+                }
+            }
+
+            if do_send {
+                self.last_input_overflow_log_instant = Some(process_timestamp);
+                let _ = self.extra.logger.try_error("Firewheel input to output stream channel overflowed! Try increasing the capacity of the channel.");
+            }
         }
         if input_stream_status.contains(StreamStatus::OUTPUT_UNDERFLOW) {
-            let _ = self.extra.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
+            let mut do_send = true;
+            if let Some(instant) = self.last_output_underflow_log_instant {
+                if let Some(duration) = process_timestamp.checked_duration_since(instant) {
+                    do_send = duration >= UNDERFLOW_LOG_COOLDOWN;
+                }
+            }
+
+            if do_send {
+                self.last_output_underflow_log_instant = Some(process_timestamp);
+                let _ = self.extra.logger.try_error("Firewheel input to output stream channel underflowed! Try increasing the latency of the channel.");
+            }
         }
 
         // --- Poll messages ------------------------------------------------------------------
