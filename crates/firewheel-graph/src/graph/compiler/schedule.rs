@@ -348,53 +348,42 @@ impl CompiledSchedule {
         let max_block_frames = self.max_block_frames;
 
         let graph_in_node = self.schedule.first().unwrap();
-
-        let mut inputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
-
         let fill_input_num_channels = num_stream_inputs.min(graph_in_node.output_buffers.len());
 
-        for i in 0..fill_input_num_channels {
-            // SAFETY: Output buffer indicies within a single node are guaranteed non-overlapping
-            // by the buffer allocator, and the buffer indicies are gauranteed to be in bounds by
-            // the buffer allocator.
-            inputs.push(unsafe {
-                core::slice::from_raw_parts_mut(
-                    buffers_ptr
-                        .add(graph_in_node.output_buffers[i].buffer_index * max_block_frames),
-                    frames,
-                )
-            });
-        }
+        let silence_mask = {
+            let mut inputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
-        let silence_mask = (fill_inputs)(inputs.as_mut_slice());
+            for i in 0..fill_input_num_channels {
+                // SAFETY: Output buffer indicies within a single node are guaranteed non-overlapping
+                // by the buffer allocator, and the buffer indicies are gauranteed to be in bounds by
+                // the buffer allocator.
+                inputs.push(unsafe {
+                    core::slice::from_raw_parts_mut(
+                        buffers_ptr
+                            .add(graph_in_node.output_buffers[i].buffer_index * max_block_frames),
+                        frames,
+                    )
+                });
+            }
+
+            (fill_inputs)(inputs.as_mut_slice())
+        };
 
         for i in 0..fill_input_num_channels {
             let buffer_index = graph_in_node.output_buffers[i].buffer_index;
             let is_silent = silence_mask.is_channel_silent(i);
 
-            let f = flag_mut(&mut self.buffer_flags, buffer_index);
-
-            if is_silent && (!is_silent || force_clear_buffers) {
-                // SAFETY: Each buffer index is used once per iteration, and the buffer indicies
-                // are gauranteed to be in bounds by the buffer allocator.
-                let buf_slice = unsafe {
-                    core::slice::from_raw_parts_mut(
-                        buffers_ptr.add(buffer_index * max_block_frames),
-                        frames,
-                    )
-                };
-                buf_slice.fill(0.0);
-            }
-
-            f.set_silent(is_silent, frames_u16);
+            flag_mut(&mut self.buffer_flags, buffer_index).set_silent(is_silent, frames_u16);
         }
 
-        if fill_input_num_channels < graph_in_node.output_buffers.len() {
-            for b in graph_in_node
-                .output_buffers
-                .iter()
-                .skip(fill_input_num_channels)
-            {
+        for b in graph_in_node
+            .output_buffers
+            .iter()
+            .skip(fill_input_num_channels)
+        {
+            let f = flag_mut(&mut self.buffer_flags, b.buffer_index);
+
+            if !f.silent || force_clear_buffers {
                 // SAFETY: Each buffer index is used once per iteration, and the buffer indicies
                 // are gauranteed to be in bounds by the buffer allocator.
                 let buf_slice = unsafe {
@@ -404,9 +393,9 @@ impl CompiledSchedule {
                     )
                 };
                 buf_slice.fill(0.0);
-
-                flag_mut(&mut self.buffer_flags, b.buffer_index).set_silent(true, frames_u16);
             }
+
+            f.set_silent(true, frames_u16);
         }
 
         // Make sure all buffers that are marked as silent/constant remain that
@@ -414,7 +403,7 @@ impl CompiledSchedule {
         for i in 0..self.num_buffers {
             let flag = flag_mut(&mut self.buffer_flags, i);
 
-            if (flag.silent || flag.constant) && flag.frames < frames_u16 {
+            if flag.frames < frames_u16 && (flag.silent || flag.constant) {
                 // SAFETY: Each buffer index `i` is used once per iteration, and the buffer
                 // indicies are gauranteed to be in bounds by the buffer allocator.
                 let buf_slice = unsafe {
