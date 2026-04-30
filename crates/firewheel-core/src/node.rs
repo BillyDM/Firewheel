@@ -52,6 +52,12 @@ impl Default for NodeID {
 #[derive(Debug)]
 pub struct NodeError(Box<dyn Error>);
 
+impl NodeError {
+    pub const fn from_boxed(error: Box<dyn Error>) -> Self {
+        Self(error)
+    }
+}
+
 impl<E> From<E> for NodeError
 where
     E: Error + 'static,
@@ -921,11 +927,14 @@ bitflags::bitflags! {
     pub struct StreamStatus: u32 {
         /// Some input data was discarded because of an overflow condition
         /// at the audio driver.
-        const INPUT_OVERFLOW = 0b01;
+        const INPUT_OVERFLOW = 0b001;
 
         /// The output buffer ran low, likely producing a break in the
         /// output sound. (This is also known as an "underrun").
-        const OUTPUT_UNDERFLOW = 0b10;
+        const OUTPUT_UNDERFLOW = 0b010;
+
+        /// The stream was closed (i.e. because a microphone was unplugged).
+        const CLOSED = 0b100;
     }
 }
 

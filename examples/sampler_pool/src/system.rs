@@ -1,5 +1,6 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
+    collector::ArcGc,
     cpal::CpalStream,
     diff::Memo,
     nodes::{
@@ -8,9 +9,9 @@ use firewheel::{
         StereoToMonoNode,
     },
     pool::{AudioNodePool, FxChain, SamplerPool, SamplerPoolVolumePan},
+    sample_resource::SampleResource,
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 /// The maximum number of samples that can be played in parallel in the `SamplerPool`.
 ///
@@ -28,6 +29,7 @@ pub struct AudioSystem {
     pub sampler_pool_1: SamplerPoolVolumePan,
     pub sampler_pool_2: AudioNodePool<SamplerPool, MyCustomChain>,
     pub sampler_node: SamplerNode,
+    pub sample: ArcGc<dyn SampleResource + Send + Sync + 'static>,
 }
 
 impl AudioSystem {
@@ -58,19 +60,24 @@ impl AudioSystem {
         .expect("Sampler pool should construct without error");
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
-        let mut loader = SymphoniumLoader::new();
 
-        let sample = firewheel::load_audio_file(
-            &mut loader,
+        let probed = symphonium::probe_from_file(
             "assets/test_files/bird-sound.wav",
-            Some(sample_rate),
-            Default::default(),
+            None, // Custom container probe
         )
-        .unwrap()
-        .into_dyn_resource();
+        .unwrap();
+        let sample = firewheel::dyn_symphonium_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
-        let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample);
+        let sampler_node = SamplerNode::default();
 
         // Note, you can get the playhead and other state of a worker like this:
         // let playhead = sampler_pool_1
@@ -84,6 +91,7 @@ impl AudioSystem {
             sampler_pool_1,
             sampler_pool_2,
             sampler_node,
+            sample,
         }
     }
 
@@ -105,7 +113,7 @@ impl AudioSystem {
         // output device).
         //
         // In this example we just quit the application.
-        if !self.stream.is_running() {
+        if !self.stream.all_streams_ok() {
             panic!("Stream stopped unexpectedly!");
         }
     }

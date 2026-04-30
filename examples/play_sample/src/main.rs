@@ -6,7 +6,6 @@ use firewheel::{
     nodes::sampler::{SamplerNode, SamplerState},
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 const UPDATE_INTERVAL: Duration = Duration::from_millis(15);
 
@@ -48,27 +47,31 @@ fn main() {
 
     // --- Load a sample into memory, and tell the node to use it and play it. -----------
 
-    let mut loader = SymphoniumLoader::new();
-    let sample = firewheel::load_audio_file(
-        &mut loader,
-        args.path,
-        Some(sample_rate),
-        Default::default(),
+    let probed = symphonium::probe_from_file(
+        args.path, None, // Custom container probe
     )
-    .unwrap()
-    .into_dyn_resource();
+    .unwrap();
+    let sample = firewheel::dyn_symphonium_resource(
+        symphonium::decode(
+            probed,
+            &symphonium::DecodeConfig::default(),
+            Some(sample_rate), // target sample rate
+            None,              // An optional cache
+            None,              // Custom codec registry
+        )
+        .unwrap(),
+    );
 
-    sampler_node.set_sample(sample);
-    cx.queue_event_for(sampler_id, sampler_node.sync_sample_event());
+    cx.queue_event_for(sampler_id, SamplerNode::set_dyn_sample_event(sample));
 
     sampler_node.start_or_restart();
     cx.queue_event_for(sampler_id, sampler_node.sync_play_event());
 
-    // Manually set the shared `stopped` flag. This is needed to account for the delay
+    // Manually set the shared playback flag. This is needed to account for the delay
     // between sending a play event and the node's processor receiving that event.
     cx.node_state::<SamplerState>(sampler_id)
         .unwrap()
-        .mark_stopped();
+        .mark_playing();
 
     // --- Simulated update loop ---------------------------------------------------------
 
@@ -95,7 +98,7 @@ fn main() {
         // output device).
         //
         // In this example we just quit the application.
-        if !stream.is_running() {
+        if !stream.all_streams_ok() {
             break;
         }
 

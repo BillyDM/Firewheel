@@ -10,7 +10,6 @@ use thunderdome::Arena;
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::{Box, Vec};
 
-#[cfg(feature = "scheduled_events")]
 use bevy_platform::time::Instant;
 
 use firewheel_core::{
@@ -145,6 +144,9 @@ pub(crate) struct FirewheelProcessorInner {
     shared_flags: Arc<SharedFlags>,
     clamp_graph_inputs_below_amp: Option<f32>,
 
+    last_input_overflow_log_instant: Option<Instant>,
+    last_output_underflow_log_instant: Option<Instant>,
+
     pub(crate) extra: ProcExtra,
 
     /// If a panic occurs while processing, this flag is set to let the
@@ -215,6 +217,8 @@ impl FirewheelProcessorInner {
             flags,
             shared_flags,
             clamp_graph_inputs_below_amp,
+            last_input_overflow_log_instant: None,
+            last_output_underflow_log_instant: None,
             extra: ProcExtra {
                 scratch_buffers: ConstSequentialBuffer::new(
                     stream_info.max_block_frames.get() as usize

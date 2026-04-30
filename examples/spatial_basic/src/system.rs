@@ -8,7 +8,6 @@ use firewheel::{
     },
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 pub struct AudioSystem {
     pub cx: FirewheelContext,
@@ -28,26 +27,33 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let mut loader = SymphoniumLoader::new();
-        let sample = firewheel::load_audio_file(
-            &mut loader,
+        let probed = symphonium::probe_from_file(
             "assets/test_files/dpren_very-lush-and-swag-loop.ogg",
-            Some(sample_rate),
-            Default::default(),
+            None, // Custom container probe
         )
-        .unwrap()
-        .into_dyn_resource();
+        .unwrap();
+        let sample = firewheel::dyn_symphonium_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
         let graph_out_node_id = cx.graph_out_node_id();
 
         let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample);
         sampler_node.repeat_mode = RepeatMode::RepeatEndlessly;
         sampler_node.start_or_restart();
 
         let sampler_node_id = cx
             .add_node(sampler_node.clone(), None)
             .expect("Sampler node should construct without error");
+
+        cx.queue_event_for(sampler_node_id, SamplerNode::set_dyn_sample_event(sample));
 
         let spatial_basic_node = SpatialBasicNode::default();
         let spatial_basic_node_id = cx
@@ -97,7 +103,7 @@ impl AudioSystem {
         // output device).
         //
         // In this example we just quit the application.
-        if !self.stream.is_running() {
+        if !self.stream.all_streams_ok() {
             panic!("Stream stopped unexpectedly!");
         }
     }

@@ -9,7 +9,6 @@ use firewheel::{
     },
     FirewheelContext,
 };
-use symphonium::SymphoniumLoader;
 
 pub const SAMPLE_PATH: &'static str = "assets/test_files/bird-sound.wav";
 
@@ -32,23 +31,29 @@ impl AudioSystem {
         let stream = CpalStream::new(&mut cx, Default::default()).unwrap();
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
-        let mut loader = SymphoniumLoader::new();
         let graph_out = cx.graph_out_node_id();
 
-        let sample = firewheel::load_audio_file(
-            &mut loader,
+        let probed = symphonium::probe_from_file(
             SAMPLE_PATH,
-            Some(sample_rate),
-            Default::default(),
+            None, // Custom container probe
         )
-        .unwrap()
-        .into_dyn_resource();
+        .unwrap();
+        let sample = firewheel::dyn_symphonium_resource(
+            symphonium::decode(
+                probed,
+                &symphonium::DecodeConfig::default(),
+                Some(sample_rate), // target sample rate
+                None,              // An optional cache
+                None,              // Custom codec registry
+            )
+            .unwrap(),
+        );
 
-        let mut sampler_params = SamplerNode::default();
-        sampler_params.set_sample(sample);
+        let sampler_params = SamplerNode::default();
         let sampler_node_id = cx
             .add_node(sampler_params.clone(), None)
             .expect("Sampler node should construct without error");
+        cx.queue_event_for(sampler_node_id, SamplerNode::set_dyn_sample_event(sample));
 
         let triple_buffer_params = TripleBufferNode {
             window_size: WindowSize::Samples(window_size),
@@ -126,7 +131,7 @@ impl AudioSystem {
         // output device).
         //
         // In this example we just quit the application.
-        if !self.stream.is_running() {
+        if !self.stream.all_streams_ok() {
             panic!("Stream stopped unexpectedly!");
         }
     }

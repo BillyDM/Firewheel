@@ -1,3 +1,9 @@
+use audioadapter::Adapter;
+use audioadapter_buffers::{
+    adapter_to_float::ConvertNumbers,
+    direct::{InterleavedSlice, SequentialSlice},
+};
+use audioadapter_sample::sample::RawSample;
 use core::{
     num::{NonZeroU32, NonZeroUsize},
     ops::Range,
@@ -9,7 +15,7 @@ use bevy_platform::prelude::Vec;
 use crate::collector::ArcGc;
 
 /// Trait returning information about a resource of audio samples
-pub trait SampleResourceInfo: Send + Sync + 'static {
+pub trait SampleResourceInfo {
     /// The number of channels in this resource.
     fn num_channels(&self) -> NonZeroUsize;
 
@@ -31,20 +37,28 @@ pub trait SampleResource: SampleResourceInfo {
     /// Fill the given buffers with audio data starting from the given
     /// starting frame in the resource.
     ///
-    /// * `buffers` - The buffers to fill with data. If the length of `buffers`
+    /// * `out_buffer` - The buffers to fill with data. If the length of `buffers`
     ///   is greater than the number of channels in this resource, then ignore
     ///   the extra buffers.
-    /// * `buffer_range` - The range inside each buffer slice in which to
+    /// * `out_buffer_range` - The range inside each buffer slice in which to
     ///   fill with data. Do not fill any data outside of this range.
     /// * `start_frame` - The sample (of a single channel of audio) in the
     ///   resource at which to start copying from. Not to be confused with video
     ///   frames.
+    ///
+    /// If the length of `out_buffer_range` is all or partly out of bounds of
+    /// the resource, then the frames which are out of bounds will be left
+    /// untouched.
+    ///
+    /// Returns the number of frames that were successfully filled. This may
+    /// be less than the length of `out_buffer_range` if the range is all or
+    /// partly out of bounds of the resource
     fn fill_buffers(
         &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
         start_frame: u64,
-    );
+    ) -> usize;
 }
 
 /// A resource of audio samples stored as de-interleaved f32 values.
@@ -53,135 +67,25 @@ pub trait SampleResourceF32: SampleResourceInfo {
     fn channel(&self, i: usize) -> Option<&[f32]>;
 }
 
-impl<T: SampleResource> From<T> for ArcGc<dyn SampleResource> {
+impl<T: SampleResource + Send + Sync + 'static> From<T>
+    for ArcGc<dyn SampleResource + Send + Sync + 'static>
+{
     fn from(value: T) -> Self {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(value) as bevy_platform::sync::Arc<dyn SampleResource>
+            bevy_platform::sync::Arc::new(value)
+                as bevy_platform::sync::Arc<dyn SampleResource + Send + Sync + 'static>
         })
     }
 }
 
-impl<T: SampleResourceF32> From<T> for ArcGc<dyn SampleResourceF32> {
+impl<T: SampleResourceF32 + Send + Sync + 'static> From<T>
+    for ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>
+{
     fn from(value: T) -> Self {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(value) as bevy_platform::sync::Arc<dyn SampleResourceF32>
+            bevy_platform::sync::Arc::new(value)
+                as bevy_platform::sync::Arc<dyn SampleResourceF32 + Send + Sync + 'static>
         })
-    }
-}
-
-#[derive(Clone)]
-pub struct InterleavedResourceI16 {
-    pub data: Vec<i16>,
-    pub channels: NonZeroUsize,
-    pub sample_rate: Option<NonZeroU32>,
-}
-
-impl InterleavedResourceI16 {
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
-        ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
-        })
-    }
-}
-
-impl SampleResourceInfo for InterleavedResourceI16 {
-    fn num_channels(&self) -> NonZeroUsize {
-        self.channels
-    }
-
-    fn len_frames(&self) -> u64 {
-        (self.data.len() / self.channels.get()) as u64
-    }
-
-    fn sample_rate(&self) -> Option<NonZeroU32> {
-        self.sample_rate
-    }
-}
-
-impl SampleResource for InterleavedResourceI16 {
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
-            self.channels,
-            &self.data,
-            pcm_i16_to_f32,
-        );
-    }
-}
-
-impl core::fmt::Debug for InterleavedResourceI16 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "InterleavedResourceI16 {{ channels: {}, frames: {} }}",
-            self.channels.get(),
-            self.data.len() / self.channels.get(),
-        )
-    }
-}
-
-#[derive(Clone)]
-pub struct InterleavedResourceU16 {
-    pub data: Vec<u16>,
-    pub channels: NonZeroUsize,
-    pub sample_rate: Option<NonZeroU32>,
-}
-
-impl InterleavedResourceU16 {
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
-        ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
-        })
-    }
-}
-
-impl SampleResourceInfo for InterleavedResourceU16 {
-    fn num_channels(&self) -> NonZeroUsize {
-        self.channels
-    }
-
-    fn len_frames(&self) -> u64 {
-        (self.data.len() / self.channels.get()) as u64
-    }
-
-    fn sample_rate(&self) -> Option<NonZeroU32> {
-        self.sample_rate
-    }
-}
-
-impl SampleResource for InterleavedResourceU16 {
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
-            self.channels,
-            &self.data,
-            pcm_u16_to_f32,
-        );
-    }
-}
-
-impl core::fmt::Debug for InterleavedResourceU16 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "InterleavedResourceU16 {{ channels: {}, frames: {} }}",
-            self.channels.get(),
-            self.data.len() / self.channels.get(),
-        )
     }
 }
 
@@ -193,9 +97,10 @@ pub struct InterleavedResourceF32 {
 }
 
 impl InterleavedResourceF32 {
-    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource> {
+    pub fn into_dyn_resource(self) -> ArcGc<dyn SampleResource + Send + Sync + 'static> {
         ArcGc::new_unsized(|| {
-            bevy_platform::sync::Arc::new(self) as bevy_platform::sync::Arc<dyn SampleResource>
+            bevy_platform::sync::Arc::new(self)
+                as bevy_platform::sync::Arc<dyn SampleResource + Send + Sync + 'static>
         })
     }
 }
@@ -217,18 +122,18 @@ impl SampleResourceInfo for InterleavedResourceF32 {
 impl SampleResource for InterleavedResourceF32 {
     fn fill_buffers(
         &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
+    ) -> usize {
         fill_buffers_interleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
+            out_buffer,
+            out_buffer_range,
+            start_frame,
             self.channels,
             &self.data,
-            |s| s,
-        );
+            self.len_frames() as usize,
+        )
     }
 }
 
@@ -240,60 +145,6 @@ impl core::fmt::Debug for InterleavedResourceF32 {
             self.channels.get(),
             self.data.len() / self.channels.get(),
         )
-    }
-}
-
-impl SampleResourceInfo for Vec<Vec<i16>> {
-    fn num_channels(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.len()).unwrap()
-    }
-
-    fn len_frames(&self) -> u64 {
-        self[0].len() as u64
-    }
-}
-
-impl SampleResource for Vec<Vec<i16>> {
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
-            self.as_slice(),
-            pcm_i16_to_f32,
-        );
-    }
-}
-
-impl SampleResourceInfo for Vec<Vec<u16>> {
-    fn num_channels(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.len()).unwrap()
-    }
-
-    fn len_frames(&self) -> u64 {
-        self[0].len() as u64
-    }
-}
-
-impl SampleResource for Vec<Vec<u16>> {
-    fn fill_buffers(
-        &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
-        start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved(
-            buffers,
-            buffer_range,
-            start_frame as usize,
-            self.as_slice(),
-            pcm_u16_to_f32,
-        );
     }
 }
 
@@ -310,11 +161,17 @@ impl SampleResourceInfo for Vec<Vec<f32>> {
 impl SampleResource for Vec<Vec<f32>> {
     fn fill_buffers(
         &self,
-        buffers: &mut [&mut [f32]],
-        buffer_range: Range<usize>,
+        out_buffer: &mut [&mut [f32]],
+        out_buffer_range: Range<usize>,
         start_frame: u64,
-    ) {
-        fill_buffers_deinterleaved_f32(buffers, buffer_range, start_frame as usize, self);
+    ) -> usize {
+        fill_buffers_deinterleaved_f32(
+            out_buffer,
+            out_buffer_range,
+            start_frame,
+            self,
+            self[0].len(),
+        )
     }
 }
 
@@ -324,116 +181,139 @@ impl SampleResourceF32 for Vec<Vec<f32>> {
     }
 }
 
-#[inline]
-pub fn pcm_i16_to_f32(s: i16) -> f32 {
-    f32::from(s) * (1.0 / i16::MAX as f32)
-}
-
-#[inline]
-pub fn pcm_u16_to_f32(s: u16) -> f32 {
-    ((f32::from(s)) * (2.0 / u16::MAX as f32)) - 1.0
-}
-
 /// A helper method to fill buffers from a resource of interleaved samples.
-pub fn fill_buffers_interleaved<T: Clone + Copy>(
-    buffers: &mut [&mut [f32]],
-    buffer_range: Range<usize>,
-    start_frame: usize,
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
+pub fn fill_buffers_interleaved<T: RawSample + Clone>(
+    out_buffer: &mut [&mut [f32]],
+    out_buffer_range: Range<usize>,
+    start_frame: u64,
     channels: NonZeroUsize,
-    data: &[T],
-    convert: impl Fn(T) -> f32,
-) {
+    resource: &[T],
+    resource_len_frames: usize,
+) -> usize {
     let channels = channels.get();
 
-    let frames = buffer_range.end - buffer_range.start;
+    let Some((frames, start_frame)) = constrain_frames(
+        out_buffer_range.end - out_buffer_range.start,
+        start_frame,
+        resource_len_frames,
+    ) else {
+        return 0;
+    };
 
-    if channels == 1 {
-        // Mono, no need to deinterleave.
-        for (buf_s, &src_s) in buffers[0][buffer_range.clone()]
-            .iter_mut()
-            .zip(&data[start_frame..start_frame + frames])
-        {
-            *buf_s = convert(src_s);
-        }
-        return;
-    }
+    // Provide an optimized loop for stereo.
+    if channels == 2 && out_buffer.len() >= 2 {
+        let (buf0, buf1) = out_buffer.split_first_mut().unwrap();
+        let buf0 = &mut buf0[out_buffer_range.start..out_buffer_range.start + frames];
+        let buf1 = &mut buf1[0][out_buffer_range.start..out_buffer_range.start + frames];
 
-    if channels == 2 && buffers.len() >= 2 {
-        // Provide an optimized loop for stereo.
-        let (buf0, buf1) = buffers.split_first_mut().unwrap();
-        let buf0 = &mut buf0[buffer_range.clone()];
-        let buf1 = &mut buf1[0][buffer_range.clone()];
-
-        let src_slice = &data[start_frame * 2..(start_frame + frames) * 2];
+        let src_slice = &resource[start_frame * 2..(start_frame + frames) * 2];
 
         for (src_chunk, (buf0_s, buf1_s)) in src_slice
             .chunks_exact(2)
             .zip(buf0.iter_mut().zip(buf1.iter_mut()))
         {
-            *buf0_s = convert(src_chunk[0]);
-            *buf1_s = convert(src_chunk[1]);
+            *buf0_s = src_chunk[0].to_scaled_float();
+            *buf1_s = src_chunk[1].to_scaled_float();
         }
 
-        return;
+        return frames;
     }
 
-    let src_slice = &data[start_frame * channels..(start_frame + frames) * channels];
-    for (ch_i, buf_ch) in (0..channels).zip(buffers.iter_mut()) {
-        for (src_chunk, buf_s) in src_slice
-            .chunks_exact(channels)
-            .zip(buf_ch[buffer_range.clone()].iter_mut())
-        {
-            *buf_s = convert(src_chunk[ch_i]);
-        }
+    let src_slice = &resource[start_frame * channels..(start_frame + frames) * channels];
+
+    let adapter = InterleavedSlice::new(src_slice, channels, frames).unwrap();
+    let convert = ConvertNumbers::<&dyn Adapter<T>, f32>::new(&adapter as &dyn Adapter<T>);
+
+    for (ch_i, out_ch) in out_buffer.iter_mut().enumerate().take(channels) {
+        convert.copy_from_channel_to_slice(
+            ch_i,
+            start_frame,
+            &mut out_ch[out_buffer_range.start..out_buffer_range.start + frames],
+        );
     }
+
+    frames
 }
 
 /// A helper method to fill buffers from a resource of deinterleaved samples.
-pub fn fill_buffers_deinterleaved<T: Clone + Copy, V: AsRef<[T]>>(
-    buffers: &mut [&mut [f32]],
-    buffer_range: Range<usize>,
-    start_frame: usize,
-    data: &[V],
-    convert: impl Fn(T) -> f32,
-) {
-    let frames = buffer_range.end - buffer_range.start;
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
+pub fn fill_channel_deinterleaved<T: RawSample + Clone>(
+    out_buffer_channel: &mut [f32],
+    out_buffer_range: Range<usize>,
+    start_frame: u64,
+    resource_channel: &[T],
+) -> usize {
+    let Some((frames, start_frame)) = constrain_frames(
+        out_buffer_range.end - out_buffer_range.start,
+        start_frame,
+        resource_channel.len(),
+    ) else {
+        return 0;
+    };
 
-    if data.len() == 2 && buffers.len() >= 2 {
-        // Provide an optimized loop for stereo.
-        let (buf0, buf1) = buffers.split_first_mut().unwrap();
-        let buf0 = &mut buf0[buffer_range.clone()];
-        let buf1 = &mut buf1[0][buffer_range.clone()];
-        let s0 = &data[0].as_ref()[start_frame..start_frame + frames];
-        let s1 = &data[1].as_ref()[start_frame..start_frame + frames];
+    let adapter = SequentialSlice::new(resource_channel, 1, frames).unwrap();
+    let convert = ConvertNumbers::<&dyn Adapter<T>, f32>::new(&adapter as &dyn Adapter<T>);
 
-        for i in 0..frames {
-            buf0[i] = convert(s0[i]);
-            buf1[i] = convert(s1[i]);
-        }
+    convert.copy_from_channel_to_slice(
+        0,
+        start_frame,
+        &mut out_buffer_channel[out_buffer_range.start..out_buffer_range.start + frames],
+    );
 
-        return;
-    }
-
-    for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
-        for (buf_s, &ch_s) in buf[buffer_range.clone()]
-            .iter_mut()
-            .zip(ch.as_ref()[start_frame..start_frame + frames].iter())
-        {
-            *buf_s = convert(ch_s);
-        }
-    }
+    frames
 }
 
 /// A helper method to fill buffers from a resource of deinterleaved `f32` samples.
+///
+/// Returns the number of frames that were successfully filled. This may
+/// be less than the length of `out_buffer_range` if the range is all or
+/// partly out of bounds of the resource
 pub fn fill_buffers_deinterleaved_f32<V: AsRef<[f32]>>(
-    buffers: &mut [&mut [f32]],
-    buffer_range: Range<usize>,
-    start_frame: usize,
-    data: &[V],
-) {
-    for (buf, ch) in buffers.iter_mut().zip(data.iter()) {
-        buf[buffer_range.clone()].copy_from_slice(
-            &ch.as_ref()[start_frame..start_frame + buffer_range.end - buffer_range.start],
-        );
+    out_buffer: &mut [&mut [f32]],
+    out_buffer_range: Range<usize>,
+    start_frame: u64,
+    resource_channels: &[V],
+    resource_len_frames: usize,
+) -> usize {
+    let Some((frames, start_frame)) = constrain_frames(
+        out_buffer_range.end - out_buffer_range.start,
+        start_frame,
+        resource_len_frames,
+    ) else {
+        return 0;
+    };
+
+    for (out_ch, in_ch) in out_buffer.iter_mut().zip(resource_channels.iter()) {
+        out_ch[out_buffer_range.start..out_buffer_range.start + frames]
+            .copy_from_slice(&in_ch.as_ref()[start_frame..start_frame + frames]);
+    }
+
+    frames
+}
+
+/// A helper to constrain the requested number of frames to the available frames
+/// in the sample resource.
+///
+/// Returns `Some((available_frames, start_frame as usize))` if the range is all
+/// or partly contained in the resource, or `None` if the range is fully outside
+/// the resource (`available_frames == 0`).
+pub fn constrain_frames(
+    requested_frames: usize,
+    start_frame: u64,
+    resource_len_frames: usize,
+) -> Option<(usize, usize)> {
+    let frames = (requested_frames as u64)
+        .min((resource_len_frames as u64).saturating_sub(start_frame)) as usize;
+    if frames == 0 {
+        None
+    } else {
+        Some((frames, start_frame as usize))
     }
 }

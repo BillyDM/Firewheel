@@ -20,9 +20,9 @@ use firewheel::{
         StereoToMonoNode,
     },
     sample_resource::{SampleResource, SampleResourceF32},
-    ContextQueue, FirewheelContext,
+    ContextQueue, FirewheelContext, SymphoniumAudioF32,
 };
-use symphonium::SymphoniumLoader;
+use symphonium::cache::SymphoniumCache;
 
 use crate::ui::{GuiAudioNode, GuiAudioNodeType};
 
@@ -57,8 +57,11 @@ pub enum NodeType {
 pub struct AudioSystem {
     pub cx: FirewheelContext,
     pub stream: CpalStream,
-    pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
-    pub(crate) ir_samples: Vec<(&'static str, ArcGc<dyn SampleResourceF32>)>,
+    pub(crate) samples: Vec<ArcGc<dyn SampleResource + Send + Sync + 'static>>,
+    pub(crate) ir_samples: Vec<(
+        &'static str,
+        ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>,
+    )>,
 }
 
 const IR_SAMPLE_PATHS: [&'static str; 2] = [
@@ -80,28 +83,47 @@ impl AudioSystem {
 
         let sample_rate = cx.stream_info().unwrap().sample_rate;
 
-        let mut loader = SymphoniumLoader::new();
+        let cache = SymphoniumCache::default();
 
         // Load all samples
         let samples = SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file(&mut loader, path, Some(sample_rate), Default::default())
-                    .unwrap()
-                    .into_dyn_resource()
+                let probed = symphonium::probe_from_file(
+                    path, None, // Custom container probe
+                )
+                .unwrap();
+                firewheel::dyn_symphonium_resource(
+                    symphonium::decode(
+                        probed,
+                        &symphonium::DecodeConfig::default(),
+                        Some(sample_rate), // target sample rate
+                        Some(&cache),      // An optional cache
+                        None,              // Custom codec registry
+                    )
+                    .unwrap(),
+                )
+                .into()
             })
             .collect();
 
         let loaded = IR_SAMPLE_PATHS
             .iter()
             .map(|path| {
-                firewheel::load_audio_file_f32(
-                    &mut loader,
-                    path,
-                    Some(sample_rate),
-                    Default::default(),
+                let probed = symphonium::probe_from_file(
+                    path, None, // Custom container probe
                 )
-                .unwrap()
+                .unwrap();
+                SymphoniumAudioF32(
+                    symphonium::decode_f32(
+                        probed,
+                        &symphonium::DecodeConfig::default(),
+                        Some(sample_rate), // target sample rate
+                        Some(&cache),      // An optional cache
+                        None,              // Custom codec registry
+                    )
+                    .unwrap(),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -284,7 +306,7 @@ impl AudioSystem {
         // output device).
         //
         // In this example we just quit the application.
-        if !self.stream.is_running() {
+        if !self.stream.all_streams_ok() {
             panic!("Stream stopped unexpectedly!");
         }
     }

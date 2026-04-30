@@ -53,6 +53,8 @@ std = [
     "thunderdome/std",
     "ringbuf/std",
     "wmidi?/std",
+    "audioadapter-buffers/std",
+    "audioadapter-sample/std"
 ]
 # Enable this if "std" is disabled.
 libm = [
@@ -108,6 +110,9 @@ ringbuf.workspace = true
 num-traits.workspace = true
 bevy_ecs = { workspace = true, optional = true }
 bevy_reflect = { workspace = true, optional = true }
+audioadapter.workspace = true
+audioadapter-buffers.workspace = true
+audioadapter-sample.workspace = true
 glam-29 = { package = "glam", version = "0.29", default-features = false, optional = true }
 glam-30 = { package = "glam", version = "0.30", default-features = false, optional = true }
 glam-31 = { package = "glam", version = "0.31", default-features = false, optional = true }
