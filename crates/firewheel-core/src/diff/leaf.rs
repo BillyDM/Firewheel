@@ -13,6 +13,23 @@ use crate::{
 #[cfg(feature = "musical_transport")]
 use crate::clock::{DurationMusical, InstantMusical};
 
+impl Diff for () {
+    fn diff<E: EventQueue>(&self, _baseline: &Self, _path: PathBuilder, _event_queue: &mut E) {}
+}
+
+impl Patch for () {
+    type Patch = ();
+
+    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
+        match data {
+            ParamData::None => Ok(()),
+            _ => Err(PatchError::InvalidData),
+        }
+    }
+
+    fn apply(&mut self, _patch: Self::Patch) {}
+}
+
 macro_rules! primitive_diff {
     ($ty:ty, $variant:ident) => {
         impl Diff for $ty {

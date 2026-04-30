@@ -57,8 +57,11 @@ pub enum NodeType {
 pub struct AudioSystem {
     pub cx: FirewheelContext,
     pub stream: CpalStream,
-    pub(crate) samples: Vec<ArcGc<dyn SampleResource>>,
-    pub(crate) ir_samples: Vec<(&'static str, ArcGc<dyn SampleResourceF32>)>,
+    pub(crate) samples: Vec<ArcGc<dyn SampleResource + Send + Sync + 'static>>,
+    pub(crate) ir_samples: Vec<(
+        &'static str,
+        ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>,
+    )>,
 }
 
 const IR_SAMPLE_PATHS: [&'static str; 2] = [
@@ -100,6 +103,7 @@ impl AudioSystem {
                     )
                     .unwrap(),
                 )
+                .into()
             })
             .collect();
 

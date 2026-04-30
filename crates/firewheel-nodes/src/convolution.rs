@@ -71,7 +71,7 @@ pub struct ConvolutionNode {
     /// The impulse response to use.
     #[cfg_attr(feature = "bevy_reflect", reflect(ignore))]
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub impulse_response: Option<ArcGc<dyn SampleResourceF32>>,
+    pub impulse_response: Option<ArcGc<dyn SampleResourceF32 + Send + Sync + 'static>>,
 
     /// Pause the convolution processing.
     ///

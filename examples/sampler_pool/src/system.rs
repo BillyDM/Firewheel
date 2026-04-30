@@ -1,5 +1,6 @@
 use firewheel::{
     channel_config::NonZeroChannelCount,
+    collector::ArcGc,
     cpal::CpalStream,
     diff::Memo,
     nodes::{
@@ -8,6 +9,7 @@ use firewheel::{
         StereoToMonoNode,
     },
     pool::{AudioNodePool, FxChain, SamplerPool, SamplerPoolVolumePan},
+    sample_resource::SampleResource,
     FirewheelContext,
 };
 
@@ -27,6 +29,7 @@ pub struct AudioSystem {
     pub sampler_pool_1: SamplerPoolVolumePan,
     pub sampler_pool_2: AudioNodePool<SamplerPool, MyCustomChain>,
     pub sampler_node: SamplerNode,
+    pub sample: ArcGc<dyn SampleResource + Send + Sync + 'static>,
 }
 
 impl AudioSystem {
@@ -74,8 +77,7 @@ impl AudioSystem {
             .unwrap(),
         );
 
-        let mut sampler_node = SamplerNode::default();
-        sampler_node.set_sample(sample);
+        let sampler_node = SamplerNode::default();
 
         // Note, you can get the playhead and other state of a worker like this:
         // let playhead = sampler_pool_1
@@ -89,6 +91,7 @@ impl AudioSystem {
             sampler_pool_1,
             sampler_pool_2,
             sampler_node,
+            sample,
         }
     }
 

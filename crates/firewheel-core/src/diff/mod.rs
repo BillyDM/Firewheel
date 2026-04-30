@@ -100,7 +100,7 @@
 //! # use firewheel_core::diff::{Diff, Patch, PathBuilder};
 //! #[derive(Diff, Patch, Clone, PartialEq)]
 //! enum SoundSource {
-//!     Sample(ArcGc<dyn SampleResource>), // Will _not_ cause allocations in `Patch`.
+//!     Sample(ArcGc<dyn SampleResource + Send + Sync + 'static>), // Will _not_ cause allocations in `Patch`.
 //!     Frequency(f32),
 //! }
 //! ```

@@ -49,11 +49,11 @@ impl AudioSystem {
             .unwrap(),
         );
 
-        let mut sampler_params = SamplerNode::default();
-        sampler_params.set_sample(sample);
+        let sampler_params = SamplerNode::default();
         let sampler_node_id = cx
             .add_node(sampler_params.clone(), None)
             .expect("Sampler node should construct without error");
+        cx.queue_event_for(sampler_node_id, SamplerNode::set_dyn_sample_event(sample));
 
         let triple_buffer_params = TripleBufferNode {
             window_size: WindowSize::Samples(window_size),

@@ -204,9 +204,9 @@ where
         self.workers.len()
     }
 
-    /// Queue a new work to play a sequence.
+    /// Queue new work to play a sequence.
     ///
-    /// * `params` - The parameters of the sequence to play.
+    /// * `params` - The parameters of the first node.
     /// * `time` - The instant these new parameters should take effect. If this
     /// is `None`, then the parameters will take effect as soon as the node receives
     /// the event.
@@ -215,6 +215,8 @@ where
     /// one. If this is `false`, then an error will be returned if no more workers
     /// are left.
     /// * `cx` - The Firewheel context.
+    /// * `first_node` - A closure to send additional events to the first node, such
+    /// as setting the sample resource.
     /// * `fx_chain` - A closure to add additional nodes to this worker instance.
     ///
     /// This will return an error if `params.playback == PlaybackState::Stop`.
@@ -224,6 +226,7 @@ where
         #[cfg(feature = "scheduled_events")] time: Option<EventInstant>,
         steal: bool,
         cx: &mut FirewheelContext,
+        first_node: impl FnOnce(&mut ContextQueue),
         fx_chain: impl FnOnce(&mut FxChainState<FX>, &mut FirewheelContext),
     ) -> Result<NewWorkerResult, NewWorkerError> {
         if N::params_stopped(params) {
@@ -279,6 +282,8 @@ where
 
         N::diff(&worker.first_node_params, params, &mut event_queue);
 
+        (first_node)(&mut event_queue);
+
         worker.first_node_params = params.clone();
 
         N::mark_playing(worker.first_node_id, cx).unwrap();
@@ -288,6 +293,7 @@ where
         Ok(NewWorkerResult {
             worker_id,
             old_worker_id,
+            first_node_id: worker.first_node_id,
             was_playing_sequence,
         })
     }
@@ -618,6 +624,9 @@ pub struct NewWorkerResult {
 
     /// The ID that was previously assigned to this worker.
     pub old_worker_id: Option<WorkerID>,
+
+    /// The ID of the first node in this worker.
+    pub first_node_id: NodeID,
 
     /// If this is `true`, then this worker was already playing a sequence, and that
     /// sequence has been stopped.
