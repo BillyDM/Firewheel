@@ -535,7 +535,7 @@ impl CpalStream {
             cpal::SampleFormat::F32 => out_device.build_output_stream(
                 &out_stream_config,
                 move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
-                    data_callback.callback(output, info);
+                    callback.callback(output, info);
                 },
                 err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
                 Some(BUILD_STREAM_TIMEOUT),
@@ -549,7 +549,7 @@ impl CpalStream {
                             scratch.resize(output.len(), 0.0);
                         }
                         let buf = &mut scratch[..output.len()];
-                        data_callback.callback(buf, info);
+                        callback.callback(buf, info);
                         for (o, &f) in output.iter_mut().zip(buf.iter()) {
                             *o = <i16 as cpal::FromSample<f32>>::from_sample_(f);
                         }
@@ -567,7 +567,7 @@ impl CpalStream {
                             scratch.resize(output.len(), 0.0);
                         }
                         let buf = &mut scratch[..output.len()];
-                        data_callback.callback(buf, info);
+                        callback.callback(buf, info);
                         for (o, &f) in output.iter_mut().zip(buf.iter()) {
                             *o = <cpal::I24 as cpal::FromSample<f32>>::from_sample_(f);
                         }
@@ -585,7 +585,7 @@ impl CpalStream {
                             scratch.resize(output.len(), 0.0);
                         }
                         let buf = &mut scratch[..output.len()];
-                        data_callback.callback(buf, info);
+                        callback.callback(buf, info);
                         for (o, &f) in output.iter_mut().zip(buf.iter()) {
                             *o = <i32 as cpal::FromSample<f32>>::from_sample_(f);
                         }
@@ -696,10 +696,10 @@ impl Drop for CpalStream {
 fn err_callback(
     is_input: bool,
     is_running: Arc<AtomicBool>,
-    err_to_cx_tx: mpsc::Sender<cpal::StreamError>,
+    err_to_cx_tx: mpsc::Sender<IoStreamError>,
 ) -> impl FnMut(cpal::StreamError) + Send + 'static {
-    let mut last_underrun_msg_instan: Option<Instant> = None;  
-  
+    let mut last_underrun_msg_instant: Option<Instant> = None;
+
     move |err| {
         let do_send = if let StreamError::BufferUnderrun = err {
             let mut do_send = true;
@@ -714,13 +714,17 @@ fn err_callback(
             }
 
             do_send
-          } else {
+        } else {
             is_running.store(false, Ordering::Relaxed);
             true
         };
 
         if do_send {
-            if let Err(e) = err_to_cx_tx.send(IoStreamError::Output(err)) {
+            if let Err(e) = err_to_cx_tx.send(if is_input {
+                IoStreamError::Input(err)
+            } else {
+                IoStreamError::Output(err)
+            }) {
                 // Make sure the error gets logged even if the handle has been dropped.
                 #[cfg(any(feature = "log", feature = "tracing"))]
                 error!("Audio stream error occurred: {}", e.0);
