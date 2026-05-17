@@ -1,85 +1,85 @@
 name: PR
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
 
 env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: --deny warnings
-  RUSTDOCFLAGS: --deny warnings
+    CARGO_TERM_COLOR: always
+    RUSTFLAGS: --deny warnings
+    RUSTDOCFLAGS: --deny warnings
 
 jobs:
-  # Run tests.
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # Run tests.
+    test:
+        name: Tests
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: sudo apt-get update; sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev cmake libpulse-dev
+            - name: Install dependencies
+              run: sudo apt-get update; sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev cmake libpulse-dev
 
-      - name: Populate target directory from cache
-        uses: Leafwing-Studios/cargo-cache@v2
-        with:
-          sweep-cache: true
+            - name: Populate target directory from cache
+              uses: Leafwing-Studios/cargo-cache@v2
+              with:
+                  sweep-cache: true
 
-      - name: Run tests
-        run: |
-          cargo test --locked --workspace --all-features --all-targets
+            - name: Run tests
+              run: |
+                  cargo test --locked --workspace --all-features --all-targets
 
-      - name: Test realtime audio garbage collector
-        run: |
-          cd crates/firewheel-core && cargo test --locked -- --ignored && cd ../../
+            - name: Test realtime audio garbage collector
+              run: |
+                  cd crates/firewheel-core && cargo test --locked -- --ignored && cd ../../
 
-      - name: Check no_std build
-        run: |
-          cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool, glam-29, glam-30, glam-31"
+            - name: Check no_std build
+              run: |
+                  cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool, glam-29, glam-30, glam-31"
 
-  # Check formatting.
-  format:
-    name: Format
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # Check formatting.
+    format:
+        name: Format
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt
 
-      - name: Run cargo fmt
-        run: cargo fmt --all -- --check
+            - name: Run cargo fmt
+              run: cargo fmt --all -- --check
 
-  # Check documentation.
-  doc:
-    name: Docs
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # Check documentation.
+    doc:
+        name: Docs
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: sudo apt-get update; sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev cmake libpulse-dev
+            - name: Install dependencies
+              run: sudo apt-get update; sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev cmake libpulse-dev
 
-      - name: Populate target directory from cache
-        uses: Leafwing-Studios/cargo-cache@v2
-        with:
-          sweep-cache: true
+            - name: Populate target directory from cache
+              uses: Leafwing-Studios/cargo-cache@v2
+              with:
+                  sweep-cache: true
 
-      - name: Check documentation
-        run: cargo doc --locked --workspace --all-features --no-deps
+            - name: Check documentation
+              run: cargo doc --locked --workspace --all-features --no-deps

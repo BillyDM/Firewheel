@@ -3,12 +3,14 @@
 
 // The use of `bevy_platform` is optional, but it is recommended for better
 // compatibility with webassembly, no_std, and platforms without 64 bit atomics.
-use bevy_platform::sync::atomic::{AtomicU32, Ordering};
+use bevy_platform::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use firewheel::node::NodeError;
 use firewheel::{
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
-    collector::ArcGc,
     diff::{Diff, Patch},
     event::ProcEvents,
     node::{
@@ -68,16 +70,13 @@ impl Default for FastRmsNode {
 // it using `FirewheelCtx::node_state` and `FirewheelCtx::node_state_mut`.
 #[derive(Clone)]
 pub struct FastRmsState {
-    // `ArcGc` is a simple wrapper around `Arc` that automatically collects
-    // dropped resources from the audio thread and drops them on another
-    // thread.
-    shared_state: ArcGc<SharedState>,
+    shared_state: Arc<SharedState>,
 }
 
 impl FastRmsState {
     fn new() -> Self {
         Self {
-            shared_state: ArcGc::new(SharedState {
+            shared_state: Arc::new(SharedState {
                 rms_value: AtomicF32::new(0.0),
                 read_count: AtomicU32::new(1),
             }),
@@ -140,11 +139,11 @@ impl AudioNode for FastRmsNode {
 
         Ok(Processor {
             params: *self,
-            shared_state: ArcGc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
             last_read_count: 0,
+            shared_state: Arc::clone(&custom_state.shared_state),
         })
     }
 }
@@ -152,11 +151,19 @@ impl AudioNode for FastRmsNode {
 // The realtime processor counterpart to your node.
 struct Processor {
     params: FastRmsNode,
-    shared_state: ArcGc<SharedState>,
     squares: f32,
     num_squared_values: usize,
     window_frames: usize,
     last_read_count: u32,
+
+    // Note, in this case it is realtime safe to use `Arc` in the processor like
+    // this because the processor is always sent back to the main thread before
+    // it is dropped.
+    //
+    // If instead you had shared state that could be dropped while the processor
+    // is still running, prefer to use `ArcGc` or `OwnedGc` instead to avoid
+    // deallocating on the audio thread (because it may cause audio glitches).
+    shared_state: Arc<SharedState>,
 }
 
 impl AudioNodeProcessor for Processor {

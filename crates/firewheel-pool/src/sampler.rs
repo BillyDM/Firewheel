@@ -9,11 +9,12 @@ use crate::{PoolError, PoolableNode};
 
 /// A struct which uses a [`SamplerNode`] as the first node in an
 /// [`AudioNodePool`](crate::AudioNodePool).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SamplerPool;
 
 impl PoolableNode for SamplerPool {
     type AudioNode = SamplerNode;
+    type AdditionalNodeState = ();
 
     /// Return `true` if the given parameters signify that the sequence is stopped,
     /// `false` otherwise.
@@ -24,9 +25,14 @@ impl PoolableNode for SamplerPool {
     /// Return `true` if the node state of the given node is stopped.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn node_is_stopped(node_id: NodeID, cx: &FirewheelContext) -> Result<bool, PoolError> {
+    fn node_is_stopped(
+        node_id: NodeID,
+        params: &SamplerNode,
+        _additional_state: &mut (),
+        cx: &mut FirewheelContext,
+    ) -> Result<bool, PoolError> {
         cx.node_state::<SamplerState>(node_id)
-            .map(|s| s.stopped())
+            .map(|s| s.playback_id_has_finished(params.playback_id()))
             .ok_or(PoolError::InvalidNodeID(node_id))
     }
 
@@ -38,6 +44,7 @@ impl PoolableNode for SamplerPool {
     fn worker_score(
         params: &SamplerNode,
         node_id: NodeID,
+        _additional_state: &mut (),
         cx: &mut FirewheelContext,
     ) -> Result<u64, PoolError> {
         cx.node_state::<SamplerState>(node_id)
@@ -46,7 +53,12 @@ impl PoolableNode for SamplerPool {
     }
 
     /// Diff the new parameters and push the changes into the event queue.
-    fn diff(baseline: &SamplerNode, new: &SamplerNode, event_queue: &mut ContextQueue) {
+    fn diff(
+        baseline: &SamplerNode,
+        new: &SamplerNode,
+        _additional_state: &mut (),
+        event_queue: &mut ContextQueue,
+    ) {
         new.diff(baseline, PathBuilder::default(), event_queue);
     }
 
@@ -56,22 +68,25 @@ impl PoolableNode for SamplerPool {
     /// and the node receiving the event.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn mark_playing(node_id: NodeID, cx: &mut FirewheelContext) -> Result<(), PoolError> {
-        cx.node_state_mut::<SamplerState>(node_id)
-            .map(|s| s.mark_playing())
-            .ok_or(PoolError::InvalidNodeID(node_id))
+    fn mark_playing(
+        _node_id: NodeID,
+        _params: &Self::AudioNode,
+        _additional_state: &mut (),
+        _cx: &mut FirewheelContext,
+    ) -> Result<(), PoolError> {
+        Ok(())
     }
 
     /// Pause the sequence in the node parameters
-    fn pause(params: &mut SamplerNode) {
+    fn pause(params: &mut SamplerNode, _additional_state: &mut ()) {
         params.pause();
     }
     /// Resume the sequence in the node parameters
-    fn resume(params: &mut SamplerNode) {
+    fn resume(params: &mut SamplerNode, _additional_state: &mut ()) {
         params.resume();
     }
     /// Stop the sequence in the node parameters
-    fn stop(params: &mut SamplerNode) {
+    fn stop(params: &mut SamplerNode, _additional_state: &mut ()) {
         params.stop();
     }
 }

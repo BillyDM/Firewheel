@@ -1,9 +1,11 @@
-use bevy_platform::sync::atomic::{AtomicU32, Ordering};
+use bevy_platform::sync::{
+    Arc,
+    atomic::{AtomicU32, Ordering},
+};
 use firewheel_core::{
     StreamInfo,
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
-    collector::ArcGc,
     diff::{Diff, Patch},
     dsp::volume::amp_to_db,
     event::ProcEvents,
@@ -48,13 +50,13 @@ impl Default for FastRmsNode {
 /// The state of a [`FastRmsNode`]. This contains the calculated RMS values.
 #[derive(Clone)]
 pub struct FastRmsState {
-    shared_state: ArcGc<SharedState>,
+    shared_state: Arc<SharedState>,
 }
 
 impl FastRmsState {
     fn new() -> Self {
         Self {
-            shared_state: ArcGc::new(SharedState {
+            shared_state: Arc::new(SharedState {
                 rms_value: AtomicF32::new(0.0),
                 read_count: AtomicU32::new(1),
             }),
@@ -110,7 +112,7 @@ impl AudioNode for FastRmsNode {
 
         Ok(Processor {
             params: *self,
-            shared_state: ArcGc::clone(&custom_state.shared_state),
+            shared_state: Arc::clone(&custom_state.shared_state),
             squares: 0.0,
             num_squared_values: 0,
             window_frames,
@@ -121,7 +123,7 @@ impl AudioNode for FastRmsNode {
 
 struct Processor {
     params: FastRmsNode,
-    shared_state: ArcGc<SharedState>,
+    shared_state: Arc<SharedState>,
     squares: f32,
     num_squared_values: usize,
     window_frames: usize,

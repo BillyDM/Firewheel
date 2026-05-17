@@ -8,20 +8,20 @@ use crate::{
 // Increment a realtime-safe atomic counter.
 //
 // This is gauranteed to never return zero.
-fn increment_counter() -> u64 {
+fn increment_counter() -> NotifyID {
     portable_atomic::cfg_has_atomic_64! {
         use portable_atomic::AtomicU64;
 
         static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
 
         portable_atomic::cfg_has_atomic_cas! {
-            NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
+            NotifyID(NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed))
         }
 
         portable_atomic::cfg_no_atomic_cas! {
             let val = NOTIFY_COUNTER.load(Ordering::Relaxed) + 1;
             NOTIFY_COUNTER.store(val, Ordering::Relaxed);
-            val
+            NotifyID(val)
         }
     }
 
@@ -44,7 +44,7 @@ fn increment_counter() -> u64 {
             NOTIFY_COUNTER_0.store((val & (u32::MAX as u64)) as u32, Ordering::Relaxed);
             NOTIFY_COUNTER_1.store((val >> 32) as u32, Ordering::Relaxed);
 
-            val
+            NotifyID(val)
         }
 
         portable_atomic::cfg_no_atomic_32! {
@@ -52,9 +52,27 @@ fn increment_counter() -> u64 {
 
             // Just accept the locking behavior for these esoteric platforms.
             static NOTIFY_COUNTER: AtomicU64 = AtomicU64::new(1);
-            NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed)
+            NotifyID(NOTIFY_COUNTER.fetch_add(1, Ordering::Relaxed))
         }
     }
+}
+
+/// An identifier representing the "generation" of a [`Notify`] parameter.
+///
+/// Whenever a `Notify` parameter is mutated, it will be assigned a new [`NotifyID`].
+/// For all practical purposes, the ID can be considered unique among all [`Notify`]
+/// instances.
+///
+/// Valid (non-dangling) [`NotifyID`]s are guaranteed to never be 0, so it can be
+/// used as a sentinel value.
+#[repr(transparent)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(opaque))]
+pub struct NotifyID(pub u64);
+
+impl NotifyID {
+    pub const DANGLING: Self = Self(0);
 }
 
 /// A lightweight wrapper that guarantees an event
@@ -70,7 +88,7 @@ fn increment_counter() -> u64 {
 #[derive(Debug, Clone)]
 pub struct Notify<T> {
     value: T,
-    counter: u64,
+    id: NotifyID,
 }
 
 impl<T> Notify<T> {
@@ -92,25 +110,25 @@ impl<T> Notify<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,
-            counter: increment_counter(),
+            id: increment_counter(),
         }
     }
 
-    pub(crate) fn from_raw(value: T, counter: u64) -> Self {
-        Self { value, counter }
+    pub(crate) fn from_raw(value: T, id: NotifyID) -> Self {
+        Self { value, id }
     }
 
-    /// Get this instance's unique ID.
+    /// An identifier representing the "generation" of this [`Notify`] parameter.
     ///
-    /// After each mutable dereference, this ID will be replaced
-    /// with a new, unique value. For all practical purposes,
-    /// the ID can be considered unique among all [`Notify`] instances.
+    /// Whenever this parameter is mutated, it will be assigned a new [`NotifyID`].
+    /// For all practical purposes, the ID can be considered unique among all [`Notify`]
+    /// instances.
     ///
-    /// [`Notify`] IDs are guaranteed to never be 0, so it can be
+    /// Valid (non-dangling) [`NotifyID`]s are guaranteed to never be 0, so it can be
     /// used as a sentinel value.
     #[inline(always)]
-    pub fn id(&self) -> u64 {
-        self.counter
+    pub fn id(&self) -> NotifyID {
+        self.id
     }
 
     /// Get mutable access to the inner value without updating the ID.
@@ -120,7 +138,7 @@ impl<T> Notify<T> {
 
     /// Manually update the internal ID without modifying the internals.
     pub fn notify(&mut self) {
-        self.counter = increment_counter();
+        self.id = increment_counter();
     }
 }
 
@@ -132,7 +150,7 @@ impl<T> AsRef<T> for Notify<T> {
 
 impl<T> AsMut<T> for Notify<T> {
     fn as_mut(&mut self) -> &mut T {
-        self.counter += 1;
+        self.id = increment_counter();
 
         &mut self.value
     }
@@ -154,13 +172,21 @@ impl<T> core::ops::Deref for Notify<T> {
 
 impl<T> core::ops::DerefMut for Notify<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.counter += 1;
+        self.id = increment_counter();
 
         &mut self.value
     }
 }
 
 impl<T: Copy> Copy for Notify<T> {}
+
+impl<T> PartialEq for Notify<T> {
+    fn eq(&self, other: &Self) -> bool {
+        // under normal usage, it is not possible that the inner value
+        // can change without incrementing the counter
+        self.id == other.id
+    }
+}
 
 impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
     fn diff<E: super::EventQueue>(
@@ -169,7 +195,7 @@ impl<T: RealtimeClone + Send + Sync + 'static> Diff for Notify<T> {
         path: super::PathBuilder,
         event_queue: &mut E,
     ) {
-        if self.counter != baseline.counter {
+        if self.id != baseline.id {
             event_queue.push_param(ParamData::any(self.clone()), path);
         }
     }
@@ -186,14 +212,6 @@ impl<T: RealtimeClone + Send + Sync + 'static> Patch for Notify<T> {
 
     fn apply(&mut self, patch: Self::Patch) {
         *self = patch;
-    }
-}
-
-impl<T> PartialEq for Notify<T> {
-    fn eq(&self, other: &Self) -> bool {
-        // under normal usage, it is not possible that the inner value
-        // can change without incrementing the counter
-        self.counter == other.counter
     }
 }
 

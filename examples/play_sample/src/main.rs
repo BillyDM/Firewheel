@@ -67,24 +67,30 @@ fn main() {
     sampler_node.start_or_restart();
     cx.queue_event_for(sampler_id, sampler_node.sync_play_event());
 
-    // Manually set the shared playback flag. This is needed to account for the delay
-    // between sending a play event and the node's processor receiving that event.
-    cx.node_state::<SamplerState>(sampler_id)
-        .unwrap()
-        .mark_playing();
+    // Get the playback ID after calling `start_or_restart()` to detect when the
+    // sample has finished playing.
+    let playback_id = sampler_node.playback_id();
 
     // --- Simulated update loop ---------------------------------------------------------
 
     loop {
-        if cx.node_state::<SamplerState>(sampler_id).unwrap().stopped() {
-            // Sample has finished playing.
-            break;
-        }
-
         // Update the firewheel context.
         // This must be called regularly (i.e. once every frame).
         if let Err(e) = cx.update() {
             tracing::error!("{:?}", &e);
+        }
+
+        // Using `playback_id_has_finished()` is more reliable than using
+        // `SamplerState::stopped()` since it takes into account the delay
+        // between when the play event is created and when the sampler node
+        // receives the event.
+        if cx
+            .node_state::<SamplerState>(sampler_id)
+            .unwrap()
+            .playback_id_has_finished(playback_id)
+        {
+            // Sample has finished playing.
+            break;
         }
 
         // Log any stream errors/warnings that have occurred.

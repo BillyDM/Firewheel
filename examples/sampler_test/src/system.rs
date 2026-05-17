@@ -176,14 +176,14 @@ impl AudioSystem {
         self.cx
             .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
             .unwrap()
-            .playing()
+            .currently_playing()
     }
 
     pub fn is_paused(&self, sampler_i: usize) -> bool {
         self.cx
             .node_state::<SamplerState>(self.samplers[sampler_i].node_id)
             .unwrap()
-            .paused()
+            .currently_paused()
     }
 
     pub fn update(&mut self) {

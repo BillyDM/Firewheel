@@ -80,6 +80,7 @@ pub trait FxChain: Default {
 struct Worker<N: PoolableNode, FX: FxChain> {
     first_node_params: N::AudioNode,
     first_node_id: NodeID,
+    additional_state: N::AdditionalNodeState,
 
     fx_state: FxChainState<FX>,
 
@@ -130,6 +131,8 @@ impl Default for WorkerID {
 pub trait PoolableNode {
     /// The node parameters
     type AudioNode: AudioNode + Clone + 'static;
+    /// Additional state to store for each node
+    type AdditionalNodeState: Default + 'static;
 
     /// Return `true` if the given parameters signify that the sequence is stopped,
     /// `false` otherwise.
@@ -137,7 +140,12 @@ pub trait PoolableNode {
     /// Return `true` if the node state of the given node is stopped.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn node_is_stopped(node_id: NodeID, cx: &FirewheelContext) -> Result<bool, PoolError>;
+    fn node_is_stopped(
+        node_id: NodeID,
+        params: &Self::AudioNode,
+        additional_state: &mut Self::AdditionalNodeState,
+        cx: &mut FirewheelContext,
+    ) -> Result<bool, PoolError>;
 
     /// Return a score of how ready this node is to accept new work.
     ///
@@ -147,11 +155,17 @@ pub trait PoolableNode {
     fn worker_score(
         params: &Self::AudioNode,
         node_id: NodeID,
+        additional_state: &mut Self::AdditionalNodeState,
         cx: &mut FirewheelContext,
     ) -> Result<u64, PoolError>;
 
     /// Diff the new parameters and push the changes into the event queue.
-    fn diff(baseline: &Self::AudioNode, new: &Self::AudioNode, event_queue: &mut ContextQueue);
+    fn diff(
+        baseline: &Self::AudioNode,
+        new: &Self::AudioNode,
+        additional_state: &mut Self::AdditionalNodeState,
+        event_queue: &mut ContextQueue,
+    );
 
     /// Notify the node state that a sequence is playing.
     ///
@@ -159,14 +173,19 @@ pub trait PoolableNode {
     /// and the node receiving the event.
     ///
     /// Return an error if the given `node_id` is invalid.
-    fn mark_playing(node_id: NodeID, cx: &mut FirewheelContext) -> Result<(), PoolError>;
+    fn mark_playing(
+        node_id: NodeID,
+        params: &Self::AudioNode,
+        additional_state: &mut Self::AdditionalNodeState,
+        cx: &mut FirewheelContext,
+    ) -> Result<(), PoolError>;
 
     /// Pause the sequence in the node parameters
-    fn pause(params: &mut Self::AudioNode);
+    fn pause(params: &mut Self::AudioNode, additional_state: &mut Self::AdditionalNodeState);
     /// Resume the sequence in the node parameters
-    fn resume(params: &mut Self::AudioNode);
+    fn resume(params: &mut Self::AudioNode, additional_state: &mut Self::AdditionalNodeState);
     /// Stop the sequence in the node parameters
-    fn stop(params: &mut Self::AudioNode);
+    fn stop(params: &mut Self::AudioNode, additional_state: &mut Self::AdditionalNodeState);
 }
 
 /// A pool of audio node chains that can dynamically be assigned work.
@@ -243,6 +262,7 @@ where
                 workers.push(Worker {
                     first_node_params: first_node.clone(),
                     first_node_id,
+                    additional_state: Default::default(),
                     fx_state: FxChainState { fx_chain, node_ids },
                     assigned_worker_id: None,
                 });
@@ -302,14 +322,19 @@ where
 
         let mut idx = 0;
         let mut max_score = 0;
-        for (i, worker) in self.workers.iter().enumerate() {
+        for (i, worker) in self.workers.iter_mut().enumerate() {
             if worker.assigned_worker_id.is_none() {
                 idx = i;
                 break;
             }
 
-            let score =
-                N::worker_score(&worker.first_node_params, worker.first_node_id, cx).unwrap();
+            let score = N::worker_score(
+                &worker.first_node_params,
+                worker.first_node_id,
+                &mut worker.additional_state,
+                cx,
+            )
+            .unwrap();
 
             if score == u64::MAX {
                 idx = i;
@@ -330,7 +355,14 @@ where
         let was_playing_sequence = if let Some(old_worker_id) = old_worker_id {
             self.worker_ids.remove(old_worker_id.0);
 
-            !(N::params_stopped(params) || N::node_is_stopped(worker.first_node_id, cx).unwrap())
+            !(N::params_stopped(params)
+                || N::node_is_stopped(
+                    worker.first_node_id,
+                    &worker.first_node_params,
+                    &mut worker.additional_state,
+                    cx,
+                )
+                .unwrap())
         } else {
             false
         };
@@ -343,13 +375,24 @@ where
         #[cfg(feature = "scheduled_events")]
         let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-        N::diff(&worker.first_node_params, params, &mut event_queue);
+        N::diff(
+            &worker.first_node_params,
+            params,
+            &mut worker.additional_state,
+            &mut event_queue,
+        );
 
         (first_node)(&mut event_queue);
 
         worker.first_node_params = params.clone();
 
-        N::mark_playing(worker.first_node_id, cx).unwrap();
+        N::mark_playing(
+            worker.first_node_id,
+            &worker.first_node_params,
+            &mut worker.additional_state,
+            cx,
+        )
+        .unwrap();
 
         (fx_chain)(&mut worker.fx_state, cx);
 
@@ -397,7 +440,12 @@ where
         #[cfg(feature = "scheduled_events")]
         let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-        N::diff(&worker.first_node_params, params, &mut event_queue);
+        N::diff(
+            &worker.first_node_params,
+            params,
+            &mut worker.additional_state,
+            &mut event_queue,
+        );
 
         (first_node)(&mut event_queue);
 
@@ -496,14 +544,19 @@ where
         let worker = &mut self.workers[idx];
 
         let mut new_params = worker.first_node_params.clone();
-        N::pause(&mut new_params);
+        N::pause(&mut new_params, &mut worker.additional_state);
 
         #[cfg(not(feature = "scheduled_events"))]
         let mut event_queue = cx.event_queue(worker.first_node_id);
         #[cfg(feature = "scheduled_events")]
         let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-        N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+        N::diff(
+            &worker.first_node_params,
+            &new_params,
+            &mut worker.additional_state,
+            &mut event_queue,
+        );
 
         true
     }
@@ -530,14 +583,19 @@ where
         let worker = &mut self.workers[idx];
 
         let mut new_params = worker.first_node_params.clone();
-        N::resume(&mut new_params);
+        N::resume(&mut new_params, &mut worker.additional_state);
 
         #[cfg(not(feature = "scheduled_events"))]
         let mut event_queue = cx.event_queue(worker.first_node_id);
         #[cfg(feature = "scheduled_events")]
         let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-        N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+        N::diff(
+            &worker.first_node_params,
+            &new_params,
+            &mut worker.additional_state,
+            &mut event_queue,
+        );
 
         true
     }
@@ -566,14 +624,19 @@ where
         let worker = &mut self.workers[idx];
 
         let mut new_params = worker.first_node_params.clone();
-        N::stop(&mut new_params);
+        N::stop(&mut new_params, &mut worker.additional_state);
 
         #[cfg(not(feature = "scheduled_events"))]
         let mut event_queue = cx.event_queue(worker.first_node_id);
         #[cfg(feature = "scheduled_events")]
         let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-        N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+        N::diff(
+            &worker.first_node_params,
+            &new_params,
+            &mut worker.additional_state,
+            &mut event_queue,
+        );
 
         self.worker_ids.remove(worker_id.0);
         worker.assigned_worker_id = None;
@@ -595,14 +658,19 @@ where
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
                 let mut new_params = worker.first_node_params.clone();
-                N::pause(&mut new_params);
+                N::pause(&mut new_params, &mut worker.additional_state);
 
                 #[cfg(not(feature = "scheduled_events"))]
                 let mut event_queue = cx.event_queue(worker.first_node_id);
                 #[cfg(feature = "scheduled_events")]
                 let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-                N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+                N::diff(
+                    &worker.first_node_params,
+                    &new_params,
+                    &mut worker.additional_state,
+                    &mut event_queue,
+                );
             }
         }
     }
@@ -620,14 +688,19 @@ where
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
                 let mut new_params = worker.first_node_params.clone();
-                N::resume(&mut new_params);
+                N::resume(&mut new_params, &mut worker.additional_state);
 
                 #[cfg(not(feature = "scheduled_events"))]
                 let mut event_queue = cx.event_queue(worker.first_node_id);
                 #[cfg(feature = "scheduled_events")]
                 let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-                N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+                N::diff(
+                    &worker.first_node_params,
+                    &new_params,
+                    &mut worker.additional_state,
+                    &mut event_queue,
+                );
             }
         }
     }
@@ -645,14 +718,19 @@ where
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
                 let mut new_params = worker.first_node_params.clone();
-                N::stop(&mut new_params);
+                N::stop(&mut new_params, &mut worker.additional_state);
 
                 #[cfg(not(feature = "scheduled_events"))]
                 let mut event_queue = cx.event_queue(worker.first_node_id);
                 #[cfg(feature = "scheduled_events")]
                 let mut event_queue = cx.event_queue_scheduled(worker.first_node_id, time);
 
-                N::diff(&worker.first_node_params, &new_params, &mut event_queue);
+                N::diff(
+                    &worker.first_node_params,
+                    &new_params,
+                    &mut worker.additional_state,
+                    &mut event_queue,
+                );
 
                 worker.assigned_worker_id = None;
             }
@@ -710,10 +788,19 @@ where
 
     /// Returns `true` if the sequence has either not started playing yet or has finished
     /// playing.
-    pub fn has_stopped(&self, worker_id: WorkerID, cx: &FirewheelContext) -> bool {
+    pub fn has_stopped(&mut self, worker_id: WorkerID, cx: &mut FirewheelContext) -> bool {
         self.worker_ids
             .get(worker_id.0)
-            .map(|idx| N::node_is_stopped(self.workers[*idx].first_node_id, cx).unwrap())
+            .map(|idx| {
+                let worker = &mut self.workers[*idx];
+                N::node_is_stopped(
+                    worker.first_node_id,
+                    &worker.first_node_params,
+                    &mut worker.additional_state,
+                    cx,
+                )
+                .unwrap()
+            })
             .unwrap_or(true)
     }
 
@@ -721,13 +808,20 @@ where
     /// workers which have finished playing.
     ///
     /// Calling this method is optional.
-    pub fn poll(&mut self, cx: &FirewheelContext) -> PollResult {
+    pub fn poll(&mut self, cx: &mut FirewheelContext) -> PollResult {
         self.num_active_workers = 0;
         let mut finished_workers = SmallVec::new();
 
         for worker in self.workers.iter_mut() {
             if worker.assigned_worker_id.is_some() {
-                if N::node_is_stopped(worker.first_node_id, cx).unwrap() {
+                if N::node_is_stopped(
+                    worker.first_node_id,
+                    &worker.first_node_params,
+                    &mut worker.additional_state,
+                    cx,
+                )
+                .unwrap()
+                {
                     let id = worker.assigned_worker_id.take().unwrap();
                     self.worker_ids.remove(id.0);
                     finished_workers.push(id);
