@@ -1,34 +1,34 @@
-use firewheel_core::log::RealtimeLogger;
-
 use bevy_platform::time::Instant;
+
+#[cfg(not(feature = "std"))]
+use bevy_platform::prelude::Vec;
 
 use crate::context::FirewheelBitFlags;
 use crate::graph::CompiledSchedule;
 
 #[cfg(feature = "node_profiling")]
-use crate::processor::BufferOutOfSpaceMode;
-#[cfg(feature = "node_profiling")]
 use firewheel_core::node::NodeID;
 
 pub(crate) fn profiler_channel(
-    #[cfg(feature = "node_profiling")] node_capacity: usize,
-    #[cfg(feature = "node_profiling")] buffer_out_of_space_mode: BufferOutOfSpaceMode,
+    node_capacity: usize,
     #[cfg(feature = "node_profiling")] graph_out_node_id: NodeID,
 ) -> (ProfilerTx, ProfilerRx) {
     let (buffer_tx, buffer_rx) =
         triple_buffer::TripleBuffer::new(&ProfilingData::with_node_capacity(
             #[cfg(feature = "node_profiling")]
             node_capacity,
+            #[cfg(feature = "node_profiling")]
+            graph_out_node_id,
         ))
         .split();
 
     let now = Instant::now();
 
-    #[cfg(feature = "node_profiling")]
-    let mut nodes = Vec::with_capacity(node_capacity);
-    #[cfg(feature = "node_profiling")]
+    #[allow(unused_mut)]
+    let mut heap_data = ProfilerHeapData::new(node_capacity, false);
     // Initialize the list of nodes with the graph output node.
-    nodes.push(NodeProfileData {
+    #[cfg(feature = "node_profiling")]
+    heap_data.nodes.push(NodeProfileData {
         node_id: graph_out_node_id,
         cpu_usage: 0.0,
     });
@@ -44,18 +44,9 @@ pub(crate) fn profiler_channel(
             bookkeeping_cpu_usage_sum: 0.0,
             is_profiling_bookkeeping: false,
             bookkeeping_start_instant: now,
-            #[cfg(feature = "node_profiling")]
-            nodes,
-            #[cfg(feature = "node_profiling")]
-            node_cpu_sums: Vec::with_capacity(node_capacity),
-            #[cfg(feature = "node_profiling")]
-            node_capacity,
-            #[cfg(feature = "node_profiling")]
-            has_enough_node_capacity: true,
+            heap_data,
             #[cfg(feature = "node_profiling")]
             is_profiling_nodes: false,
-            #[cfg(feature = "node_profiling")]
-            buffer_out_of_space_mode,
             #[cfg(feature = "node_profiling")]
             node_profile_start_instant: now,
             #[cfg(feature = "node_profiling")]
@@ -77,80 +68,82 @@ pub(crate) struct ProfilerTx {
     is_profiling_bookkeeping: bool,
     bookkeeping_start_instant: Instant,
 
-    #[cfg(feature = "node_profiling")]
-    nodes: Vec<NodeProfileData>,
-    #[cfg(feature = "node_profiling")]
-    node_cpu_sums: Vec<f64>,
-    #[cfg(feature = "node_profiling")]
-    node_capacity: usize,
-    #[cfg(feature = "node_profiling")]
-    has_enough_node_capacity: bool,
+    heap_data: ProfilerHeapData,
+
     #[cfg(feature = "node_profiling")]
     is_profiling_nodes: bool,
-    #[cfg(feature = "node_profiling")]
-    buffer_out_of_space_mode: BufferOutOfSpaceMode,
     #[cfg(feature = "node_profiling")]
     node_profile_start_instant: Instant,
     #[cfg(feature = "node_profiling")]
     node_schedule_index: usize,
 }
 
-impl ProfilerTx {
-    pub fn new_schedule(&mut self, schedule: &CompiledSchedule, logger: &mut RealtimeLogger) {
+pub(crate) struct ProfilerHeapData {
+    #[cfg(feature = "node_profiling")]
+    nodes: Vec<NodeProfileData>,
+    #[cfg(feature = "node_profiling")]
+    node_cpu_sums: Vec<f64>,
+    #[cfg(feature = "node_profiling")]
+    triple_buf_allocations: [Vec<NodeProfileData>; 3],
+}
+
+impl ProfilerHeapData {
+    pub fn new(node_capacity: usize, triple_buf_allocations: bool) -> Self {
         #[cfg(not(feature = "node_profiling"))]
-        {
-            let _ = schedule;
-            let _ = logger;
+        let _ = node_capacity;
+        #[cfg(not(feature = "node_profiling"))]
+        let _ = triple_buf_allocations;
+
+        Self {
+            #[cfg(feature = "node_profiling")]
+            nodes: Vec::with_capacity(node_capacity),
+            #[cfg(feature = "node_profiling")]
+            node_cpu_sums: Vec::with_capacity(node_capacity),
+            #[cfg(feature = "node_profiling")]
+            triple_buf_allocations: if triple_buf_allocations {
+                [
+                    Vec::with_capacity(node_capacity),
+                    Vec::with_capacity(node_capacity),
+                    Vec::with_capacity(node_capacity),
+                ]
+            } else {
+                [Vec::new(), Vec::new(), Vec::new()]
+            },
+        }
+    }
+}
+
+impl ProfilerTx {
+    pub fn new_schedule(
+        &mut self,
+        schedule: &CompiledSchedule,
+        new_heap_data: &mut Option<ProfilerHeapData>,
+    ) {
+        #[cfg(not(feature = "node_profiling"))]
+        let _ = schedule;
+
+        if let Some(new_heap_data) = new_heap_data.as_mut() {
+            core::mem::swap(&mut self.heap_data, new_heap_data);
         }
 
         #[cfg(feature = "node_profiling")]
         {
-            let num_nodes = schedule.num_nodes();
+            self.heap_data.nodes.clear();
+            self.heap_data.node_cpu_sums.clear();
 
-            // TODO: Try to re-use old data.
-            self.nodes.clear();
-            self.node_cpu_sums.clear();
+            let graph_in_node_id = schedule.graph_in_node_id();
 
-            if self.node_capacity < num_nodes {
-                // TODO: A new Vec should just be sent via ScheduleHeapData instead of dealing
-                // with buffer out of space logic.
-                match self.buffer_out_of_space_mode {
-                    BufferOutOfSpaceMode::AllocateOnAudioThread => {
-                        let _ = logger.try_error("Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity to avoid audio glitches.");
-
-                        self.node_capacity = (num_nodes * 2).next_power_of_two();
-                        self.nodes.reserve(self.node_capacity);
-                        self.node_cpu_sums.reserve(self.node_capacity);
-                        self.has_enough_node_capacity = true;
-                    }
-                    BufferOutOfSpaceMode::Panic => {
-                        panic!(
-                            "Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity."
-                        );
-                    }
-                    BufferOutOfSpaceMode::DropEvents => {
-                        let _ = logger.try_error("Firewheel node profiling buffer is full! Please increase FirewheelConfig::initial_node_capacity.");
-                        self.has_enough_node_capacity = false;
-                    }
-                }
-            } else {
-                self.has_enough_node_capacity = true;
-            }
-
-            if self.has_enough_node_capacity {
-                let graph_in_node_id = schedule.graph_in_node_id();
-
-                self.nodes.extend(
-                    schedule
-                        .iter_node_ids()
-                        // Don't count the graph input node since it is processed separately.
-                        .filter(|node_id| *node_id != graph_in_node_id)
-                        .map(|node_id| NodeProfileData {
-                            node_id,
-                            cpu_usage: 0.0,
-                        }),
-                );
-            }
+            self.heap_data.nodes.extend(
+                schedule
+                    .iter_node_ids()
+                    // Don't count the graph input node since it is processed separately.
+                    .filter(|node_id| *node_id != graph_in_node_id)
+                    .map(|node_id| NodeProfileData {
+                        node_id,
+                        // TODO: Try to re-use old cpu usage data.
+                        cpu_usage: 0.0,
+                    }),
+            );
         }
     }
 
@@ -175,11 +168,10 @@ impl ProfilerTx {
 
         #[cfg(feature = "node_profiling")]
         {
-            let new_is_profiling_nodes =
-                flags.contains(FirewheelBitFlags::PROFILE_NODES) && self.has_enough_node_capacity;
+            let new_is_profiling_nodes = flags.contains(FirewheelBitFlags::PROFILE_NODES);
 
             if new_is_profiling_nodes && !self.is_profiling_nodes {
-                for node in self.nodes.iter_mut() {
+                for node in self.heap_data.nodes.iter_mut() {
                     node.cpu_usage = 0.0;
                 }
             }
@@ -187,8 +179,10 @@ impl ProfilerTx {
             self.is_profiling_nodes = new_is_profiling_nodes;
 
             if self.is_profiling_nodes {
-                self.node_cpu_sums.clear();
-                self.node_cpu_sums.resize(self.nodes.len(), 0.0);
+                self.heap_data.node_cpu_sums.clear();
+                self.heap_data
+                    .node_cpu_sums
+                    .resize(self.heap_data.nodes.len(), 0.0);
             }
         }
     }
@@ -229,7 +223,7 @@ impl ProfilerTx {
                 .duration_since(self.node_profile_start_instant)
                 .as_secs_f64()
                 * self.total_cpu_seconds_recip;
-            self.node_cpu_sums[self.node_schedule_index] += node_cpu_usage;
+            self.heap_data.node_cpu_sums[self.node_schedule_index] += node_cpu_usage;
 
             self.node_profile_start_instant = new_profile_instant;
             self.node_schedule_index += 1;
@@ -243,7 +237,12 @@ impl ProfilerTx {
 
         #[cfg(feature = "node_profiling")]
         if self.is_profiling_nodes {
-            for (node, &sum) in self.nodes.iter_mut().zip(self.node_cpu_sums.iter()) {
+            for (node, &sum) in self
+                .heap_data
+                .nodes
+                .iter_mut()
+                .zip(self.heap_data.node_cpu_sums.iter())
+            {
                 node.cpu_usage = node.cpu_usage.max(sum);
             }
         }
@@ -276,12 +275,21 @@ impl ProfilerTx {
                     .then_some(self.bookkeeping_cpu_usage);
 
                 #[cfg(feature = "node_profiling")]
-                data.nodes.clear();
-
-                #[cfg(feature = "node_profiling")]
                 if self.is_profiling_nodes {
-                    data.nodes.reserve(self.node_capacity);
-                    data.nodes.extend_from_slice(&self.nodes);
+                    if data.nodes.capacity() < self.heap_data.nodes.len()
+                        && let Some(new_vec) = self
+                            .heap_data
+                            .triple_buf_allocations
+                            .iter_mut()
+                            .find(|v| v.capacity() >= self.heap_data.nodes.len())
+                    {
+                        core::mem::swap(&mut data.nodes, new_vec);
+                    }
+
+                    data.nodes.clear();
+                    data.nodes.extend_from_slice(&self.heap_data.nodes);
+                } else {
+                    data.nodes.clear();
                 }
             }
 
@@ -293,7 +301,7 @@ impl ProfilerTx {
 
             #[cfg(feature = "node_profiling")]
             if self.is_profiling_nodes {
-                for node in self.nodes.iter_mut() {
+                for node in self.heap_data.nodes.iter_mut() {
                     node.cpu_usage = 0.0;
                 }
             }
@@ -356,13 +364,24 @@ pub struct ProfilingData {
 }
 
 impl ProfilingData {
-    fn with_node_capacity(#[cfg(feature = "node_profiling")] node_capacity: usize) -> Self {
+    fn with_node_capacity(
+        #[cfg(feature = "node_profiling")] node_capacity: usize,
+        #[cfg(feature = "node_profiling")] graph_out_id: NodeID,
+    ) -> Self {
+        #[cfg(feature = "node_profiling")]
+        let mut nodes = Vec::with_capacity(node_capacity);
+        #[cfg(feature = "node_profiling")]
+        nodes.push(NodeProfileData {
+            node_id: graph_out_id,
+            cpu_usage: 0.0,
+        });
+
         Self {
             version: 0,
             overall_cpu_usage: 0.0,
             engine_bookkeeping_cpu_usage: None,
             #[cfg(feature = "node_profiling")]
-            nodes: vec![NodeProfileData::default(); node_capacity],
+            nodes,
         }
     }
 }

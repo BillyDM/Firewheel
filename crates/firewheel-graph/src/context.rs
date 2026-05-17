@@ -347,12 +347,7 @@ impl FirewheelContext {
 
         let (logger, logger_rx) = firewheel_core::log::realtime_logger(config.logger_config);
         let (profiler_tx, profiler_rx) = crate::processor::profiling::profiler_channel(
-            #[cfg(feature = "node_profiling")]
-            {
-                config.initial_node_capacity as usize
-            },
-            #[cfg(feature = "node_profiling")]
-            config.buffer_out_of_space_mode,
+            config.initial_node_capacity as usize,
             #[cfg(feature = "node_profiling")]
             graph.graph_out_node(),
         );

@@ -11,6 +11,8 @@ use firewheel_core::{
     node::{AudioNodeProcessor, ProcBuffers, ProcessStatus},
 };
 
+use crate::processor::profiling::ProfilerHeapData;
+
 use super::{InsertedSum, NodeID};
 
 #[cfg(not(feature = "std"))]
@@ -183,6 +185,7 @@ pub struct ScheduleHeapData {
     pub(crate) removed_nodes: Vec<NodeHeapData>,
     pub(crate) new_node_processors: Vec<NodeHeapData>,
     pub(crate) new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
+    pub(crate) new_profiler_heap_data: Option<ProfilerHeapData>,
 }
 
 impl ScheduleHeapData {
@@ -191,6 +194,7 @@ impl ScheduleHeapData {
         nodes_to_remove: Vec<NodeID>,
         new_node_processors: Vec<NodeHeapData>,
         new_node_arena: Option<Arena<crate::processor::NodeEntry>>,
+        new_profiler_heap_data: Option<ProfilerHeapData>,
     ) -> Self {
         let num_nodes_to_remove = nodes_to_remove.len();
 
@@ -200,6 +204,7 @@ impl ScheduleHeapData {
             removed_nodes: Vec::with_capacity(num_nodes_to_remove),
             new_node_processors,
             new_node_arena,
+            new_profiler_heap_data,
         }
     }
 }
@@ -356,11 +361,6 @@ impl CompiledSchedule {
                 },
             );
         }
-    }
-
-    #[cfg(feature = "node_profiling")]
-    pub(crate) fn num_nodes(&self) -> usize {
-        self.pre_proc_nodes.len() + self.schedule.len()
     }
 
     pub(crate) fn buffer_capacity(&self) -> usize {

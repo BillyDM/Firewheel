@@ -143,8 +143,10 @@ impl FirewheelProcessorInner {
                 .remove_events_from_removed_nodes(&self.nodes);
         }
 
-        self.profiler_tx
-            .new_schedule(&new_schedule_data.schedule, &mut self.extra.logger);
+        self.profiler_tx.new_schedule(
+            &new_schedule_data.schedule,
+            &mut new_schedule_data.new_profiler_heap_data,
+        );
 
         self.schedule_data = Some(new_schedule_data);
     }

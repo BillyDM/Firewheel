@@ -18,6 +18,7 @@ use thunderdome::Arena;
 use crate::FirewheelConfig;
 use crate::error::{AddEdgeError, CompileGraphError, RemoveNodeError};
 use crate::graph::dummy_node::{DummyNode, DummyNodeConfig};
+use crate::processor::profiling::ProfilerHeapData;
 use firewheel_core::node::{
     AudioNode, AudioNodeInfo, AudioNodeInfoInner, Constructor, DynAudioNode, NodeID,
 };
@@ -712,11 +713,15 @@ impl AudioGraph {
             &mut nodes_to_remove,
         );
 
-        let new_arena = if self.nodes.capacity() > self.prev_node_arena_capacity {
-            Some(Arena::with_capacity(self.nodes.capacity()))
-        } else {
-            None
-        };
+        let (new_arena, new_profiler_heap_data) =
+            if self.nodes.capacity() > self.prev_node_arena_capacity {
+                (
+                    Some(Arena::with_capacity(self.nodes.capacity())),
+                    Some(ProfilerHeapData::new(self.nodes.capacity(), true)),
+                )
+            } else {
+                (None, None)
+            };
         self.prev_node_arena_capacity = self.nodes.capacity();
 
         let schedule_data = Box::new(ScheduleHeapData::new(
@@ -724,6 +729,7 @@ impl AudioGraph {
             nodes_to_remove,
             new_node_processors,
             new_arena,
+            new_profiler_heap_data,
         ));
 
         self.needs_compile = false;
