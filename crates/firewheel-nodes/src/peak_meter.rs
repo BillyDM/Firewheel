@@ -1,12 +1,11 @@
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-use bevy_platform::sync::atomic::Ordering;
+use bevy_platform::sync::{Arc, atomic::Ordering};
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     atomic_float::AtomicF32,
     channel_config::{ChannelConfig, ChannelCount},
-    collector::ArcGc,
     diff::{Diff, Patch},
     dsp::volume::{DbMeterNormalizer, amp_to_db},
     event::ProcEvents,
@@ -181,7 +180,7 @@ pub type PeakMeterStereoState = PeakMeterState<2>;
 /// The state of a [`PeakMeterNode`]. This contains the calculated peak values.
 #[derive(Clone)]
 pub struct PeakMeterState<const NUM_CHANNELS: usize = 2> {
-    shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
+    shared_state: Arc<SharedState<NUM_CHANNELS>>,
 }
 
 impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
@@ -190,7 +189,7 @@ impl<const NUM_CHANNELS: usize> PeakMeterState<NUM_CHANNELS> {
         assert!(NUM_CHANNELS <= 64);
 
         Self {
-            shared_state: ArcGc::new(SharedState {
+            shared_state: Arc::new(SharedState {
                 peak_gains: core::array::from_fn(|_| AtomicF32::new(0.0)),
             }),
         }
@@ -232,7 +231,7 @@ impl<const NUM_CHANNELS: usize> AudioNode for PeakMeterNode<NUM_CHANNELS> {
     ) -> Result<impl AudioNodeProcessor, NodeError> {
         Ok(Processor {
             params: *self,
-            shared_state: ArcGc::clone(
+            shared_state: Arc::clone(
                 &cx.custom_state::<PeakMeterState<NUM_CHANNELS>>()
                     .unwrap()
                     .shared_state,
@@ -247,7 +246,7 @@ struct SharedState<const NUM_CHANNELS: usize> {
 
 struct Processor<const NUM_CHANNELS: usize> {
     params: PeakMeterNode<NUM_CHANNELS>,
-    shared_state: ArcGc<SharedState<NUM_CHANNELS>>,
+    shared_state: Arc<SharedState<NUM_CHANNELS>>,
 }
 
 impl<const NUM_CHANNELS: usize> Processor<NUM_CHANNELS> {

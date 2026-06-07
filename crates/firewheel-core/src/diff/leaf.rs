@@ -4,7 +4,7 @@ use super::{Diff, EventQueue, Patch, PatchError, PathBuilder};
 use crate::{
     clock::{DurationSamples, DurationSeconds, InstantSamples, InstantSeconds},
     collector::ArcGc,
-    diff::{Notify, RealtimeClone},
+    diff::{Notify, RealtimeClone, notify::NotifyID},
     dsp::volume::Volume,
     event::{NodeEventType, ParamData},
     vector::{Vec2, Vec3},
@@ -221,7 +221,7 @@ impl<T: Send + Sync + RealtimeClone + PartialEq + 'static> Patch for Option<T> {
 impl Diff for Notify<()> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
-            event_queue.push_param(ParamData::U64(self.id()), path);
+            event_queue.push_param(ParamData::U64(self.id().0), path);
         }
     }
 }
@@ -231,7 +231,7 @@ impl Patch for Notify<()> {
 
     fn patch(data: &ParamData, _: &[u32]) -> Result<Self::Patch, PatchError> {
         match data {
-            ParamData::U64(counter) => Ok(Notify::from_raw((), *counter)),
+            ParamData::U64(id) => Ok(Notify::from_raw((), NotifyID(*id))),
             _ => Err(PatchError::InvalidData),
         }
     }
@@ -245,8 +245,8 @@ impl Diff for Notify<bool> {
     fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
         if self != baseline {
             let mut bytes: [u8; 20] = [0; 20];
-            bytes[0..8].copy_from_slice(&self.id().to_ne_bytes());
-            bytes[8] = (**self) as u8;
+            bytes[0..size_of::<u64>()].copy_from_slice(&self.id().0.to_ne_bytes());
+            bytes[size_of::<u64>()] = if **self { 1 } else { 0 };
 
             event_queue.push_param(ParamData::CustomBytes(bytes), path);
         }
@@ -259,12 +259,12 @@ impl Patch for Notify<bool> {
     fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
         match data {
             ParamData::CustomBytes(bytes) => {
-                let (counter_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
-                let counter = u64::from_ne_bytes(counter_bytes.try_into().unwrap());
+                let (id_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
+                let id = u64::from_ne_bytes(id_bytes.try_into().unwrap());
 
                 let value = rest_bytes[0] != 0;
 
-                Ok(Notify::from_raw(value, counter))
+                Ok(Notify::from_raw(value, NotifyID(id)))
             }
             _ => Err(PatchError::InvalidData),
         }
@@ -281,7 +281,7 @@ macro_rules! trivial_notify {
             fn diff<E: EventQueue>(&self, baseline: &Self, path: PathBuilder, event_queue: &mut E) {
                 if self != baseline {
                     let mut bytes: [u8; 20] = [0; 20];
-                    bytes[0..8].copy_from_slice(&self.id().to_ne_bytes());
+                    bytes[0..8].copy_from_slice(&self.id().0.to_ne_bytes());
                     let value_bytes = self.to_ne_bytes();
                     bytes[8..8 + value_bytes.len()].copy_from_slice(&value_bytes);
 
@@ -296,13 +296,13 @@ macro_rules! trivial_notify {
             fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, PatchError> {
                 match data {
                     ParamData::CustomBytes(bytes) => {
-                        let (counter_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
-                        let counter = u64::from_ne_bytes(counter_bytes.try_into().unwrap());
+                        let (id_bytes, rest_bytes) = bytes.split_at(size_of::<u64>());
+                        let id = u64::from_ne_bytes(id_bytes.try_into().unwrap());
 
                         let (value_bytes, _) = rest_bytes.split_at(size_of::<$ty>());
                         let value = <$ty>::from_ne_bytes(value_bytes.try_into().unwrap());
 
-                        Ok(Notify::from_raw(value, counter))
+                        Ok(Notify::from_raw(value, NotifyID(id)))
                     }
                     _ => Err(PatchError::InvalidData),
                 }

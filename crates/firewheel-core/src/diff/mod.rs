@@ -219,7 +219,7 @@ mod memo;
 mod notify;
 
 pub use memo::Memo;
-pub use notify::Notify;
+pub use notify::{Notify, NotifyID};
 
 /// Derive macros for diffing and patching.
 pub use firewheel_macros::{Diff, Patch, RealtimeClone};

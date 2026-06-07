@@ -64,7 +64,7 @@ beep_test = []
 # Enables the peak meter node
 peak_meter = []
 # Enables the sampler node
-sampler = ["dep:smallvec", "dep:triple_buf_64"]
+sampler = ["dep:smallvec", "dep:triple_buffer"]
 # Enables the basic 3D spatial positioning node
 spatial_basic = []
 # Enables FastLowpassNode, FastHighpassNode, and FastBandpassNode
@@ -112,5 +112,4 @@ bevy_reflect = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 fft-convolver = { version = "0.3.0", optional = true }
 triple_buffer = { workspace = true, optional = true }
-triple_buf_64 = { workspace = true, optional = true }
 thiserror.workspace = true

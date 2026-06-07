@@ -42,7 +42,7 @@ jobs:
 
             - name: Check no_std build
               run: |
-                  cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, pool, node_profiling, glam-29, glam-30, glam-31"
+                  cargo build --locked --no-default-features --features "libm, scheduled_events, musical_transport, all_nodes_no_std, node_profiling, glam-29, glam-30, glam-31"
 
     # Check formatting.
     format:

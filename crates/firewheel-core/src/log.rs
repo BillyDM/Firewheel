@@ -1,10 +1,9 @@
+use bevy_platform::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
 #[cfg(not(feature = "std"))]
 use bevy_platform::prelude::String;
-
-use crate::collector::ArcGc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -58,7 +57,7 @@ pub fn realtime_logger(config: RealtimeLoggerConfig) -> (RealtimeLogger, Realtim
         error_prod_1.try_push(slot).unwrap();
     }
 
-    let shared_state = ArcGc::new(SharedState {
+    let shared_state = Arc::new(SharedState {
         message_too_long_occurred: AtomicBool::new(false),
         not_enough_slots_occurred: AtomicBool::new(false),
     });
@@ -71,7 +70,7 @@ pub fn realtime_logger(config: RealtimeLoggerConfig) -> (RealtimeLogger, Realtim
             debug_cons: debug_cons_1,
             error_prod: error_prod_2,
             error_cons: error_cons_1,
-            shared_state: ArcGc::clone(&shared_state),
+            shared_state: Arc::clone(&shared_state),
             max_msg_length: config.max_message_length,
         },
         RealtimeLoggerMainThread {
@@ -101,7 +100,7 @@ pub struct RealtimeLogger {
     error_prod: ringbuf::HeapProd<String>,
     error_cons: ringbuf::HeapCons<String>,
 
-    shared_state: ArcGc<SharedState>,
+    shared_state: Arc<SharedState>,
 
     max_msg_length: usize,
 }
@@ -246,7 +245,7 @@ pub struct RealtimeLoggerMainThread {
     error_prod: ringbuf::HeapProd<String>,
     error_cons: ringbuf::HeapCons<String>,
 
-    shared_state: ArcGc<SharedState>,
+    shared_state: Arc<SharedState>,
 }
 
 impl RealtimeLoggerMainThread {

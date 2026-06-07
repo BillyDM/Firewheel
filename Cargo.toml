@@ -29,7 +29,6 @@ std = [
     "firewheel-core/std",
     "firewheel-graph/std",
     "firewheel-nodes/std",
-    "firewheel-pool?/std",
 ]
 # Enable this if "std" is disabled.
 libm = ["firewheel-core/libm", "firewheel-nodes/libm"]
@@ -53,7 +52,6 @@ scheduled_events = [
     "firewheel-core/scheduled_events",
     "firewheel-graph/scheduled_events",
     "firewheel-nodes/scheduled_events",
-    "firewheel-pool?/scheduled_events",
 ]
 # Enables the musical transport feature
 musical_transport = [
@@ -76,9 +74,6 @@ rtaudio = ["std", "firewheel-rtaudio"]
 symphonium = ["dep:firewheel-symphonium"]
 # Enables performance profiling for each individual node.
 node_profiling = ["firewheel-graph/node_profiling"]
-# Enables the `AudioNodePool` helper type for constructing a pool of
-# audio node chains that can dynamically be assigned work.
-pool = ["dep:firewheel-pool"]
 # Enables all built-in factory nodes
 all_nodes = ["firewheel-nodes/all_nodes"]
 # Enables all built-in factory nodes which are no_std compatible
@@ -88,11 +83,10 @@ beep_test_node = ["firewheel-nodes/beep_test"]
 # Enables the peak meter node
 peak_meter_node = ["firewheel-nodes/peak_meter"]
 # Enables the sampler node
-sampler_node = ["firewheel-nodes/sampler", "firewheel-pool?/sampler"]
+sampler_node = ["firewheel-nodes/sampler"]
 # Enables the basic 3D spatial positioning node
 spatial_basic_node = [
     "firewheel-nodes/spatial_basic",
-    "firewheel-pool?/spatial_basic",
 ]
 # Enables the triple buffer node for sending raw audio data from the
 # audio graph to another thread. Useful for cases where you only care
@@ -171,7 +165,6 @@ members = [
     "crates/firewheel-graph",
     "crates/firewheel-nodes",
     "crates/firewheel-macros",
-    "crates/firewheel-pool",
     "crates/firewheel-rtaudio",
     "crates/firewheel-symphonium",
     "examples/beep_test",
@@ -179,7 +172,6 @@ members = [
     "examples/custom_nodes",
     "examples/play_sample",
     "examples/rtaudio_beep_test",
-    "examples/sampler_pool",
     "examples/sampler_test",
     "examples/spatial_basic",
     "examples/stream_nodes",
@@ -197,7 +189,6 @@ ringbuf = { version = "0.4", default-features = false, features = [
     "alloc",
 ] }
 triple_buffer = "9"
-triple_buf_64 = { version = "0.1.1", features = ["portable-atomic"] }
 thiserror = { version = "2", default-features = false }
 smallvec = "1"
 arrayvec = { version = "0.7", default-features = false }
@@ -227,11 +218,10 @@ eframe = { version = "0.33.3", default-features = false, features = [
 ] }
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.10.0", default-features = false }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.10.0", default-features = false }
+firewheel-core = { path = "crates/firewheel-core", version = "0.10.1", default-features = false }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.10.2", default-features = false }
 firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.10.0", default-features = false, optional = true }
 firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.10.0", default-features = false }
-firewheel-pool = { path = "crates/firewheel-pool", version = "0.10.0", default-features = false, optional = true }
 firewheel-symphonium = { path = "crates/firewheel-symphonium", version = "0.10.0", default-features = false, optional = true }
 firewheel-rtaudio = { path = "crates/firewheel-rtaudio", version = "0.10.0", default-features = false, optional = true }
 thunderdome = { workspace = true, optional = true }

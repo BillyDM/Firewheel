@@ -1,6 +1,6 @@
 use bevy_platform::time::Instant;
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "node_profiling", not(feature = "std")))]
 use bevy_platform::prelude::Vec;
 
 use crate::context::FirewheelBitFlags;
