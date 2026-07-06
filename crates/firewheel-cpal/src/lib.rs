@@ -563,6 +563,14 @@ impl CpalStream {
 
         let scratch_capacity = max_block_frames * num_out_channels;
 
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd"
+        ))]
+        let is_alsa = host.id() == HostId::Alsa;
+
         macro_rules! build_output_streams {
             ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
                 match $sample_format {
@@ -583,7 +591,18 @@ impl CpalStream {
                                     }
                                 }
                             },
-                            err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
+                            err_callback(
+                                false,
+                                output_stream_running.clone(),
+                                err_to_cx_tx.clone(),
+                                #[cfg(any(
+                                    target_os = "linux",
+                                    target_os = "freebsd",
+                                    target_os = "dragonfly",
+                                    target_os = "netbsd"
+                                ))]
+                                is_alsa
+                            ),
                             Some(BUILD_STREAM_TIMEOUT),
                         )
                     },)*
@@ -602,7 +621,18 @@ impl CpalStream {
                 move |output: &mut [f32], info: &cpal::OutputCallbackInfo| {
                     callback.callback(output, info);
                 },
-                err_callback(false, output_stream_running.clone(), err_to_cx_tx.clone()),
+                err_callback(
+                    false,
+                    output_stream_running.clone(),
+                    err_to_cx_tx.clone(),
+                    #[cfg(any(
+                        target_os = "linux",
+                        target_os = "freebsd",
+                        target_os = "dragonfly",
+                        target_os = "netbsd"
+                    ))]
+                    is_alsa,
+                ),
                 Some(BUILD_STREAM_TIMEOUT),
             )
         } else {
@@ -886,6 +916,14 @@ fn start_input_stream(
 
     let scratch_capacity = max_block_frames * num_in_channels;
 
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    let is_alsa = host.id() == HostId::Alsa;
+
     macro_rules! build_input_stream {
         ($sample_format:expr, $(($format:path, $primitive_type:ty)),*) => {
             match $sample_format {
@@ -903,7 +941,18 @@ fn start_input_stream(
                                 callback.callback(&scratch[..in_chunk.len()]);
                             }
                         },
-                        err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
+                        err_callback(
+                            true,
+                            input_stream_running.clone(),
+                            err_to_cx_tx.clone(),
+                            #[cfg(any(
+                                target_os = "linux",
+                                target_os = "freebsd",
+                                target_os = "dragonfly",
+                                target_os = "netbsd"
+                            ))]
+                            is_alsa
+                        ),
                         Some(BUILD_STREAM_TIMEOUT),
                     )
                 },)*
@@ -922,7 +971,18 @@ fn start_input_stream(
             move |input: &[f32], _info: &cpal::InputCallbackInfo| {
                 callback.callback(input);
             },
-            err_callback(true, input_stream_running.clone(), err_to_cx_tx.clone()),
+            err_callback(
+                true,
+                input_stream_running.clone(),
+                err_to_cx_tx.clone(),
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "freebsd",
+                    target_os = "dragonfly",
+                    target_os = "netbsd"
+                ))]
+                is_alsa,
+            ),
             Some(BUILD_STREAM_TIMEOUT),
         )
     } else {
@@ -1232,6 +1292,13 @@ fn err_callback(
     is_input: bool,
     is_running: Arc<AtomicBool>,
     err_to_cx_tx: mpsc::Sender<IoStreamError>,
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd"
+    ))]
+    is_alsa: bool,
 ) -> impl FnMut(cpal::Error) + Send + 'static {
     let mut last_underrun_msg_instant: Option<Instant> = None;
 
@@ -1261,6 +1328,25 @@ fn err_callback(
                 true
             }
             _ => false,
+        };
+
+        // Alsa can be very spammy with its warning messages.
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd"
+        ))]
+        let do_send = if do_send
+            && is_alsa
+            && err.kind() != cpal::ErrorKind::StreamInvalidated
+            && let Some(msg) = err.message()
+            // Add more filters here if needed.
+            && msg.contains("snd_pcm_avail_delay")
+        {
+            false
+        } else {
+            do_send
         };
 
         if do_send
