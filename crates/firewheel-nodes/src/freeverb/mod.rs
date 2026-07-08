@@ -124,16 +124,19 @@ impl AudioNode for FreeverbNode {
             freeverb,
             damping: SmoothedParam::new(
                 self.damping.clamp(0.0, 1.0),
+                1.0,
                 smoother_config,
                 cx.stream_info.sample_rate,
             ),
             width: SmoothedParam::new(
                 self.width.clamp(0.0, 1.0),
+                1.0,
                 smoother_config,
                 cx.stream_info.sample_rate,
             ),
             room_size: SmoothedParam::new(
                 self.room_size.clamp(0.0, 1.0),
+                1.0,
                 smoother_config,
                 cx.stream_info.sample_rate,
             ),

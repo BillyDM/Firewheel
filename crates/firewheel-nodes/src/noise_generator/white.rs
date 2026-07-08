@@ -1,6 +1,7 @@
 //! A simple node that generates white noise.
 
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -84,6 +85,7 @@ impl AudioNode for WhiteNoiseGenNode {
             fpd: seed,
             gain: SmoothedParam::new(
                 self.volume.amp_clamped(DEFAULT_MIN_AMP),
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

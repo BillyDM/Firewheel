@@ -3,6 +3,7 @@
 //! Base on the algorithm from <https://www.musicdsp.org/en/latest/Synthesis/244-direct-pink-noise-synthesis-with-auto-correlated-generator.html>
 
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -88,6 +89,7 @@ impl AudioNode for PinkNoiseGenNode {
         Ok(Processor {
             gain: SmoothedParam::new(
                 self.volume.amp_clamped(DEFAULT_MIN_AMP),
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

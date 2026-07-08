@@ -6,6 +6,7 @@ use firewheel_core::channel_config::NonZeroChannelCount;
 use firewheel_core::collector::ArcGc;
 use firewheel_core::event::ProcEvents;
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcInfo};
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::ChannelConfig,
     diff::{Diff, Patch},
@@ -189,7 +190,12 @@ impl AudioNode for ConvolutionNode {
 
         Ok(ConvolutionProcessor {
             params: self.clone(),
-            gain: SmoothedParam::new(self.wet_gain.amp(), smooth_config, sample_rate),
+            gain: SmoothedParam::new(
+                self.wet_gain.amp(),
+                DEFAULT_GAIN_SPAN,
+                smooth_config,
+                sample_rate,
+            ),
             declick: Declicker::SettledAt0,
             convolver,
             max_frames,

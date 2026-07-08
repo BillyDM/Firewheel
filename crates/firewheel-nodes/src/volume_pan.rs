@@ -1,5 +1,6 @@
 pub use super::volume::VolumeNodeConfig;
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -172,6 +173,7 @@ impl AudioNode for VolumePanNode {
         Ok(Processor {
             gain_l: SmoothedParam::new(
                 gain_l,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -180,6 +182,7 @@ impl AudioNode for VolumePanNode {
             ),
             gain_r: SmoothedParam::new(
                 gain_r,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

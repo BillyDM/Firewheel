@@ -8,6 +8,7 @@ use std::f32::consts::PI;
 
 use firewheel::dsp::coeff_update::{CoeffUpdateFactor, CoeffUpdateMask};
 use firewheel::node::NodeError;
+use firewheel::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel::{
     channel_config::{ChannelConfig, ChannelCount},
     diff::{Diff, Patch},
@@ -21,7 +22,7 @@ use firewheel::{
     StreamInfo,
 };
 
-// The node struct holds all of the parameters of the node as plain values.
+/// The node struct holds all of the parameters of the node as plain values.
 ///
 /// # Notes about ECS
 ///
@@ -109,12 +110,20 @@ impl AudioNode for FilterNode {
         Ok(Processor {
             filter_l: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
             filter_r: OnePoleLPBiquad::new(cutoff_hz, sample_rate_recip),
+            // See the documentation of `SmoothedParam` for more information on what
+            // these arguments mean.
             cutoff_hz: SmoothedParam::new(
-                cutoff_hz,
-                Default::default(),
-                cx.stream_info.sample_rate,
+                cutoff_hz,                  // initial_value
+                20_000.0 - 20.0,            // value_span
+                Default::default(),         // config
+                cx.stream_info.sample_rate, // sample_rate
             ),
-            gain: SmoothedParamBuffer::new(gain, Default::default(), cx.stream_info),
+            gain: SmoothedParamBuffer::new(
+                gain,               // initial_value
+                DEFAULT_GAIN_SPAN,  // value_span
+                Default::default(), // config
+                cx.stream_info,     // stream_info
+            ),
             coeff_update_mask: self.coeff_update_factor.mask(),
         })
     }
@@ -127,7 +136,11 @@ struct Processor {
     // A helper struct to smooth a parameter.
     cutoff_hz: SmoothedParam,
     // This is similar to `SmoothedParam`, but it also contains an allocated buffer
-    // for the smoothed values.
+    // for the smoothed values. This uses a bit more memory and may be slighly less
+    // efficient, but it is easier to use since it doesn't need separate code paths
+    // to optimize different smoothing states. While the regular `SmoothedParam`
+    // would suffice here for this simple plugin, this demonstrates how the buffered
+    // variant is used if desired.
     gain: SmoothedParamBuffer,
     coeff_update_mask: CoeffUpdateMask,
 }

@@ -1,4 +1,5 @@
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, Patch},
@@ -189,6 +190,7 @@ impl AudioNode for MixNode {
         Ok(Processor {
             gain_0: SmoothedParam::new(
                 gain_0,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -197,6 +199,7 @@ impl AudioNode for MixNode {
             ),
             gain_1: SmoothedParam::new(
                 gain_1,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

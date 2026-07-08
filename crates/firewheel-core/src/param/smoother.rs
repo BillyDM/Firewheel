@@ -5,10 +5,17 @@ use bevy_platform::prelude::Vec;
 
 use crate::{
     StreamInfo,
-    dsp::filter::smoothing_filter::{self, SmoothingFilter, SmoothingFilterCoeff},
+    dsp::filter::smoothing_filter::{
+        self, MAX_SETTLE_EPSILON, MIN_SETTLE_EPSILON, SmoothingFilter, SmoothingFilterCoeff,
+    },
 };
 
-const MIN_SMOOTH_SECONDS: f32 = 0.00001;
+/// A good default value to use for the `span` argument in [`SmoothedParam::new()`]
+/// when constructing gain/volume parameters.
+///
+/// This causes maximum smoothing to occur when the volume immediately jumps
+/// from 0% to 200% or vice versa.
+pub const DEFAULT_GAIN_SPAN: f32 = 2.0;
 
 /// The configuration for a [`SmoothedParam`]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,11 +24,18 @@ const MIN_SMOOTH_SECONDS: f32 = 0.00001;
 pub struct SmootherConfig {
     /// The amount of smoothing in seconds
     ///
-    /// By default this is set to 5 milliseconds.
+    /// If less than 0.0, then it will be clamped to 0.0.
+    ///
+    /// By default this is set to 23 milliseconds.
     pub smooth_seconds: f32,
     /// The threshold at which the smoothing will complete
     ///
-    /// By default this is set to `0.001`.
+    /// For example `0.01` means that the filter is considered settled if the
+    /// value is within 1% of the total span of the parameter's range.
+    ///
+    /// Will be clamped to the range `[0.00075..0.9]`.
+    ///
+    /// By default this is set to `0.01`.
     pub settle_epsilon: f32,
 }
 
@@ -43,20 +57,43 @@ pub struct SmoothedParam {
     coeff: SmoothingFilterCoeff,
     smooth_secs: f32,
     settle_epsilon: f32,
+    span: f32,
 }
 
 impl SmoothedParam {
     /// Construct a new smoothed f32 parameter with the given configuration.
-    pub fn new(value: f32, config: SmootherConfig, sample_rate: NonZeroU32) -> Self {
-        let smooth_secs = config.smooth_seconds.max(MIN_SMOOTH_SECONDS);
-        let settle_epsilon = config.settle_epsilon.max(f32::EPSILON);
+    ///
+    /// * `initial_value` - The initial target value.
+    /// * `value_span` - The difference between two values where the maximum amount
+    ///   of smoothing will take effect.
+    ///   * If the minimum and maximum values of the parameter are known, then
+    ///     typically `max_value - min_value` should be used.
+    ///   * If the min and/or max values are not known, then use a span value that is
+    ///   typical to be the worst-case-scenario (For example, if creating a "gain"
+    ///   parameter, a good value to use is [`DEFAULT_AMP_SPAN`] (`2.0`) since
+    ///   immediately jumping from 0% volume to 200% volume or vice versa is typically
+    ///   the worst-case-scenario).
+    ///   * This value does not need to be positive.
+    /// * `config` - Extra configuration options for the smoothing filter.
+    /// * `sample_rate` - The sample rate of the stream.
+    pub fn new(
+        initial_value: f32,
+        value_span: f32,
+        config: SmootherConfig,
+        sample_rate: NonZeroU32,
+    ) -> Self {
+        let smooth_secs = config.smooth_seconds.max(0.0);
+        let settle_epsilon = config
+            .settle_epsilon
+            .clamp(MIN_SETTLE_EPSILON, MAX_SETTLE_EPSILON);
 
-        let coeff = SmoothingFilterCoeff::new(sample_rate, smooth_secs);
+        let coeff = SmoothingFilterCoeff::new(sample_rate, smooth_secs, settle_epsilon);
 
         Self {
-            target_value: value,
-            target_times_a: value * coeff.a0,
-            filter: SmoothingFilter::new(value),
+            target_value: initial_value,
+            target_times_a: initial_value * coeff.a0,
+            filter: SmoothingFilter::new(initial_value),
+            span: value_span.abs(),
             coeff,
             smooth_secs,
             settle_epsilon,
@@ -78,7 +115,8 @@ impl SmoothedParam {
     ///
     /// Returns `true` if this filter is settled, `false` if not.
     pub fn settle(&mut self) -> bool {
-        self.filter.settle(self.target_value, self.settle_epsilon)
+        self.filter
+            .settle(self.target_value, self.span, self.settle_epsilon)
     }
 
     /// Returns `true` if this parameter is currently smoothing this process cycle,
@@ -123,20 +161,21 @@ impl SmoothedParam {
             self.filter
                 .process_into_buffer(buffer, self.target_value, self.coeff);
 
-            self.filter.settle(self.target_value, self.settle_epsilon);
+            self.filter
+                .settle(self.target_value, self.span, self.settle_epsilon);
         } else {
             buffer.fill(self.target_value);
         }
     }
 
     pub fn set_smooth_seconds(&mut self, seconds: f32, sample_rate: NonZeroU32) {
-        self.coeff = SmoothingFilterCoeff::new(sample_rate, seconds);
+        self.coeff = SmoothingFilterCoeff::new(sample_rate, seconds, self.settle_epsilon);
         self.smooth_secs = seconds;
     }
 
     /// Update the sample rate.
     pub fn update_sample_rate(&mut self, sample_rate: NonZeroU32) {
-        self.coeff = SmoothingFilterCoeff::new(sample_rate, self.smooth_secs);
+        self.coeff = SmoothingFilterCoeff::new(sample_rate, self.smooth_secs, self.settle_epsilon);
     }
 }
 
@@ -149,14 +188,39 @@ pub struct SmoothedParamBuffer {
 }
 
 impl SmoothedParamBuffer {
-    /// Construct a new smoothed f32 parameter with the given configuration.
-    pub fn new(value: f32, config: SmootherConfig, stream_info: &StreamInfo) -> Self {
+    /// Construct a new smoothed f32 parameter with an internal buffer with the given
+    /// configuration.
+    ///
+    /// * `initial_value` - The initial target value.
+    /// * `value_span` - The difference between two values where the maximum amount
+    ///   of smoothing will take effect.
+    ///   * If the minimum and maximum values of the parameter are known, then
+    ///     typically this would be `max_value - min_value`.
+    ///   * If the min and/or max values are not known, then use a span value that is
+    ///   typical to be the worst-case-scenario (For example, if creating a "gain"
+    ///   parameter, a good value to use is [`DEFAULT_AMP_SPAN`] (`2.0`) since
+    ///   immediately jumping from 0% volume to 200% volume or vice versa is typically
+    ///   the worst-case-scenario).
+    ///   * This value does not need to be positive.
+    /// * `config` - Extra configuration options for the smoothing filter.
+    /// * `stream_info` - The information about the current stream.
+    pub fn new(
+        initial_value: f32,
+        value_span: f32,
+        config: SmootherConfig,
+        stream_info: &StreamInfo,
+    ) -> Self {
         let mut buffer = Vec::new();
         buffer.reserve_exact(stream_info.max_block_frames.get() as usize);
-        buffer.resize(stream_info.max_block_frames.get() as usize, value);
+        buffer.resize(stream_info.max_block_frames.get() as usize, initial_value);
 
         Self {
-            smoother: SmoothedParam::new(value, config, stream_info.sample_rate),
+            smoother: SmoothedParam::new(
+                initial_value,
+                value_span,
+                config,
+                stream_info.sample_rate,
+            ),
             buffer,
             buffer_is_constant: true,
         }

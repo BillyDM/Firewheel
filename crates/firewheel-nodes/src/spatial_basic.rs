@@ -2,6 +2,7 @@
 //! be used for 2D audio.) It does not make use of any fancy binaural algorithms,
 //! rather it just applies basic panning and filtering.
 
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
@@ -226,6 +227,7 @@ impl AudioNode for SpatialBasicNode {
         Ok(Processor {
             gain_l: SmoothedParam::new(
                 computed_values.gain_l,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -234,6 +236,7 @@ impl AudioNode for SpatialBasicNode {
             ),
             gain_r: SmoothedParam::new(
                 computed_values.gain_r,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

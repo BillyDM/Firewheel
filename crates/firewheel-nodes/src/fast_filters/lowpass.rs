@@ -106,6 +106,7 @@ impl<const CHANNELS: usize> AudioNode for FastLowpassNode<CHANNELS> {
             )),
             cutoff_hz: SmoothedParam::new(
                 cutoff_hz,
+                MAX_HZ - MIN_HZ,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

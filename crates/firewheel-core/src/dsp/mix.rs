@@ -5,7 +5,7 @@ use crate::{
     diff::{Diff, EventQueue, Patch, PatchError, PathBuilder},
     dsp::fade::FadeCurve,
     event::ParamData,
-    param::smoother::{SmoothedParam, SmootherConfig},
+    param::smoother::{DEFAULT_GAIN_SPAN, SmoothedParam, SmootherConfig},
 };
 
 /// A value representing the mix between two audio signals (e.g. second/first mix)
@@ -131,8 +131,8 @@ impl MixDSP {
         let (gain_0, gain_1) = mix.compute_gains(fade_curve);
 
         Self {
-            gain_0: SmoothedParam::new(gain_0, config, sample_rate),
-            gain_1: SmoothedParam::new(gain_1, config, sample_rate),
+            gain_0: SmoothedParam::new(gain_0, DEFAULT_GAIN_SPAN, config, sample_rate),
+            gain_1: SmoothedParam::new(gain_1, DEFAULT_GAIN_SPAN, config, sample_rate),
         }
     }
 
