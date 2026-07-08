@@ -65,9 +65,9 @@ pub struct FreeverbNode {
 
     /// Adjusts the time in seconds over which parameters are smoothed.
     ///
-    /// By default this is set to `0.046` (46ms). This value is chosen to where
-    /// the halfway decay point is roughly equal to a typical block size of 1024
-    /// samples (23 ms), which should eliminate the stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
 
     /// An exponent representing the rate at which DSP coefficients are

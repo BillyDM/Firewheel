@@ -27,7 +27,9 @@ pub struct SmootherConfig {
     ///
     /// If less than 0.0, then 0.0 will be used.
     ///
-    /// By default this is set to 23 milliseconds.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
     /// The threshold at which the filter is considered "settled".
     ///

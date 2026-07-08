@@ -5,10 +5,9 @@ use core::num::NonZeroU32;
 
 /// The default number of seconds for a [`Smoothing Filter`].
 ///
-/// This value is chosen to where the halfway decay point is roughly equal to a
-/// typical block size of 1024 samples (23 ms), which should eliminate the stair-stepping
-/// for most games.
-pub const DEFAULT_SMOOTH_SECONDS: f32 = 46.0 / 1_000.0;
+/// This value is chosen to where the stair-stepping effect isn't noticeable for a
+/// typical block size of 1024 samples.
+pub const DEFAULT_SMOOTH_SECONDS: f32 = 62.0 / 1_000.0;
 
 /// The default settle ratio value for a [`SmoothingFilter`].
 pub const DEFAULT_SETTLE_RATIO: f32 = 0.01;
