@@ -5,6 +5,7 @@
 #![allow(clippy::module_inception)]
 
 use firewheel_core::dsp::coeff_update::{CoeffUpdateFactor, CoeffUpdateMask};
+use firewheel_core::dsp::filter::smoothing_filter::DEFAULT_SMOOTH_SECONDS;
 use firewheel_core::node::NodeError;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount},
@@ -64,9 +65,9 @@ pub struct FreeverbNode {
 
     /// Adjusts the time in seconds over which parameters are smoothed.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.046` (46ms). This value is chosen to where
+    /// the halfway decay point is roughly equal to a typical block size of 1024
+    /// samples (23 ms), which should eliminate the stair-stepping for most games.
     pub smooth_seconds: f32,
 
     /// An exponent representing the rate at which DSP coefficients are
@@ -91,7 +92,7 @@ impl Default for FreeverbNode {
             width: 0.5,
             pause: false,
             reset: Notify::new(()),
-            smooth_seconds: 0.015,
+            smooth_seconds: DEFAULT_SMOOTH_SECONDS,
             coeff_update_factor: CoeffUpdateFactor::default(),
         }
     }
@@ -148,6 +149,7 @@ impl AudioNode for FreeverbNode {
             },
             values: DeclickValues::new(cx.stream_info.declick_frames),
             coeff_update_mask: self.coeff_update_factor.mask(),
+            prev_output_was_silent: true,
         };
 
         processor.apply_parameters();
@@ -165,6 +167,7 @@ struct FreeverbProcessor {
     pause_declicker: Declicker,
     values: DeclickValues,
     coeff_update_mask: CoeffUpdateMask,
+    prev_output_was_silent: bool,
 }
 
 impl FreeverbProcessor {
@@ -233,14 +236,15 @@ impl AudioNodeProcessor for FreeverbProcessor {
         let all_silent = info.in_silence_mask.all_channels_silent(2);
 
         if (self.paused && self.pause_declicker.has_settled())
-            || (all_silent && info.prev_output_was_silent)
+            || (all_silent && self.prev_output_was_silent)
         {
             self.reset(false);
 
+            self.prev_output_was_silent = true;
             return ProcessStatus::ClearAllOutputs;
         }
 
-        if !all_silent && info.prev_output_was_silent {
+        if !all_silent && self.prev_output_was_silent {
             // re-apply the parameters
             self.apply_parameters();
         }
@@ -291,7 +295,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
         // We do this before the declicking just to make sure we
         // finish declicking if we're paused simultaneously with the
         // input going silent.
-        if all_silent && !info.prev_output_was_silent {
+        if all_silent && !self.prev_output_was_silent {
             // check the output buffers to see if they pass
             // the threshold for "completely silent"
 
@@ -299,6 +303,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
                 buffers.check_for_silence_on_outputs(DEFAULT_MIN_AMP),
                 ProcessStatus::ClearAllOutputs
             ) {
+                self.prev_output_was_silent = true;
                 return ProcessStatus::ClearAllOutputs;
             }
         }
@@ -322,6 +327,7 @@ impl AudioNodeProcessor for FreeverbProcessor {
         self.width.update_sample_rate(stream_info.sample_rate);
         self.room_size.update_sample_rate(stream_info.sample_rate);
         self.reset(true);
+        self.prev_output_was_silent = true;
     }
 }
 

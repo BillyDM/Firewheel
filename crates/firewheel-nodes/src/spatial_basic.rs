@@ -91,9 +91,9 @@ pub struct SpatialBasicNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.046` (46ms). This value is chosen to where
+    /// the halfway decay point is roughly equal to a typical block size of 1024
+    /// samples (23 ms), which should eliminate the stair-stepping for most games.
     pub smooth_seconds: f32,
     /// If the resulting gain (in raw amplitude, not decibels) is less than or equal
     /// to this value, the the gain will be clamped to `0` (silence).
@@ -252,6 +252,7 @@ impl AudioNode for SpatialBasicNode {
                 self.coeff_update_factor,
             ),
             params: *self,
+            prev_input_settled: true,
         })
     }
 }
@@ -263,6 +264,7 @@ struct Processor {
     distance_attenuator: DistanceAttenuatorStereoDsp,
 
     params: SpatialBasicNode,
+    prev_input_settled: bool,
 }
 
 impl Processor {
@@ -318,8 +320,8 @@ impl AudioNodeProcessor for Processor {
                 self.params.min_gain,
             );
 
-            if info.prev_output_was_silent {
-                // Previous block was silent, so no need to smooth.
+            if self.prev_input_settled {
+                // The previous block's input settled at zero, so no need to smooth.
                 self.reset();
             }
         }
@@ -337,8 +339,11 @@ impl AudioNodeProcessor for Processor {
     ) -> ProcessStatus {
         if info.in_silence_mask.all_channels_silent(2) {
             self.reset();
+            self.prev_input_settled = true;
             return ProcessStatus::ClearAllOutputs;
         }
+
+        self.prev_input_settled = buffers.inputs_settled_at_zero();
 
         let scratch_buffer = extra.scratch_buffers.first_mut();
 

@@ -72,9 +72,9 @@ pub struct MixNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.046` (46ms). This value is chosen to where
+    /// the halfway decay point is roughly equal to a typical block size of 1024
+    /// samples (23 ms), which should eliminate the stair-stepping for most games.
     pub smooth_seconds: f32,
     /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
@@ -208,6 +208,7 @@ impl AudioNode for MixNode {
             ),
             params: *self,
             min_gain,
+            prev_input_settled: true,
         })
     }
 }
@@ -219,6 +220,7 @@ struct Processor {
     params: MixNode,
 
     min_gain: f32,
+    prev_input_settled: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -252,8 +254,8 @@ impl AudioNodeProcessor for Processor {
             self.gain_0.set_value(gain_0);
             self.gain_1.set_value(gain_1);
 
-            if info.prev_output_was_silent {
-                // Previous block was silent, so no need to smooth.
+            if self.prev_input_settled {
+                // The previous block's input settled at zero, so no need to smooth.
                 self.gain_0.reset_to_target();
                 self.gain_1.reset_to_target();
             }
@@ -284,9 +286,12 @@ impl AudioNodeProcessor for Processor {
         {
             self.gain_0.reset_to_target();
             self.gain_1.reset_to_target();
+            self.prev_input_settled = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        self.prev_input_settled = buffers.inputs_settled_at_zero();
 
         let mut out_silence_mask = SilenceMask::NONE_SILENT;
 

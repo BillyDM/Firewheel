@@ -89,9 +89,9 @@ pub struct ConvolutionNode {
     /// Adjusts the time in seconds over which parameters are smoothed for `mix`
     /// and `wet_gain`.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.046` (46ms). This value is chosen to where
+    /// the halfway decay point is roughly equal to a typical block size of 1024
+    /// samples (23 ms), which should eliminate the stair-stepping for most games.
     pub smooth_seconds: f32,
 }
 

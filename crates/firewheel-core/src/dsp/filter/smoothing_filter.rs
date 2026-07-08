@@ -5,24 +5,24 @@ use core::num::NonZeroU32;
 
 /// The default number of seconds for a [`Smoothing Filter`].
 ///
-/// This value is chosen to be roughly equal to a typical block size
-/// of 1024 samples (23 ms) to eliminate stair-stepping for most
-/// games.
-pub const DEFAULT_SMOOTH_SECONDS: f32 = 23.0 / 1_000.0;
+/// This value is chosen to where the halfway decay point is roughly equal to a
+/// typical block size of 1024 samples (23 ms), which should eliminate the stair-stepping
+/// for most games.
+pub const DEFAULT_SMOOTH_SECONDS: f32 = 46.0 / 1_000.0;
 
-/// The default epsilon value for a [`SmoothingFilter`].
-pub const DEFAULT_SETTLE_EPSILON: f32 = 0.01;
+/// The default settle ratio value for a [`SmoothingFilter`].
+pub const DEFAULT_SETTLE_RATIO: f32 = 0.01;
 
-/// The minimum supported epsilon value for a [`SmoothingFilter`].
+/// The minimum supported settle ratio value for a [`SmoothingFilter`].
 ///
 /// Values smaller than this can tend to never settle correctly due to floating point
 /// accumulation errors.
-pub const MIN_SETTLE_EPSILON: f32 = 0.00075;
-/// The minimum supported epsilon value for a [`SmoothingFilter`].
+pub const MIN_SETTLE_RATIO: f32 = 0.00075;
+/// The maximum supported settle ratio value for a [`SmoothingFilter`].
 ///
 /// Values larger than this can tend to never settle correctly due to floating point
 /// accumulation errors.
-pub const MAX_SETTLE_EPSILON: f32 = 0.9;
+pub const MAX_SETTLE_RATIO: f32 = 0.9;
 
 /// The coefficients for a simple smoothing/declicking filter where:
 ///
@@ -37,56 +37,57 @@ impl SmoothingFilterCoeff {
     /// Calculate the coefficients for a [`SmoothingFilter`].
     ///
     /// * `sample_rate` - The sample rate of the signal.
-    /// * `smooth_secs` - The amount of time it takes for the filter to smooth from one
-    ///   end of the parameter's range to the other end.
-    ///     * If less than 0.0, then it will be clamped to 0.0.
-    /// * `settle_epsilon` - The threshold at which the filter is considered "settled".
+    /// * `smooth_secs` - The amount of time in seconds it takes for the filter to smooth
+    ///   from one value to another.
+    ///     * If less than 0.0, then 0.0 will be used.
+    /// * `settle_ratio` - The threshold at which the filter is considered "settled".
     ///   For example `0.01` means that the filter is considered settled if the value is
     ///   within 1% of the total span of the parameter's range. Must be >=
-    ///   [`MIN_SETTLE_EPSILON`] (0.00075) and <= [`MAX_SETTLE_EPSILON`] (0.9).
+    ///   [`MIN_SETTLE_RATIO`] (0.00075) and <= [`MAX_SETTLE_RATIO`] (0.9).
     ///     * Will be clamped to the range `[0.00075..0.9]`.
+    ///
     /// Returns `true` if this filter is settled, `false` if not.
-    pub fn new(sample_rate: NonZeroU32, smooth_secs: f32, epsilon: f32) -> Self {
+    pub fn new(sample_rate: NonZeroU32, smooth_secs: f32, settle_ratio: f32) -> Self {
         let smooth_secs = smooth_secs.max(0.0);
-        let epsilon = epsilon.clamp(MIN_SETTLE_EPSILON, MAX_SETTLE_EPSILON);
+        let ratio = settle_ratio.clamp(MIN_SETTLE_RATIO, MAX_SETTLE_RATIO);
 
         // The b1 coefficient of a one pole lp filter is given by:
         //
         // b1 = e ^ (-1 / t_to_1_over_e)
         //
-        // where t_to_1_over_e is the amount of time for the filter to decay to 1/e
-        // (about 36.8%).
+        // where t_to_1_over_e is the amount of time in frames for an impulse signal
+        // to decay to 1/e (about 36.8%).
         //
-        // So, to get a filter which decays to a given "epsilon" value in
-        // "t_to_epsilon" frames, we need to adjust the t_to_1_over_e value. Because
-        // doubling the time is equivalent to decaying by another 36.8%, we can
-        // relate epsilon and t_to_epsilon with:
+        // So, to find the coefficients where an impulse signal decays to a "ratio"
+        // in "t_to_ratio" frames, we need to adjust the t_to_1_over_e value.
+        // Because doubling the time is equivalent to decaying by another 36.8%, we
+        // can relate ratio and t_to_ratio with:
         //
-        // epsilon = (1/e) ^ c
-        // t_to_epsilon = t_to_1_over_e * c
+        // ratio = (1/e) ^ c
+        // t_to_ratio = t_to_1_over_e * c
         //
         // where c is some unknown constant.
         //
         // Solve for c:
         //
-        // c = log_(1/e)(epsilon)
-        //   = -ln(epsilon)
+        // c = log_(1/e)(ratio)
+        //   = -ln(ratio)
         //
         // Solve for t_to_1_over_e:
         //
-        // t_to_1_over_e = t_to_epsilon / c
-        //               = t_to_epsilon * (1 / -ln(epsilon))
-        //               = -ln(epsilon) / t_to_epsilon
+        // t_to_1_over_e = t_to_ratio / c
+        //               = t_to_ratio * (1 / -ln(ratio))
+        //               = -ln(ratio) / t_to_ratio
         //
         // Which finally gives us:
         //
-        // b1 = e ^ (-1 / (-ln(epsilon) / t_to_epsilon))
-        //    = e ^ (ln(epsilon) / t_to_epsilon)
-        //    = epsilon ^ (1 / t_to_epsilon)
+        // b1 = e ^ (-1 / (-ln(ratio) / t_to_ratio))
+        //    = e ^ (ln(ratio) / t_to_ratio)
+        //    = ratio ^ (1 / t_to_ratio)
 
-        let t_to_epsilon = (smooth_secs * sample_rate.get() as f32).max(1.0);
+        let t_to_ratio = (smooth_secs * sample_rate.get() as f32).max(1.0);
 
-        let b1 = epsilon.powf(t_to_epsilon.recip());
+        let b1 = ratio.powf(t_to_ratio.recip());
         let a0 = 1.0f32 - b1;
 
         Self { a0, b1 }
@@ -134,16 +135,27 @@ impl SmoothingFilter {
     /// Settle the filter if its state is close enough to the target value.
     ///
     /// * `target` - The target value that is being smoothed to.
-    /// * `span` - The size of the parameter's range (equal to `(max_value - min_value).abs()`).
-    /// * `settle_epsilon` - The threshold at which the filter is considered "settled".
+    /// * `value_span` - The size of this parameter's range.
+    ///   * If the minimum and maximum values of the parameter are known, then
+    ///     typically `max_value - min_value` should be used.
+    ///   * If the min and/or max values are not known, then use a span value that is
+    ///     typical to be the worst-case-scenario (For example, if creating a "gain"
+    ///     parameter, a good value to use is [`DEFAULT_GAIN_SPAN`] (`2.0`) since
+    ///     immediately jumping from 0% volume to 200% volume or vice versa is typically
+    ///     the worst-case-scenario).
+    ///   * This value does not need to be positive.
+    /// * `settle_ratio` - The threshold at which the filter is considered "settled".
     ///   For example `0.01` means that the filter is considered settled if the value is
-    ///   within 1% of the total `span`.
+    ///   within 1% of the total `value_span`.
     ///
     /// Returns `true` if this filter is settled, `false` if not.
-    pub fn settle(&mut self, target: f32, span: f32, settle_epsilon: f32) -> bool {
+    ///
+    /// [`DEFAULT_GAIN_SPAN`]: crate::param::smoother::DEFAULT_GAIN_SPAN
+    pub fn try_settle(&mut self, target: f32, value_span: f32, settle_ratio: f32) -> bool {
         if self.z1 == target {
             true
-        } else if span == 0.0 || (self.z1 - target).abs() < (span * settle_epsilon).abs() {
+        } else if value_span == 0.0 || (self.z1 - target).abs() < (value_span * settle_ratio).abs()
+        {
             self.z1 = target;
             true
         } else {
@@ -167,18 +179,11 @@ mod test {
             0.0,
             1.0 / 1_000.0,
             5.0 / 1_000.0,
-            23.0 / 1_000.0,
+            DEFAULT_SMOOTH_SECONDS,
             100.0 / 1_000.0,
             500.0 / 1_000.0,
         ];
-        const TEST_EPSILONS: [f32; 6] = [
-            MIN_SETTLE_EPSILON,
-            0.001,
-            0.01,
-            0.1,
-            0.5,
-            MAX_SETTLE_EPSILON,
-        ];
+        const TEST_RATIOS: [f32; 6] = [MIN_SETTLE_RATIO, 0.001, 0.01, 0.1, 0.5, MAX_SETTLE_RATIO];
         const TEST_VALUES: [(f32, f32); 5] = [
             (1.0, 0.0),
             (0.0, 1.0),
@@ -191,14 +196,14 @@ mod test {
 
         for sr in TEST_SAMPLE_RATES {
             for secs in TEST_SECONDS {
-                for eps in TEST_EPSILONS {
+                for ratio in TEST_RATIOS {
                     for (start_value, end_value) in TEST_VALUES {
                         let coeff =
-                            SmoothingFilterCoeff::new(NonZeroU32::new(sr).unwrap(), secs, eps);
+                            SmoothingFilterCoeff::new(NonZeroU32::new(sr).unwrap(), secs, ratio);
                         let mut filter = SmoothingFilter::new(start_value);
 
                         let mut frames: u32 = 0;
-                        while !filter.settle(end_value, (start_value - end_value).abs(), eps)
+                        while !filter.try_settle(end_value, (start_value - end_value).abs(), ratio)
                             && frames < sr * 4
                         {
                             let _ = filter.process(end_value, coeff);

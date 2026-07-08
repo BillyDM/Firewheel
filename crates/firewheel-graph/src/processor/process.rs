@@ -291,7 +291,6 @@ impl FirewheelProcessorInner {
             out_constant_mask: ConstantMask::default(),
             in_connected_mask: ConnectedMask::default(),
             out_connected_mask: ConnectedMask::default(),
-            prev_output_was_silent: false,
             sample_rate,
             sample_rate_recip,
             clock_samples,
@@ -410,7 +409,6 @@ impl FirewheelProcessorInner {
                         // Set the timing information for the process info for this sub-chunk.
                         info.frames = sub_chunk_frames;
                         info.clock_samples = sub_clock_samples;
-                        info.prev_output_was_silent = node_entry.prev_output_was_silent;
                         info.did_just_unbypass = false;
 
                         // Call the node's process method.
@@ -521,20 +519,6 @@ impl FirewheelProcessorInner {
                                 DeclickFadeCurve::Linear,
                             );
                         }
-
-                        node_entry.prev_output_was_silent = match process_status {
-                            ProcessStatus::ClearAllOutputs => true,
-                            ProcessStatus::Bypass => info
-                                .in_silence_mask
-                                .all_channels_silent(proc_buffers.inputs.len()),
-                            ProcessStatus::OutputsModified => false,
-                            ProcessStatus::OutputsModifiedWithMask(out_mask) => match out_mask {
-                                MaskType::Silence(mask) => {
-                                    mask.all_channels_silent(proc_buffers.outputs.len())
-                                }
-                                MaskType::Constant(_) => false,
-                            },
-                        };
 
                         // If there are multiple sub-chunks, and the node returned a different process
                         // status this sub-chunk than the previous sub-chunk, then we must manually
