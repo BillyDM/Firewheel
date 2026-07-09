@@ -23,7 +23,6 @@ use firewheel_core::{
 };
 
 pub const DEFAULT_Q: f32 = Q_BUTTERWORTH_ORD2;
-
 pub const DEFAULT_MIN_HZ: f32 = 20.0;
 pub const DEFAULT_MAX_HZ: f32 = 20_480.0;
 pub const DEFAULT_MIN_Q: f32 = 0.02;
@@ -133,9 +132,9 @@ pub struct SvfNode<const CHANNELS: usize = 2> {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
 
     /// An exponent representing the rate at which DSP coefficients are
@@ -505,6 +504,7 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
             filter_type: self.filter_type,
             cutoff_hz: SmoothedParam::new(
                 cutoff_hz,
+                config.freq_range.end - config.freq_range.start,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -513,6 +513,7 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
             ),
             q_factor: SmoothedParam::new(
                 q_factor,
+                config.q_range.end - config.q_range.start,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -521,6 +522,7 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
             ),
             gain: SmoothedParam::new(
                 gain,
+                max_gain - min_gain,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

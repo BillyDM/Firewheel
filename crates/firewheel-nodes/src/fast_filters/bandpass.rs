@@ -37,9 +37,9 @@ pub struct FastBandpassNode<const CHANNELS: usize = 2> {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
 
     /// An exponent representing the rate at which DSP coefficients are
@@ -115,6 +115,7 @@ impl<const CHANNELS: usize> AudioNode for FastBandpassNode<CHANNELS> {
             )),
             cutoff_hz: SmoothedParam::new(
                 cutoff_hz,
+                MAX_HZ - MIN_HZ,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()

@@ -1,4 +1,5 @@
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, NonZeroChannelCount},
     diff::{Diff, Patch},
@@ -44,9 +45,9 @@ pub struct VolumeNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
     /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
@@ -151,6 +152,7 @@ impl AudioNode for VolumeNode {
         Ok(VolumeProcessor {
             gain: SmoothedParam::new(
                 gain,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -159,6 +161,7 @@ impl AudioNode for VolumeNode {
             ),
             min_gain,
             num_channels: config.channels.get().get() as usize,
+            prev_input_settled: true,
         })
     }
 }
@@ -168,6 +171,7 @@ struct VolumeProcessor {
     num_channels: usize,
 
     min_gain: f32,
+    prev_input_settled: bool,
 }
 
 impl AudioNodeProcessor for VolumeProcessor {
@@ -181,8 +185,8 @@ impl AudioNodeProcessor for VolumeProcessor {
                     }
                     self.gain.set_value(gain);
 
-                    if info.prev_output_was_silent {
-                        // Previous block was silent, so no need to smooth.
+                    if self.prev_input_settled {
+                        // The previous block's input settled at zero, so no need to smooth.
                         self.gain.reset_to_target();
                     }
                 }
@@ -210,9 +214,12 @@ impl AudioNodeProcessor for VolumeProcessor {
             // All channels are silent, so there is no need to process. Also reset
             // the filter since it doesn't need to smooth anything.
             self.gain.reset_to_target();
+            self.prev_input_settled = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        self.prev_input_settled = buffers.inputs_settled_at_zero();
 
         if self.gain.has_settled() {
             if self.gain.target_value() <= self.min_gain {

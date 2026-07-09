@@ -4,9 +4,13 @@
 [![Crates.io](https://img.shields.io/crates/v/firewheel.svg)](https://crates.io/crates/firewheel)
 [![License](https://img.shields.io/crates/l/firewheel.svg)](https://github.com/BillyDM/firewheel/blob/main/LICENSE-APACHE)
 
-A mid-level open source audio graph engine for games and other applications, written in Rust.
+An open source audio graph engine for games and other applications, written in Rust. It can be used as-is, or it can be used as a base for other higher-level audio engines.
 
-This crate can be used as-is or as a base for other higher-level audio engines. (Think of it like [wgpu](https://wgpu.rs/) but for audio).
+## The Future of this Project
+
+Firewheel is currently planned to be upstreamed into the [Bevy](https://bevy.org/) game engine where it will become the default audio engine. (The current implementation can be found in the [bevy_seedling](https://github.com/CorvusPrudens/bevy_seedling) repository.) The goal is to both make Bevy integration easier by avoiding circular dependencies, and to ease the maintanance burden of a project that has experienced more feature creep than what the author originally anticipated.
+
+While development has shifted to focus more on the needs of Bevy, the core audio graph engine will still be available to use outside of Bevy without any other Bevy dependencies (except for the very lightweight [bevy_platform](https://crates.io/crates/bevy_platform) dependency).
 
 ## Key Features
 
@@ -21,18 +25,14 @@ This crate can be used as-is or as a base for other higher-level audio engines. 
 * Fault tolerance for audio streams (The game shouldn't stop or crash just because the player accidentally unplugged their headphones.)
 * Properly respects realtime constraints (no mutexes!)
 * `no_std` compatibility (some features require the standard library)
-* (TODO) Basic [CLAP] plugin hosting (non-WASM only), allowing for more open source and proprietary 3rd party effects and synths
-* (TODO) Bindings for C, and (possibly) C++ and C#
 
 ## Non-features
 
-While Firewheel is meant to cover nearly every use case for games and other applications, it is not meant to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engines and DAW audio engines are in conflict. (See the design document for more details on why).
+While Firewheel aims to cover most use cases for games and other generic applications, it does *NOT* aim to be a complete DAW (digital audio workstation) engine. Not only would this greatly increase complexity, but the needs of game audio engines and DAW audio engines are in conflict. (See the design document for more details on why).
 
 ## Get Involved
 
-Join the discussion in the [Firewheel Discord Server](https://discord.gg/rKzZpjGCGs) or in the [Bevy Discord Server](https://discord.gg/bevy) under the `working-groups -> Better Audio` channel!
-
-If you are interested in contributing code, first read the [Design Document] and then visit the [Project Board](https://github.com/users/BillyDM/projects/1).
+Join the discussion in the [Bevy Discord Server](https://discord.gg/bevy) under the `working-groups -> Better Audio` channel!
 
 ## License
 

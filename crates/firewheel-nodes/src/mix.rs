@@ -1,4 +1,5 @@
 use firewheel_core::node::NodeError;
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::{ChannelConfig, ChannelCount, NonZeroChannelCount},
     diff::{Diff, Patch},
@@ -71,9 +72,9 @@ pub struct MixNode {
 
     /// The time in seconds of the internal smoothing filter.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
     /// If the resulting gain (in raw amplitude, not decibels) is less
     /// than or equal to this value, then the gain will be clamped to
@@ -189,6 +190,7 @@ impl AudioNode for MixNode {
         Ok(Processor {
             gain_0: SmoothedParam::new(
                 gain_0,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -197,6 +199,7 @@ impl AudioNode for MixNode {
             ),
             gain_1: SmoothedParam::new(
                 gain_1,
+                DEFAULT_GAIN_SPAN,
                 SmootherConfig {
                     smooth_seconds: self.smooth_seconds,
                     ..Default::default()
@@ -205,6 +208,7 @@ impl AudioNode for MixNode {
             ),
             params: *self,
             min_gain,
+            prev_input_settled: true,
         })
     }
 }
@@ -216,6 +220,7 @@ struct Processor {
     params: MixNode,
 
     min_gain: f32,
+    prev_input_settled: bool,
 }
 
 impl AudioNodeProcessor for Processor {
@@ -249,8 +254,8 @@ impl AudioNodeProcessor for Processor {
             self.gain_0.set_value(gain_0);
             self.gain_1.set_value(gain_1);
 
-            if info.prev_output_was_silent {
-                // Previous block was silent, so no need to smooth.
+            if self.prev_input_settled {
+                // The previous block's input settled at zero, so no need to smooth.
                 self.gain_0.reset_to_target();
                 self.gain_1.reset_to_target();
             }
@@ -281,9 +286,12 @@ impl AudioNodeProcessor for Processor {
         {
             self.gain_0.reset_to_target();
             self.gain_1.reset_to_target();
+            self.prev_input_settled = true;
 
             return ProcessStatus::ClearAllOutputs;
         }
+
+        self.prev_input_settled = buffers.inputs_settled_at_zero();
 
         let mut out_silence_mask = SilenceMask::NONE_SILENT;
 

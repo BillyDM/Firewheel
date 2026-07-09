@@ -279,7 +279,7 @@ impl ArcGc<dyn Any + Send + Sync + 'static, GlobalRtGc> {
     /// Construct a type-erased [`ArcGc`].
     ///
     /// ```
-    /// # use rtgc::*;
+    /// # use firewheel-core::collector::ArcGC;
     /// # use std::sync::Arc;
     /// # use std::any::Any;
     /// let value: ArcGc<dyn Any + Send + Sync + 'static> =

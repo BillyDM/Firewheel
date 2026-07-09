@@ -10,7 +10,7 @@ use crate::{
         coeff_update::{CoeffUpdateFactor, CoeffUpdateMask},
         filter::single_pole_iir::{OnePoleIirLPFCoeff, OnePoleIirLPFCoeffSimd, OnePoleIirLPFSimd},
     },
-    param::smoother::{SmoothedParam, SmootherConfig},
+    param::smoother::{DEFAULT_GAIN_SPAN, SmoothedParam, SmootherConfig},
 };
 
 pub const MUFFLE_CUTOFF_HZ_MIN: f32 = 20.0;
@@ -203,9 +203,10 @@ impl DistanceAttenuatorStereoDsp {
         coeff_update_factor: CoeffUpdateFactor,
     ) -> Self {
         Self {
-            gain: SmoothedParam::new(1.0, smoother_config, sample_rate),
+            gain: SmoothedParam::new(1.0, DEFAULT_GAIN_SPAN, smoother_config, sample_rate),
             muffle_cutoff_hz: SmoothedParam::new(
                 MUFFLE_CUTOFF_HZ_MAX,
+                MUFFLE_CUTOFF_HZ_MAX - MUFFLE_CUTOFF_HZ_MIN,
                 smoother_config,
                 sample_rate,
             ),

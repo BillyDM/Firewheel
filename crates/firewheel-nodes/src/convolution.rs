@@ -6,6 +6,7 @@ use firewheel_core::channel_config::NonZeroChannelCount;
 use firewheel_core::collector::ArcGc;
 use firewheel_core::event::ProcEvents;
 use firewheel_core::node::{NodeError, ProcBuffers, ProcExtra, ProcInfo};
+use firewheel_core::param::smoother::DEFAULT_GAIN_SPAN;
 use firewheel_core::{
     channel_config::ChannelConfig,
     diff::{Diff, Patch},
@@ -88,9 +89,9 @@ pub struct ConvolutionNode {
     /// Adjusts the time in seconds over which parameters are smoothed for `mix`
     /// and `wet_gain`.
     ///
-    /// By default this is set to `0.023` (23ms). This value is chosen to be
-    /// roughly equal to a typical block size of 1024 samples (23 ms) to
-    /// eliminate stair-stepping for most games.
+    /// By default this is set to `0.062` (62ms). This value is chosen such that
+    /// the stair-stepping effect isn't noticeable for a typical block size of 1024
+    /// samples.
     pub smooth_seconds: f32,
 }
 
@@ -189,7 +190,12 @@ impl AudioNode for ConvolutionNode {
 
         Ok(ConvolutionProcessor {
             params: self.clone(),
-            gain: SmoothedParam::new(self.wet_gain.amp(), smooth_config, sample_rate),
+            gain: SmoothedParam::new(
+                self.wet_gain.amp(),
+                DEFAULT_GAIN_SPAN,
+                smooth_config,
+                sample_rate,
+            ),
             declick: Declicker::SettledAt0,
             convolver,
             max_frames,

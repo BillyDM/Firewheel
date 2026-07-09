@@ -648,6 +648,25 @@ impl<'a, 'b> ProcBuffers<'a, 'b> {
             ProcessStatus::OutputsModified
         }
     }
+
+    /// Returns `true` if the input signal has settled to silence by the end
+    /// of the block.
+    pub fn inputs_settled_at_zero(&self) -> bool {
+        let mut settled_at_zero = true;
+
+        for ch in self.inputs.iter() {
+            // Check the last two samples instead of just one since it is
+            // incredibly unlikely that an active signal has two exact
+            // zeros in a row.
+            settled_at_zero = ch.iter().rev().take(2).all(|s| *s == 0.0);
+
+            if !settled_at_zero {
+                break;
+            }
+        }
+
+        settled_at_zero
+    }
 }
 
 /// Extra buffers and utilities for [`AudioNodeProcessor::process`]
@@ -713,11 +732,6 @@ pub struct ProcInfo {
     /// An optional hint on which output channels are connected to other
     /// nodes in the graph.
     pub out_connected_mask: ConnectedMask,
-
-    /// If the previous processing block had all output buffers silent
-    /// (or if this is the first processing block), then this will be
-    /// `true`. Otherwise, this will be `false`.
-    pub prev_output_was_silent: bool,
 
     /// The sample rate of the audio stream in samples per second.
     pub sample_rate: NonZeroU32,
