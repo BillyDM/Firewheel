@@ -35,8 +35,8 @@ impl FirewheelProcessorInner {
     /// Process the given buffers of audio data.
     pub fn process(
         &mut self,
-        input: &dyn Adapter<'_, f32>,
-        output: &mut dyn AdapterMut<'_, f32>,
+        input: &dyn Adapter<f32>,
+        output: &mut dyn AdapterMut<f32>,
         info: BackendProcessInfo,
     ) {
         let BackendProcessInfo {

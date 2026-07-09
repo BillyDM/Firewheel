@@ -1,6 +1,6 @@
 [package]
 name = "firewheel"
-version = "0.11.0"
+version = "0.12.0"
 description = "An open source audio graph engine for games and other applications"
 repository.workspace = true
 edition.workspace = true
@@ -24,7 +24,7 @@ exclude = ["assets/"]
 repository = "https://github.com/BillyDM/firewheel"
 
 [features]
-default = ["std", "cpal", "symphonium", "sampler_node", "tracing"]
+default = ["std", "cpal", "symphonium", "sampler_node", "tracing", "all_nodes"]
 std = [
     "firewheel-core/std",
     "firewheel-graph/std",
@@ -186,7 +186,7 @@ members = [
 tracing = "0.1"
 tracing-subscriber = "0.3"
 log = "0.4"
-ringbuf = { version = "0.4", default-features = false, features = [
+ringbuf = { version = "0.5.0", default-features = false, features = [
     "portable-atomic",
     "alloc",
 ] }
@@ -196,20 +196,18 @@ smallvec = "1"
 arrayvec = { version = "0.7", default-features = false }
 bitflags = "2"
 thunderdome = { version = "0.6", default-features = false }
-firewheel-macros = { path = "crates/firewheel-macros", version = "0.11.0" }
+firewheel-macros = { path = "crates/firewheel-macros", version = "0.12.0" }
 bevy_platform = { version = "0.19.0", default-features = false, features = [
     "alloc",
 ] }
 bevy_ecs = { version = "0.19.0", default-features = false }
 bevy_reflect = { version = "0.19.0", default-features = false }
-fixed-resample = { version = "0.11.2", default-features = false }
-symphonium = { version = "0.11.0", default-features = false, features = ["decode-native"] }
+fixed-resample = { version = "0.12.0", default-features = false }
+symphonium = { version = "0.12.0", default-features = false, features = ["decode-native"] }
 num-traits = { version = "0.2", default-features = false }
-# TODO: Update once this PR has been published:
-# https://github.com/HEnquist/audioadapter-rs/pull/37
-audioadapter = { version = "3.0.0", default-features = false }
-audioadapter-buffers = { version = "3.0.0", default-features = false }
-audioadapter-sample = { version = "3.0.0", default-features = false }
+audioadapter = { version = "4.0.0", default-features = false }
+audioadapter-buffers = { version = "4.0.0", default-features = false }
+audioadapter-sample = { version = "4.0.0", default-features = false }
 serde = { version = "1", features = ["derive"] }
 egui = "0.33.3"
 eframe = { version = "0.33.3", default-features = false, features = [
@@ -220,12 +218,12 @@ eframe = { version = "0.33.3", default-features = false, features = [
 ] }
 
 [dependencies]
-firewheel-core = { path = "crates/firewheel-core", version = "0.11.0", default-features = false }
-firewheel-graph = { path = "crates/firewheel-graph", version = "0.11.0", default-features = false }
-firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.11.0", default-features = false, optional = true }
-firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.11.0", default-features = false }
-firewheel-symphonium = { path = "crates/firewheel-symphonium", version = "0.11.0", default-features = false, optional = true }
-firewheel-rtaudio = { path = "crates/firewheel-rtaudio", version = "0.11.0", default-features = false, optional = true }
+firewheel-core = { path = "crates/firewheel-core", version = "0.12.0", default-features = false }
+firewheel-graph = { path = "crates/firewheel-graph", version = "0.12.0", default-features = false }
+firewheel-cpal = { path = "crates/firewheel-cpal", version = "0.12.0", default-features = false, optional = true }
+firewheel-nodes = { path = "crates/firewheel-nodes", version = "0.12.0", default-features = false }
+firewheel-symphonium = { path = "crates/firewheel-symphonium", version = "0.12.0", default-features = false, optional = true }
+firewheel-rtaudio = { path = "crates/firewheel-rtaudio", version = "0.12.0", default-features = false, optional = true }
 thunderdome = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thiserror.workspace = true
