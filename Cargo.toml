@@ -24,7 +24,7 @@ exclude = ["assets/"]
 repository = "https://github.com/BillyDM/firewheel"
 
 [features]
-default = ["std", "cpal", "symphonium", "sampler_node", "tracing", "all_nodes"]
+default = ["std", "cpal", "symphonium", "sampler_node", "tracing"]
 std = [
     "firewheel-core/std",
     "firewheel-graph/std",
