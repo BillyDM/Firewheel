@@ -318,6 +318,8 @@ impl AudioNodeProcessor for FreeverbProcessor {
             );
         }
 
+        self.prev_output_was_silent = false;
+
         ProcessStatus::OutputsModified
     }
 
