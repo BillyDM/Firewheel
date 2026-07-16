@@ -1,8 +1,8 @@
+use arrayvec::ArrayVec;
 use audioadapter::{Adapter, AdapterMut};
 use bevy_platform::sync::{Arc, atomic::Ordering};
+use bevy_platform::time::Instant;
 use core::{num::NonZeroU32, time::Duration};
-
-use arrayvec::ArrayVec;
 use firewheel_core::{
     channel_config::MAX_CHANNELS,
     clock::{DurationSamples, InstantSamples},
@@ -16,12 +16,10 @@ use crate::{
     backend::BackendProcessInfo,
     context::FirewheelBitFlags,
     graph::ProcessNodeInfo,
-    processor::{FirewheelProcessorInner, SharedFlags, event_scheduler::ProcessSubChunkInfo},
+    processor::{
+        FirewheelProcessorInner, SharedClock, SharedFlags, event_scheduler::ProcessSubChunkInfo,
+    },
 };
-
-#[cfg(feature = "scheduled_events")]
-use crate::processor::SharedClock;
-use bevy_platform::time::Instant;
 
 #[cfg(feature = "musical_transport")]
 use firewheel_core::clock::ProcTransportInfo;
@@ -99,8 +97,10 @@ impl FirewheelProcessorInner {
 
         self.clock_samples += DurationSamples(frames as i64);
 
-        #[cfg(feature = "scheduled_events")]
-        self.sync_shared_clock(process_timestamp);
+        self.sync_shared_clock(
+            #[cfg(feature = "scheduled_events")]
+            process_timestamp,
+        );
 
         // --- Process the audio graph in blocks ----------------------------------------------
 
@@ -661,8 +661,10 @@ impl FirewheelProcessorInner {
         self.event_scheduler.cleanup_process_block();
     }
 
-    #[cfg(feature = "scheduled_events")]
-    pub fn sync_shared_clock(&mut self, process_timestamp: Instant) {
+    pub fn sync_shared_clock(
+        &mut self,
+        #[cfg(feature = "scheduled_events")] process_timestamp: Instant,
+    ) {
         #[cfg(feature = "musical_transport")]
         let shared_clock_info = self.proc_transport_state.shared_clock_info(
             self.clock_samples,
@@ -672,13 +674,14 @@ impl FirewheelProcessorInner {
 
         self.shared_clock_input.write(SharedClock {
             clock_samples: self.clock_samples,
+            #[cfg(feature = "scheduled_events")]
+            update_instant: process_timestamp,
             #[cfg(feature = "musical_transport")]
             current_playhead: shared_clock_info.current_playhead,
             #[cfg(feature = "musical_transport")]
             speed_multiplier: shared_clock_info.speed_multiplier,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: shared_clock_info.transport_is_playing,
-            update_instant: process_timestamp,
         });
     }
 }

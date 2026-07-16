@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-graph"
-version = "0.12.0"
+version = "0.12.1"
 description = "Core audio graph algorithm and executor for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-graph"
 repository.workspace = true
@@ -16,6 +16,7 @@ exclude.workspace = true
 all-features = true
 
 [features]
+# TODO: Remove "node_profiling" from default features.
 default = ["std", "tracing", "node_profiling"]
 std = [
     "arrayvec/std",

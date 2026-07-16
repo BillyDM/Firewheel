@@ -2,6 +2,7 @@ use bevy_platform::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use core::cell::RefCell;
 use core::error::Error;
 use core::num::NonZeroU32;
 use core::time::Duration;
@@ -28,8 +29,6 @@ use num_traits::Float;
 #[cfg(feature = "scheduled_events")]
 use bevy_platform::time::Instant;
 #[cfg(feature = "scheduled_events")]
-use core::cell::RefCell;
-#[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::{AudioClock, DurationSeconds};
 
 #[cfg(all(not(feature = "std"), feature = "musical_transport"))]
@@ -38,26 +37,20 @@ use bevy_platform::prelude::Box;
 use bevy_platform::prelude::Vec;
 
 use crate::{
-    error::{ActivateError, RemoveNodeError},
-    processor::SharedFlags,
-};
-use crate::{
-    error::{AddEdgeError, UpdateError},
+    error::{
+        ActivateError, AddEdgeError, CompileGraphError, DeactivateError, RemoveNodeError,
+        UpdateError,
+    },
     graph::{AudioGraph, Edge, EdgeID, NodeEntry, PortIdx},
     processor::{
-        ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorInner, ProcessorToContextMsg,
-    },
-};
-use crate::{
-    error::{CompileGraphError, DeactivateError},
-    processor::{
-        BufferOutOfSpaceMode, FirewheelProcessorConfig, ProfilingData,
+        BufferOutOfSpaceMode, ContextToProcessorMsg, FirewheelProcessor, FirewheelProcessorConfig,
+        FirewheelProcessorInner, ProcessorToContextMsg, ProfilingData, SharedClock, SharedFlags,
         profiling::{ProfilerRx, ProfilerTx},
     },
 };
 
 #[cfg(feature = "scheduled_events")]
-use crate::processor::{ClearScheduledEventsEvent, SharedClock};
+use crate::processor::ClearScheduledEventsEvent;
 #[cfg(feature = "scheduled_events")]
 use firewheel_core::clock::EventInstant;
 
@@ -283,7 +276,6 @@ pub(crate) struct ProcessorChannel {
     pub(crate) logger: RealtimeLogger,
     pub(crate) store: ProcStore,
     pub(crate) profiler_tx: ProfilerTx,
-    #[cfg(feature = "scheduled_events")]
     pub(crate) shared_clock_input: triple_buffer::Input<SharedClock>,
 }
 
@@ -300,7 +292,6 @@ pub struct FirewheelContext {
     pending_processor_channel: Option<ProcessorChannel>,
     processor_drop_rx: Option<ringbuf::HeapCons<FirewheelProcessorInner>>,
 
-    #[cfg(feature = "scheduled_events")]
     shared_clock_output: RefCell<triple_buffer::Output<SharedClock>>,
 
     sample_rate: NonZeroU32,
@@ -341,7 +332,6 @@ impl FirewheelContext {
 
         let graph = AudioGraph::new(&config);
 
-        #[cfg(feature = "scheduled_events")]
         let (shared_clock_input, shared_clock_output) =
             triple_buffer::triple_buffer(&SharedClock::default());
 
@@ -369,11 +359,9 @@ impl FirewheelContext {
                 logger,
                 store,
                 profiler_tx,
-                #[cfg(feature = "scheduled_events")]
                 shared_clock_input,
             }),
             processor_drop_rx: None,
-            #[cfg(feature = "scheduled_events")]
             shared_clock_output: RefCell::new(shared_clock_output),
             sample_rate: NonZeroU32::new(44100).unwrap(),
             sample_rate_recip: 44100.0f64.recip(),
@@ -604,6 +592,24 @@ impl FirewheelContext {
         } else {
             None
         }
+    }
+
+    /// Get the "heartbeat" of the processor. This is equal to the total number of samples
+    /// that the processor has processed.
+    ///
+    /// This can be used to detect when the processor stalls. For example, if this counter
+    /// doesn't change for half a second or so, then the processor is stalled, and events
+    /// should not be sent until it is resumed to avoid filling up the message channel.
+    pub fn heartbeat(&self) -> i64 {
+        // Reading the latest value of the clock doesn't meaningfully mutate
+        // state, so treat it as an immutable operation with interior mutability.
+        //
+        // PANIC SAFETY: This struct is the only place this is ever borrowed, so this
+        // will never panic.
+        let mut clock_borrowed = self.shared_clock_output.borrow_mut();
+        let clock = clock_borrowed.read();
+
+        clock.clock_samples.0
     }
 
     /// Get the current time of the audio clock, without accounting for the delay

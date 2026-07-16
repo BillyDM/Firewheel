@@ -133,7 +133,6 @@ pub(crate) struct FirewheelProcessorInner {
     max_block_frames: usize,
 
     clock_samples: InstantSamples,
-    #[cfg(feature = "scheduled_events")]
     shared_clock_input: triple_buffer::Input<SharedClock>,
     profiler_tx: ProfilerTx,
 
@@ -189,7 +188,6 @@ impl FirewheelProcessorInner {
             logger,
             store,
             profiler_tx,
-            #[cfg(feature = "scheduled_events")]
             shared_clock_input,
         } = proc_channel;
 
@@ -209,7 +207,6 @@ impl FirewheelProcessorInner {
             sample_rate_recip: stream_info.sample_rate_recip,
             max_block_frames: stream_info.max_block_frames.get() as usize,
             clock_samples: InstantSamples(0),
-            #[cfg(feature = "scheduled_events")]
             shared_clock_input,
             profiler_tx,
             #[cfg(feature = "musical_transport")]
@@ -269,31 +266,31 @@ pub(crate) struct ClearScheduledEventsEvent {
     pub event_type: ClearScheduledEventsType,
 }
 
-#[cfg(feature = "scheduled_events")]
 #[derive(Clone)]
 pub(crate) struct SharedClock {
     pub clock_samples: InstantSamples,
+    #[cfg(feature = "scheduled_events")]
+    pub update_instant: Instant,
     #[cfg(feature = "musical_transport")]
     pub current_playhead: Option<InstantMusical>,
     #[cfg(feature = "musical_transport")]
     pub speed_multiplier: f64,
     #[cfg(feature = "musical_transport")]
     pub transport_is_playing: bool,
-    pub update_instant: Instant,
 }
 
-#[cfg(feature = "scheduled_events")]
 impl Default for SharedClock {
     fn default() -> Self {
         Self {
             clock_samples: InstantSamples(0),
+            #[cfg(feature = "scheduled_events")]
+            update_instant: Instant::now(),
             #[cfg(feature = "musical_transport")]
             current_playhead: None,
             #[cfg(feature = "musical_transport")]
             speed_multiplier: 1.0,
             #[cfg(feature = "musical_transport")]
             transport_is_playing: false,
-            update_instant: Instant::now(),
         }
     }
 }
