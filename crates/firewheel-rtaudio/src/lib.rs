@@ -78,7 +78,7 @@ impl RtAudioStream {
         let mut stream_handle = host.open_stream(&config.config).map_err(|(_, e)| e)?;
 
         let info = stream_handle.info();
-        let success_msg = format!("Successfully started audio stream: {:?}", &info);
+        let success_msg = format!("Successfully started audio stream: {:?}", info);
 
         let process_to_playback_delay = info.latency.map(|latency_frames| {
             Duration::from_secs_f64(latency_frames as f64 / info.sample_rate as f64)
