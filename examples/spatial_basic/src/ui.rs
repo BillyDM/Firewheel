@@ -381,7 +381,7 @@ impl<'a> egui::Widget for XYPad<'a> {
         painter.rect_stroke(
             response.rect.expand(-1.0),
             0.0,
-            Stroke::new(1.0, Color32::DARK_GRAY),
+            Stroke::new(1.0f32, Color32::DARK_GRAY),
             StrokeKind::Middle,
         );
 

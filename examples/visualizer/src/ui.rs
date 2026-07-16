@@ -80,8 +80,8 @@ impl DemoApp {
         };
 
         ui.painter().extend([
-            epaint::Shape::line(left_points, PathStroke::new(2.0, color)),
-            epaint::Shape::line(right_points, PathStroke::new(2.0, color)),
+            epaint::Shape::line(left_points, PathStroke::new(2.0f32, color)),
+            epaint::Shape::line(right_points, PathStroke::new(2.0f32, color)),
         ]);
     }
 }
