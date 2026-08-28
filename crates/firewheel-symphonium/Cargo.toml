@@ -1,6 +1,6 @@
 [package]
 name = "firewheel-symphonium"
-version = "0.12.0"
+version = "0.13.0"
 description = "Symphonium integration for Firewheel"
 homepage = "https://github.com/BillyDM/firewheel/blob/main/crates/firewheel-symphonium"
 edition.workspace = true
@@ -19,6 +19,6 @@ tracing = ["symphonium/tracing"]
 log = ["symphonium/log"]
 
 [dependencies]
-firewheel-core = { path = "../firewheel-core", version = "0.12.0", default-features = false, features = ["std"] }
+firewheel-core = { path = "../firewheel-core", version = "0.13.0", default-features = false, features = ["std"] }
 symphonium.workspace = true
 bevy_platform.workspace = true
