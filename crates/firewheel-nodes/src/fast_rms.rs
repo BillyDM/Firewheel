@@ -77,7 +77,7 @@ impl FastRmsState {
     /// simply wish to react to player audio.
     pub fn rms_db(&self, min_db: f32) -> f32 {
         let rms = amp_to_db(self.shared_state.rms_value.load(Ordering::Relaxed));
-        self.shared_state.read_count.fetch_add(1, Ordering::Relaxed);
+        self.shared_state.read_count.fetch_add(1, Ordering::Release);
 
         if rms <= min_db {
             f32::NEG_INFINITY
@@ -184,7 +184,7 @@ impl AudioNodeProcessor for Processor {
                 let mean = self.squares / self.window_frames as f32;
                 let rms = mean.sqrt();
 
-                let latest_read_count = self.shared_state.read_count.load(Ordering::Relaxed);
+                let latest_read_count = self.shared_state.read_count.load(Ordering::Acquire);
                 let previous_rms = self.shared_state.rms_value.load(Ordering::Relaxed);
 
                 if latest_read_count != self.last_read_count || rms > previous_rms {
