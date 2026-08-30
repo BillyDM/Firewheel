@@ -89,7 +89,7 @@ impl FastRmsState {
     /// RMS value).
     pub fn rms_value(&self) -> f32 {
         let rms = self.shared_state.rms_value.load(Ordering::Relaxed);
-        self.shared_state.read_count.fetch_add(1, Ordering::Relaxed);
+        self.shared_state.read_count.fetch_add(1, Ordering::Release);
         rms
     }
 }
@@ -245,7 +245,7 @@ impl AudioNodeProcessor for Processor {
                 let mean = self.squares / self.window_frames as f32;
                 let rms = mean.sqrt();
 
-                let latest_read_count = self.shared_state.read_count.load(Ordering::Relaxed);
+                let latest_read_count = self.shared_state.read_count.load(Ordering::Acquire);
                 let previous_rms = self.shared_state.rms_value.load(Ordering::Relaxed);
 
                 if latest_read_count != self.last_read_count || rms > previous_rms {
