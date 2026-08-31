@@ -1,0 +1,35 @@
+[package]
+name = "firewheel-c"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+repository.workspace = true
+
+[dependencies]
+firewheel-core = { path = "../firewheel-core" }
+firewheel-graph = { path = "../firewheel-graph" }
+firewheel-nodes = { path = "../firewheel-nodes", features = ["beep_test", "sampler", "svf"] }
+firewheel-cpal = { path = "../firewheel-cpal", optional = true }
+firewheel-rtaudio = { path = "../firewheel-rtaudio", optional = true }
+libc = "0.2"
+lazy_static = "1.4"
+symphonium = { version = "0.5", features = ["open-standards", "all-codecs"] }
+symphonia-core = "0.5"
+tracing.workspace = true
+thunderdome.workspace = true
+
+[build-dependencies]
+cbindgen = "0.29"
+
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+default = ["cpal", "musical_transport"]
+cpal = ["dep:firewheel-cpal"]
+rtaudio = ["dep:firewheel-rtaudio"]
+musical_transport = ["firewheel-graph/musical_transport"]
