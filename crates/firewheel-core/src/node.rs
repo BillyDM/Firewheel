@@ -791,6 +791,14 @@ pub struct ProcInfo {
     /// If the node has just been un-bypassed, then this will be `true`.
     pub did_just_unbypass: bool,
 
+    /// The instant that the last [`NodeEventType::DelayOrigin`] event that
+    /// was sent to this node occured at.
+    ///
+    /// If a [`NodeEventType::DelayOrigin`] was never sent to this node, then
+    /// this will be `InstantSamples(0)`.
+    #[cfg(feature = "scheduled_events")]
+    pub last_delay_origin: InstantSamples,
+
     /// Information about the musical transport.
     ///
     /// This will be `None` if no musical transport is currently active,

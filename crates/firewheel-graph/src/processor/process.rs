@@ -300,6 +300,8 @@ impl FirewheelProcessorInner {
             dropped_frames,
             process_to_playback_delay,
             did_just_unbypass: false,
+            #[cfg(feature = "scheduled_events")]
+            last_delay_origin: InstantSamples(0),
             #[cfg(feature = "musical_transport")]
             transport_info,
         };
@@ -344,6 +346,11 @@ impl FirewheelProcessorInner {
                 info.out_constant_mask = out_constant_mask;
                 info.in_connected_mask = in_connected_mask;
                 info.out_connected_mask = out_connected_mask;
+
+                #[cfg(feature = "scheduled_events")]
+                {
+                    info.last_delay_origin = node_entry.event_data.last_delay_origin;
+                }
 
                 // Used to keep track of what status this closure should return.
                 let mut prev_process_status = None;
