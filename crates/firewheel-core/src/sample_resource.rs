@@ -213,7 +213,9 @@ pub fn fill_buffers_interleaved<T: RawSample + Clone>(
         let src_slice = &resource[start_frame * 2..(start_frame + frames) * 2];
 
         for (src_chunk, (buf0_s, buf1_s)) in src_slice
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .zip(buf0.iter_mut().zip(buf1.iter_mut()))
         {
             *buf0_s = src_chunk[0].to_scaled_float();
