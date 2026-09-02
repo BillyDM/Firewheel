@@ -48,26 +48,28 @@ pub enum EventInstant {
     DelaySamples(DurationSamples),
 
     /// The event should happen the given number of seconds after the
-    /// last [`NodeEventType::DelayOrigin`] event that was sent to this node.
+    /// last [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// event that was sent to this node.
     ///
     /// This can be useful for creating a sequence of rapid-fire events that are
     /// triggered with the lowest latency possible.
     ///
-    /// If a [`NodeEventType::DelayOrigin`] event was never sent to this node,
-    /// then the start of the stream will be used as the origin (effectively
-    /// making this behave like [`EventInstant::AtClockSeconds`]).
+    /// If a [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// event was never sent to this node, then the start of the stream will be used
+    /// as the origin.
     DelaySecondsFromLastOrigin(DurationSeconds),
 
     /// The event should happen the given number of samples (of a single channel
-    /// of audio) after the [`NodeEventType::DelayOrigin`] event that was sent to
-    /// this node.
+    /// of audio) after the
+    /// [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// event that was sent to this node.
     ///
     /// This can be useful for creating a sequence of rapid-fire events that are
     /// triggered with the lowest latency possible.
     ///
-    /// If a [`NodeEventType::DelayOrigin`] event was never sent to this node,
-    /// then the start of the stream will be used as the origin (effectively
-    /// making this behave like [`EventInstant::AtClockSamples`]).
+    /// If a [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// event was never sent to this node, then the start of the stream will be used
+    /// as the origin.
     DelaySamplesFromLastOrigin(DurationSamples),
 
     /// The event should happen when the musical clock reaches the given

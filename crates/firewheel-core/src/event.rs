@@ -82,8 +82,8 @@ pub enum NodeEventType {
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
     /// The instant the Firewheel processor receives this event is used as the origin for
-    /// future events scheduled with [`EventInstant::DelaySecondsFrom`] and
-    /// [`EventInstant::DelaySamplesFrom`].
+    /// future events scheduled with [`EventInstant::DelaySecondsFromLastOrigin`] and
+    /// [`EventInstant::DelaySamplesFromLastOrigin`].
     ///
     /// Note, this only applies if [`NodeEvent::time`] is `None`. If [`NodeEvent::time`]
     /// is not `None`, then this event will be discarded.
