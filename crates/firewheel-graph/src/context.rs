@@ -1413,8 +1413,8 @@ impl Drop for FirewheelContext {
 ///
 /// ```
 /// # use firewheel_core::{diff::{Diff, PathBuilder}, node::NodeID};
-/// # use firewheel_graph::{backend::AudioBackend, FirewheelContext, ContextQueue};
-/// # fn context_queue<B: AudioBackend, D: Diff>(
+/// # use firewheel_graph::{FirewheelContext, ContextQueue};
+/// # fn context_queue<D: Diff>(
 /// #     context: &mut FirewheelContext,
 /// #     node_id: NodeID,
 /// #     params: &D,
