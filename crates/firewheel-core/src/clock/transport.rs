@@ -254,8 +254,8 @@ pub struct SpeedMultiplierKeyframe {
 
     /// The instant that this keyframe happens.
     ///
-    /// Note, [`EventInstant::DelaySecondsFromLastOrigin`] and
-    /// [`EventInstant::DelaySamplesFromLastOrigin`] cannot be used here, and
+    /// Note, [`EventInstant::DelaySecondsFromMarker`] and
+    /// [`EventInstant::DelaySamplesFromMarker`] cannot be used here, and
     /// will result in a panic.
     pub instant: EventInstant,
 }

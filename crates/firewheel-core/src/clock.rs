@@ -48,29 +48,29 @@ pub enum EventInstant {
     DelaySamples(DurationSamples),
 
     /// The event should happen the given number of seconds after the
-    /// last [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// last [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
     /// event that was sent to this node.
     ///
     /// This can be useful for creating a sequence of rapid-fire events that are
     /// triggered with the lowest latency possible.
     ///
-    /// If a [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// If a [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
     /// event was never sent to this node, then the start of the stream will be used
-    /// as the origin.
-    DelaySecondsFromLastOrigin(DurationSeconds),
+    /// as the marker.
+    DelaySecondsFromMarker(DurationSeconds),
 
     /// The event should happen the given number of samples (of a single channel
     /// of audio) after the
-    /// [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
     /// event that was sent to this node.
     ///
     /// This can be useful for creating a sequence of rapid-fire events that are
     /// triggered with the lowest latency possible.
     ///
-    /// If a [`NodeEventType::DelayOrigin`](crate::event::NodeEventType::DelayOrigin)
+    /// If a [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
     /// event was never sent to this node, then the start of the stream will be used
-    /// as the origin.
-    DelaySamplesFromLastOrigin(DurationSamples),
+    /// as the marker.
+    DelaySamplesFromMarker(DurationSamples),
 
     /// The event should happen when the musical clock reaches the given
     /// musical time.
@@ -103,11 +103,11 @@ impl EventInstant {
             EventInstant::DelaySeconds(seconds) => {
                 Some(proc_info.clock_samples + seconds.to_samples(proc_info.sample_rate))
             }
-            EventInstant::DelaySamplesFromLastOrigin(samples) => {
-                Some(proc_info.last_delay_origin + *samples)
+            EventInstant::DelaySamplesFromMarker(samples) => {
+                Some(proc_info.last_marker_instant + *samples)
             }
-            EventInstant::DelaySecondsFromLastOrigin(seconds) => {
-                Some(proc_info.last_delay_origin + seconds.to_samples(proc_info.sample_rate))
+            EventInstant::DelaySecondsFromMarker(seconds) => {
+                Some(proc_info.last_marker_instant + seconds.to_samples(proc_info.sample_rate))
             }
             #[cfg(feature = "musical_transport")]
             EventInstant::AtClockMusical(musical) => proc_info.musical_to_samples(*musical),

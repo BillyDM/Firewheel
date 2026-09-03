@@ -133,8 +133,8 @@ impl EventScheduler {
     ) {
         #[cfg(feature = "scheduled_events")]
         if let Some(event_instant) = event.time {
-            // Sending a `DelayOrigin` event with an `EventInstant` is invalid.
-            if let NodeEventType::DelayOrigin = &event.event {
+            // Sending a `Marker` event with an `EventInstant` is invalid.
+            if let NodeEventType::Marker = &event.event {
                 return;
             }
 
@@ -174,17 +174,17 @@ impl EventScheduler {
 
                     clock_samples + seconds.to_samples(sample_rate)
                 }
-                EventInstant::DelaySamplesFromLastOrigin(samples) => {
+                EventInstant::DelaySamplesFromMarker(samples) => {
                     self.num_scheduled_non_musical_events += 1;
                     node_data.num_scheduled_non_musical_events += 1;
 
-                    node_data.last_delay_origin + samples
+                    node_data.last_marker_instant + samples
                 }
-                EventInstant::DelaySecondsFromLastOrigin(seconds) => {
+                EventInstant::DelaySecondsFromMarker(seconds) => {
                     self.num_scheduled_non_musical_events += 1;
                     node_data.num_scheduled_non_musical_events += 1;
 
-                    node_data.last_delay_origin + seconds.to_samples(sample_rate)
+                    node_data.last_marker_instant + seconds.to_samples(sample_rate)
                 }
                 #[cfg(feature = "musical_transport")]
                 EventInstant::AtClockMusical(musical) => {
@@ -213,8 +213,8 @@ impl EventScheduler {
             self.sorted_event_buffer_indices.push((slot, time_samples));
 
             return;
-        } else if let NodeEventType::DelayOrigin = &event.event {
-            node_data.last_delay_origin = clock_samples;
+        } else if let NodeEventType::Marker = &event.event {
+            node_data.last_marker_instant = clock_samples;
         }
 
         if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
@@ -967,7 +967,7 @@ pub(super) struct NodeEventSchedulerData {
     #[cfg(feature = "scheduled_events")]
     first_sorted_event_index: usize,
     #[cfg(feature = "scheduled_events")]
-    pub last_delay_origin: InstantSamples,
+    pub last_marker_instant: InstantSamples,
 
     #[allow(unused)]
     is_pre_process: bool,
@@ -987,7 +987,7 @@ impl NodeEventSchedulerData {
             #[cfg(feature = "scheduled_events")]
             first_sorted_event_index: 0,
             #[cfg(feature = "scheduled_events")]
-            last_delay_origin: InstantSamples(0),
+            last_marker_instant: InstantSamples(0),
             is_pre_process,
         }
     }

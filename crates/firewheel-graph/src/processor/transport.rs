@@ -232,10 +232,10 @@ impl ProcTransportState {
                             clock_samples + seconds.to_samples(sample_rate)
                         }
                         EventInstant::DelaySamples(samples) => clock_samples + samples,
-                        EventInstant::DelaySamplesFromLastOrigin(_)
-                        | EventInstant::DelaySecondsFromLastOrigin(_) => {
+                        EventInstant::DelaySamplesFromMarker(_)
+                        | EventInstant::DelaySecondsFromMarker(_) => {
                             panic!(
-                                "DelaySecondsFromLastOrigin/DelaySamplesFromLastOrigin cannot be used for SpeedMultiplierKeyframe"
+                                "DelaySecondsFromMarker/DelaySamplesFromMarker cannot be used for SpeedMultiplierKeyframe"
                             );
                         }
                         EventInstant::AtClockMusical(musical) => transport.musical_to_samples(

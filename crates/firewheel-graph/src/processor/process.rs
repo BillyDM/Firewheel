@@ -301,7 +301,7 @@ impl FirewheelProcessorInner {
             process_to_playback_delay,
             did_just_unbypass: false,
             #[cfg(feature = "scheduled_events")]
-            last_delay_origin: InstantSamples(0),
+            last_marker_instant: InstantSamples(0),
             #[cfg(feature = "musical_transport")]
             transport_info,
         };
@@ -349,7 +349,7 @@ impl FirewheelProcessorInner {
 
                 #[cfg(feature = "scheduled_events")]
                 {
-                    info.last_delay_origin = node_entry.event_data.last_delay_origin;
+                    info.last_marker_instant = node_entry.event_data.last_marker_instant;
                 }
 
                 // Used to keep track of what status this closure should return.
