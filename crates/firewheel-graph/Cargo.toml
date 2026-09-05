@@ -16,8 +16,7 @@ exclude.workspace = true
 all-features = true
 
 [features]
-# TODO: Remove "node_profiling" from default features.
-default = ["std", "tracing", "node_profiling"]
+default = ["std", "tracing"]
 std = [
     "arrayvec/std",
     "bevy_platform/std",

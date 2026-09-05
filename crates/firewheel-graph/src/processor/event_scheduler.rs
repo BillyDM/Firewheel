@@ -133,6 +133,11 @@ impl EventScheduler {
     ) {
         #[cfg(feature = "scheduled_events")]
         if let Some(event_instant) = event.time {
+            // Sending a `Marker` event with an `EventInstant` is invalid.
+            if let NodeEventType::Marker = &event.event {
+                return;
+            }
+
             let slot = if let Some(slot) = self.scheduled_event_arena_free_slots.pop() {
                 slot
             } else {
@@ -169,6 +174,18 @@ impl EventScheduler {
 
                     clock_samples + seconds.to_samples(sample_rate)
                 }
+                EventInstant::DelaySamplesFromMarker(samples) => {
+                    self.num_scheduled_non_musical_events += 1;
+                    node_data.num_scheduled_non_musical_events += 1;
+
+                    node_data.last_marker_instant + samples
+                }
+                EventInstant::DelaySecondsFromMarker(seconds) => {
+                    self.num_scheduled_non_musical_events += 1;
+                    node_data.num_scheduled_non_musical_events += 1;
+
+                    node_data.last_marker_instant + seconds.to_samples(sample_rate)
+                }
                 #[cfg(feature = "musical_transport")]
                 EventInstant::AtClockMusical(musical) => {
                     self.num_scheduled_musical_events += 1;
@@ -196,6 +213,8 @@ impl EventScheduler {
             self.sorted_event_buffer_indices.push((slot, time_samples));
 
             return;
+        } else if let NodeEventType::Marker = &event.event {
+            node_data.last_marker_instant = clock_samples;
         }
 
         if self.immediate_event_buffer.len() == self.immediate_event_buffer_capacity {
@@ -576,12 +595,11 @@ impl EventScheduler {
         mut proc_buffers: ProcBuffers,
         mut on_sub_chunk: impl FnMut(ProcessSubChunkInfo),
     ) {
+        // Rust is getting confused when the cfg is put on the argument for some reason,
+        // so just duplicate the closure.
+        #[cfg(not(feature = "scheduled_events"))]
         let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
                           immediate_event_buffer: &[Option<NodeEvent>],
-                          #[cfg(feature = "scheduled_events")]
-                          scheduled_event_arena: &[Option<
-            ScheduledEventEntry,
-        >],
                           event: ProcEventsIndex,
                           logger: &mut RealtimeLogger,
                           set_bypassed: &mut Option<bool>| {
@@ -596,7 +614,45 @@ impl EventScheduler {
                         return;
                     }
                 }
-                #[cfg(feature = "scheduled_events")]
+            }
+
+            if node_event_queue.len() == node_event_queue.capacity() {
+                match self.buffer_out_of_space_mode {
+                    BufferOutOfSpaceMode::AllocateOnAudioThread => {
+                        let _ = logger.try_error("Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity to avoid audio glitches.");
+                    }
+                    BufferOutOfSpaceMode::Panic => {
+                        panic!(
+                            "Firewheel event queue is full! Please increase FirewheelConfig::event_queue_capacity."
+                        );
+                    }
+                    BufferOutOfSpaceMode::DropEvents => {
+                        let _ = logger.try_error("Firewheel event queue is full and event was dropped! Please increase FirewheelConfig::event_queue_capacity.");
+                    }
+                }
+            }
+
+            node_event_queue.push(event);
+        };
+
+        #[cfg(feature = "scheduled_events")]
+        let push_event = |node_event_queue: &mut Vec<ProcEventsIndex>,
+                          immediate_event_buffer: &[Option<NodeEvent>],
+                          scheduled_event_arena: &[Option<ScheduledEventEntry>],
+                          event: ProcEventsIndex,
+                          logger: &mut RealtimeLogger,
+                          set_bypassed: &mut Option<bool>| {
+            match event {
+                ProcEventsIndex::Immediate(i) => {
+                    if let Some(event) = immediate_event_buffer
+                        .get(i as usize)
+                        .and_then(|e| e.as_ref())
+                        && let NodeEventType::SetBypassed(bypassed) = &event.event
+                    {
+                        *set_bypassed = Some(*bypassed);
+                        return;
+                    }
+                }
                 ProcEventsIndex::Scheduled(i) => {
                     if let Some(event) = scheduled_event_arena
                         .get(i as usize)
@@ -910,6 +966,8 @@ pub(super) struct NodeEventSchedulerData {
     num_scheduled_events_this_block: usize,
     #[cfg(feature = "scheduled_events")]
     first_sorted_event_index: usize,
+    #[cfg(feature = "scheduled_events")]
+    pub last_marker_instant: InstantSamples,
 
     #[allow(unused)]
     is_pre_process: bool,
@@ -928,6 +986,8 @@ impl NodeEventSchedulerData {
             num_scheduled_events_this_block: 0,
             #[cfg(feature = "scheduled_events")]
             first_sorted_event_index: 0,
+            #[cfg(feature = "scheduled_events")]
+            last_marker_instant: InstantSamples(0),
             is_pre_process,
         }
     }

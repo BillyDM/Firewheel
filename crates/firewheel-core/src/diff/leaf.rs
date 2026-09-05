@@ -10,6 +10,9 @@ use crate::{
     vector::{Vec2, Vec3},
 };
 
+#[cfg(feature = "scheduled_events")]
+use crate::clock::EventInstant;
+
 #[cfg(feature = "musical_transport")]
 use crate::clock::{DurationMusical, InstantMusical};
 
@@ -148,6 +151,9 @@ primitive_diff!(InstantSamples, InstantSamples);
 primitive_diff!(DurationSamples, DurationSamples);
 primitive_diff!(InstantSeconds, InstantSeconds);
 primitive_diff!(DurationSeconds, DurationSeconds);
+
+#[cfg(feature = "scheduled_events")]
+primitive_diff!(EventInstant, EventInstant);
 
 #[cfg(feature = "musical_transport")]
 primitive_diff!(InstantMusical, InstantMusical);

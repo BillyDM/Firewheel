@@ -232,6 +232,12 @@ impl ProcTransportState {
                             clock_samples + seconds.to_samples(sample_rate)
                         }
                         EventInstant::DelaySamples(samples) => clock_samples + samples,
+                        EventInstant::DelaySamplesFromMarker(_)
+                        | EventInstant::DelaySecondsFromMarker(_) => {
+                            panic!(
+                                "DelaySecondsFromMarker/DelaySamplesFromMarker cannot be used for SpeedMultiplierKeyframe"
+                            );
+                        }
                         EventInstant::AtClockMusical(musical) => transport.musical_to_samples(
                             musical,
                             self.transport_start_samples,

@@ -253,6 +253,10 @@ pub struct SpeedMultiplierKeyframe {
     pub multiplier: f64,
 
     /// The instant that this keyframe happens.
+    ///
+    /// Note, [`EventInstant::DelaySecondsFromMarker`] and
+    /// [`EventInstant::DelaySamplesFromMarker`] cannot be used here, and
+    /// will result in a panic.
     pub instant: EventInstant,
 }
 

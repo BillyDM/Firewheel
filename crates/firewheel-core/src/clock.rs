@@ -6,10 +6,6 @@ use core::num::NonZeroU32;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 #[cfg(feature = "scheduled_events")]
-use crate::diff::{Diff, Patch};
-#[cfg(feature = "scheduled_events")]
-use crate::event::ParamData;
-#[cfg(feature = "scheduled_events")]
 use crate::node::ProcInfo;
 
 #[cfg(feature = "musical_transport")]
@@ -51,6 +47,31 @@ pub enum EventInstant {
     /// triggered at the lowest latency possible.
     DelaySamples(DurationSamples),
 
+    /// The event should happen the given number of seconds after the
+    /// last [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
+    /// event that was sent to this node.
+    ///
+    /// This can be useful for creating a sequence of rapid-fire events that are
+    /// triggered with the lowest latency possible.
+    ///
+    /// If a [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
+    /// event was never sent to this node, then the start of the stream will be used
+    /// as the marker.
+    DelaySecondsFromMarker(DurationSeconds),
+
+    /// The event should happen the given number of samples (of a single channel
+    /// of audio) after the
+    /// [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
+    /// event that was sent to this node.
+    ///
+    /// This can be useful for creating a sequence of rapid-fire events that are
+    /// triggered with the lowest latency possible.
+    ///
+    /// If a [`NodeEventType::Marker`](crate::event::NodeEventType::Marker)
+    /// event was never sent to this node, then the start of the stream will be used
+    /// as the marker.
+    DelaySamplesFromMarker(DurationSamples),
+
     /// The event should happen when the musical clock reaches the given
     /// musical time.
     #[cfg(feature = "musical_transport")]
@@ -69,9 +90,9 @@ impl EventInstant {
 
     /// Convert the instant to the given time in samples.
     ///
-    /// If this instant is of type [`EventInstant::AtClockMusical`] and either
-    /// there is no musical transport or the musical transport is not
-    /// currently playing, then this will return `None`.
+    /// This may return `None` if this instant is of type [`EventInstant::AtClockMusical`]
+    /// and either there is no musical transport or the musical transport is not currently
+    /// playing.
     pub fn to_samples(&self, proc_info: &ProcInfo) -> Option<InstantSamples> {
         match self {
             EventInstant::AtClockSamples(samples) => Some(*samples),
@@ -81,6 +102,12 @@ impl EventInstant {
             EventInstant::DelaySamples(samples) => Some(proc_info.clock_samples + *samples),
             EventInstant::DelaySeconds(seconds) => {
                 Some(proc_info.clock_samples + seconds.to_samples(proc_info.sample_rate))
+            }
+            EventInstant::DelaySamplesFromMarker(samples) => {
+                Some(proc_info.last_marker_instant + *samples)
+            }
+            EventInstant::DelaySecondsFromMarker(seconds) => {
+                Some(proc_info.last_marker_instant + seconds.to_samples(proc_info.sample_rate))
             }
             #[cfg(feature = "musical_transport")]
             EventInstant::AtClockMusical(musical) => proc_info.musical_to_samples(*musical),
@@ -120,91 +147,6 @@ impl From<DurationSamples> for EventInstant {
 impl From<InstantMusical> for EventInstant {
     fn from(value: InstantMusical) -> Self {
         Self::AtClockMusical(value)
-    }
-}
-
-#[cfg(feature = "scheduled_events")]
-impl Diff for EventInstant {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            match self {
-                EventInstant::AtClockSeconds(s) => event_queue.push_param(*s, path),
-                EventInstant::AtClockSamples(s) => event_queue.push_param(*s, path),
-                EventInstant::DelaySeconds(s) => event_queue.push_param(*s, path),
-                EventInstant::DelaySamples(s) => event_queue.push_param(*s, path),
-                #[cfg(feature = "musical_transport")]
-                EventInstant::AtClockMusical(m) => event_queue.push_param(*m, path),
-            }
-        }
-    }
-}
-
-#[cfg(feature = "scheduled_events")]
-impl Patch for EventInstant {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        match data {
-            ParamData::InstantSeconds(s) => Ok(EventInstant::AtClockSeconds(*s)),
-            ParamData::InstantSamples(s) => Ok(EventInstant::AtClockSamples(*s)),
-            ParamData::DurationSeconds(s) => Ok(EventInstant::DelaySeconds(*s)),
-            ParamData::DurationSamples(s) => Ok(EventInstant::DelaySamples(*s)),
-            #[cfg(feature = "musical_transport")]
-            ParamData::InstantMusical(s) => Ok(EventInstant::AtClockMusical(*s)),
-            _ => Err(crate::diff::PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
-    }
-}
-
-#[cfg(feature = "scheduled_events")]
-impl Diff for Option<EventInstant> {
-    fn diff<E: crate::diff::EventQueue>(
-        &self,
-        baseline: &Self,
-        path: crate::diff::PathBuilder,
-        event_queue: &mut E,
-    ) {
-        if self != baseline {
-            match self {
-                Some(EventInstant::AtClockSeconds(s)) => event_queue.push_param(*s, path),
-                Some(EventInstant::AtClockSamples(s)) => event_queue.push_param(*s, path),
-                Some(EventInstant::DelaySeconds(s)) => event_queue.push_param(*s, path),
-                Some(EventInstant::DelaySamples(s)) => event_queue.push_param(*s, path),
-                #[cfg(feature = "musical_transport")]
-                Some(EventInstant::AtClockMusical(m)) => event_queue.push_param(*m, path),
-                None => event_queue.push_param(ParamData::None, path),
-            }
-        }
-    }
-}
-
-#[cfg(feature = "scheduled_events")]
-impl Patch for Option<EventInstant> {
-    type Patch = Self;
-
-    fn patch(data: &ParamData, _path: &[u32]) -> Result<Self::Patch, crate::diff::PatchError> {
-        match data {
-            ParamData::InstantSeconds(s) => Ok(Some(EventInstant::AtClockSeconds(*s))),
-            ParamData::InstantSamples(s) => Ok(Some(EventInstant::AtClockSamples(*s))),
-            ParamData::DurationSeconds(s) => Ok(Some(EventInstant::DelaySeconds(*s))),
-            ParamData::DurationSamples(s) => Ok(Some(EventInstant::DelaySamples(*s))),
-            #[cfg(feature = "musical_transport")]
-            ParamData::InstantMusical(s) => Ok(Some(EventInstant::AtClockMusical(*s))),
-            _ => Err(crate::diff::PatchError::InvalidData),
-        }
-    }
-
-    fn apply(&mut self, patch: Self::Patch) {
-        *self = patch;
     }
 }
 

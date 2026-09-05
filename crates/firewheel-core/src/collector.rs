@@ -198,7 +198,7 @@ impl<T: Send + Sync + ?Sized> StrongCount for Arc<T> {
 /// # Example
 ///
 /// ```rust
-/// # use rtgc::*;
+/// # use firewheel_core::collector::*;
 /// # use std::time::Duration;
 /// let value: ArcGc<String> = ArcGc::new(String::from("foo"));
 ///
@@ -230,7 +230,7 @@ impl<T: Send + Sync + 'static> ArcGc<T, GlobalRtGc> {
     /// Construct a new [`ArcGc`].
     ///
     /// ```
-    /// # use rtgc::*;
+    /// # use firewheel_core::collector::*;
     /// let value: ArcGc<String> = ArcGc::new(String::from("foo"));
     /// ```
     pub fn new(value: T) -> Self {
@@ -249,7 +249,7 @@ impl<T: ?Sized + Send + Sync + 'static> ArcGc<T, GlobalRtGc> {
     /// Construct a new [`ArcGc`] with _unsized_ data, such as `[T]` or `dyn Trait`.
     ///
     /// ```
-    /// # use rtgc::*;
+    /// # use firewheel_core::collector::*;
     /// # use std::sync::Arc;
     /// let value_1: ArcGc<[f32]> = ArcGc::new_unsized(
     ///     || Arc::<[f32]>::from([1.0, 2.0, 3.0]),
@@ -279,7 +279,7 @@ impl ArcGc<dyn Any + Send + Sync + 'static, GlobalRtGc> {
     /// Construct a type-erased [`ArcGc`].
     ///
     /// ```
-    /// # use firewheel-core::collector::ArcGC;
+    /// # use firewheel_core::collector::*;
     /// # use std::sync::Arc;
     /// # use std::any::Any;
     /// let value: ArcGc<dyn Any + Send + Sync + 'static> =
@@ -348,7 +348,7 @@ impl<T: Debug + ?Sized + Send + Sync + 'static, C: Collector> Debug for ArcGc<T,
 /// # Example
 ///
 /// ```rust
-/// # use rtgc::*;
+/// # use firewheel_core::collector::*;
 /// # use std::time::Duration;
 /// let value: OwnedGc<String> = OwnedGc::new(String::from("foo"));
 ///
@@ -473,7 +473,7 @@ unsafe impl<T: ?Sized + Send + 'static> Sync for OwnedGcWrapper<T> {}
 /// # Example
 ///
 /// ```rust
-/// # use rtgc::*;
+/// # use firewheel_core::collector::*;
 /// # use std::time::Duration;
 /// let value_1: OwnedGcUnsized<[f32]> = OwnedGcUnsized::new_unsized(
 ///     vec![0.0, 1.0, 2.0].into_boxed_slice(),
@@ -516,7 +516,7 @@ impl<T: ?Sized + Send + 'static> OwnedGcUnsized<T, GlobalRtGc> {
     /// Construct a new [`OwnedGcUnsized`] with _unsized_ data, such as `[T]` or `dyn Trait`.
     ///
     /// ```
-    /// # use rtgc::*;
+    /// # use firewheel_core::collector::*;
     /// # use std::sync::Arc;
     /// let value_1: OwnedGcUnsized<[f32]> = OwnedGcUnsized::new_unsized(
     ///     vec![0.0, 1.0, 2.0].into_boxed_slice(),

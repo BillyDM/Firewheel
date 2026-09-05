@@ -48,10 +48,9 @@ impl FirewheelManifest {
         let find_in_deps = |deps: &Item| -> Option<syn::Path> {
             let package = if let Some(dep) = deps.get(name) {
                 return Some(Self::parse_str(dep_package(dep).unwrap_or(name)));
-            } else if let Some(dep) = deps.get(FIREWHEEL) {
-                dep_package(dep).unwrap_or(FIREWHEEL)
             } else {
-                return None;
+                let dep = deps.get(FIREWHEEL)?;
+                dep_package(dep).unwrap_or(FIREWHEEL)
             };
 
             let mut path = Self::parse_str::<syn::Path>(package);

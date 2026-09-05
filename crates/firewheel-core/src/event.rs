@@ -81,6 +81,14 @@ pub enum NodeEventType {
     Custom(OwnedGc<Box<dyn Any + Send + 'static>>),
     /// Custom event type stored on the stack as raw bytes.
     CustomBytes([u8; 36]),
+    /// The instant the Firewheel processor receives this event is used as the marker for
+    /// future events scheduled with [`EventInstant::DelaySecondsFromMarker`] and
+    /// [`EventInstant::DelaySamplesFromMarker`].
+    ///
+    /// Note, this only applies if [`NodeEvent::time`] is `None`. If [`NodeEvent::time`]
+    /// is not `None`, then this event will be discarded.
+    #[cfg(feature = "scheduled_events")]
+    Marker,
     #[cfg(feature = "midi_events")]
     MIDI(MidiMessage<'static>),
 }
@@ -166,6 +174,8 @@ impl core::fmt::Debug for NodeEventType {
             NodeEventType::Custom(_) => f.debug_tuple("Custom").finish_non_exhaustive(),
             NodeEventType::CustomBytes(f0) => f.debug_tuple("CustomBytes").field(&f0).finish(),
             NodeEventType::SetBypassed(b) => f.debug_tuple("SetBypassed").field(&b).finish(),
+            #[cfg(feature = "scheduled_events")]
+            NodeEventType::Marker => f.write_str("Marker"),
             #[cfg(feature = "midi_events")]
             NodeEventType::MIDI(f0) => f.debug_tuple("MIDI").field(&f0).finish(),
         }
