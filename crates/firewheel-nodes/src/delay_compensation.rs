@@ -52,7 +52,7 @@ impl AudioNode for DelayCompensationNode {
                 num_inputs: config.channels.get(),
                 num_outputs: config.channels.get(),
             }))
-        // TODO: Once the scheduler gets in-place processing support, use
+        // TODO: If and when the scheduler gets proper in-place processing support, use
         // in-place processing for this node.
     }
 

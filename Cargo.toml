@@ -155,10 +155,6 @@ serde = [
 unsafe_flush_denormals_to_zero = [
     "firewheel-graph/unsafe_flush_denormals_to_zero",
 ]
-# TODO: Rework stream nodes
-# Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread. (requires std)
-# stream_nodes = ["firewheel-nodes/stream"]
 
 [workspace]
 members = [
@@ -176,7 +172,6 @@ members = [
     "examples/rtaudio_beep_test",
     "examples/sampler_test",
     "examples/spatial_basic",
-    "examples/stream_nodes",
     "examples/visual_node_graph",
     "examples/memoized",
     "examples/visualizer",

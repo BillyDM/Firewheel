@@ -108,7 +108,7 @@ impl FirewheelProcessor {
 
         inner.stream_stopped();
 
-        // TODO: Remove this feature gate if `bevy_platform` implements this.
+        // TODO: Remove this feature gate once `bevy_platform` implements `thread::panicking()`.
         #[cfg(feature = "std")]
         if std::thread::panicking() {
             inner.poisoned = true;

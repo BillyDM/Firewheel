@@ -93,10 +93,6 @@ bevy = ["dep:bevy_ecs", "firewheel-core/bevy"]
 bevy_reflect = ["dep:bevy_reflect", "firewheel-core/bevy_reflect"]
 # Enables serde derives for types
 serde = ["dep:serde", "firewheel-core/serde"]
-# TODO: Rework stream nodes
-# Enables the stream writer/reader nodes for sending/receiving audio
-# directly to/from the audio graph from another thread. (requires std)
-# stream = ["std", "dep:fixed-resample"]
 
 [dependencies]
 firewheel-core = { path = "../firewheel-core", version = "0.13.0", default-features = false }

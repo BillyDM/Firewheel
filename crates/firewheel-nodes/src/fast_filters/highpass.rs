@@ -86,7 +86,7 @@ impl<const CHANNELS: usize> AudioNode for FastHighpassNode<CHANNELS> {
                 num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
                 num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
             }))
-        // TODO: Once the scheduler gets in-place processing support, use
+        // TODO: If and when the scheduler gets proper in-place processing support, use
         // in-place processing for this node.
     }
 

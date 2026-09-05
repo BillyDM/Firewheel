@@ -493,8 +493,8 @@ impl FirewheelProcessorInner {
                                 let mut sub_outputs: ArrayVec<&mut [f32], MAX_CHANNELS> =
                                     ArrayVec::new();
 
-                                // TODO: We can use unsafe slicing here since we know the range is
-                                // always valid.
+                                // TODO: Unsafe slicing can be used here since the range is always
+                                // valid.
                                 for ch in proc_buffers.inputs.iter() {
                                     sub_inputs.push(&ch[sub_chunk_range.clone()]);
                                 }

@@ -464,16 +464,16 @@ impl<const CHANNELS: usize> AudioNode for SvfNode<CHANNELS> {
     type Configuration = SvfNodeConfig;
 
     fn info(&self, _config: &Self::Configuration) -> Result<AudioNodeInfo, NodeError> {
-        Ok(
-            AudioNodeInfo::new()
-                .debug_name("svf")
-                .channel_config(ChannelConfig {
-                    num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-                    num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
-                })
-                .in_place_buffers(true), // Use SVF node as a test for in-place buffers, even
-                                         // though it currently does not improve performance
-        )
+        Ok(AudioNodeInfo::new()
+            .debug_name("svf")
+            .channel_config(ChannelConfig {
+                num_inputs: ChannelCount::new(CHANNELS as u32).unwrap(),
+                num_outputs: ChannelCount::new(CHANNELS as u32).unwrap(),
+            })
+            // Use SVF node as a test for in-place buffers, even though the
+            // schedulder does not natively support this yet, meaning it does
+            // not improve performance yet.
+            .in_place_buffers(true))
     }
 
     fn construct_processor(

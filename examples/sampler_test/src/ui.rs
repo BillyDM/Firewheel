@@ -142,7 +142,6 @@ impl App for DemoApp {
         self.audio_system.update();
 
         if !self.audio_system.is_activated() {
-            // TODO: Don't panic.
             panic!("Audio system disconnected");
         }
 

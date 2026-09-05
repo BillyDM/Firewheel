@@ -234,7 +234,6 @@ impl SamplerNode {
         bytes[core::mem::size_of::<u64>()] = if *self.play { 1 } else { 0 };
 
         NodeEventType::Param {
-            // TODO: This is not how `Patch` for `Notify<bool>` is implemented.
             data: ParamData::CustomBytes(bytes),
             path: ParamPath::Single(1),
         }

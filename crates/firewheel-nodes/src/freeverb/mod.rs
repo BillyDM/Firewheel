@@ -108,6 +108,8 @@ impl AudioNode for FreeverbNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             }))
+        // TODO: If and when the scheduler gets proper in-place processing support, use
+        // in-place processing for this node.
     }
 
     fn construct_processor(

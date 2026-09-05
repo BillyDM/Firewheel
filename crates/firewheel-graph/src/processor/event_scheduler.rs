@@ -886,7 +886,9 @@ impl EventScheduler {
         // TODO: While sorting here on the audio thread is fine for the general use
         // case of having only a handful of scheduled events, if the user has
         // scheduled hundreds or even thousands of events (i.e. they have scheduled
-        // a full music sequence), this may not be the best choice.
+        // a full music sequence), this could be a performance bottleneck and lead
+        // to buffer underruns. A better approach could be to do a binary search for
+        // each newly inserted event to find the index it should be inserted into.
         self.sorted_event_buffer_indices
             .sort_unstable_by_key(|(_, time_samples)| *time_samples);
     }

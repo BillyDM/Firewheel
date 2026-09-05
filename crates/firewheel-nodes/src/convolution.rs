@@ -130,6 +130,8 @@ impl AudioNode for ConvolutionNode {
                 config.channels.get(),
                 config.channels.get(),
             )))
+        // TODO: If and when the scheduler gets proper in-place processing support, use
+        // in-place processing for this node.
     }
 
     fn construct_processor(
@@ -146,14 +148,14 @@ impl AudioNode for ConvolutionNode {
         let max_frames: usize =
             (config.max_impulse_length_seconds * (sample_rate.get() as f64)).ceil() as usize;
 
-        // TODO: Ask the creator of `fft-convolver` to add a `with_capacity` method.
+        // TODO: Ask the creator of `fft-convolver` to add a `with_capacity` method so we don't
+        // need to use this workaround.
         let mut tmp_impulse = vec![0.0; max_frames];
         tmp_impulse[0] = 1.0;
 
         let mut convolver: Vec<FFTConvolver<f32>> = (0..config.channels.get().get())
             .map(|_| {
                 let mut c = FFTConvolver::default();
-                // TODO: Ask the creator of `fft-convolver` to add a `with_capacity` method.
                 c.init(config.partition_size, &tmp_impulse).unwrap();
                 c
             })

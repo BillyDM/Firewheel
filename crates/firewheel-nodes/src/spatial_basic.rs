@@ -213,7 +213,7 @@ impl AudioNode for SpatialBasicNode {
                 num_inputs: ChannelCount::STEREO,
                 num_outputs: ChannelCount::STEREO,
             }))
-        // TODO: Once the scheduler gets in-place processing support, use
+        // TODO: If and when the scheduler gets proper in-place processing support, use
         // in-place processing for this node.
     }
 
