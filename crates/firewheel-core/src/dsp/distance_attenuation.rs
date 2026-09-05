@@ -353,6 +353,7 @@ impl DistanceAttenuatorStereoDsp {
                 }
             } else {
                 let mut coeff = OnePoleIirLPFCoeffSimd::default();
+                let sample_rate_recip: f32 = sample_rate_recip as f32;
 
                 for i in 0..frames {
                     let cutoff_hz = self.muffle_cutoff_hz.next_smoothed();
@@ -360,15 +361,8 @@ impl DistanceAttenuatorStereoDsp {
 
                     // Because recalculating filter coefficients is expensive, a trick like
                     // this can be used to only recalculate them every few frames.
-                    //
-                    // TODO: use core::hint::cold_path() once that stabilizes
-                    //
-                    // TODO: Alternatively, this could be optimized using a lookup table
                     if self.coeff_update_mask.do_update(i) {
-                        coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(
-                            cutoff_hz,
-                            sample_rate_recip as f32,
-                        ));
+                        update_coeff(&mut coeff, cutoff_hz, sample_rate_recip);
                     }
 
                     let s = [out1[i] * gain, out2[i] * gain];
@@ -403,4 +397,10 @@ impl DistanceAttenuatorStereoDsp {
         self.gain.update_sample_rate(sample_rate);
         self.muffle_cutoff_hz.update_sample_rate(sample_rate);
     }
+}
+
+#[cold]
+#[inline(always)]
+fn update_coeff(coeff: &mut OnePoleIirLPFCoeffSimd<2>, cutoff_hz: f32, sample_rate_recip: f32) {
+    *coeff = OnePoleIirLPFCoeffSimd::splat(OnePoleIirLPFCoeff::new(cutoff_hz, sample_rate_recip));
 }
