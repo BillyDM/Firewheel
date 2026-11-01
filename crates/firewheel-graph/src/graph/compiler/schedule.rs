@@ -475,7 +475,7 @@ impl CompiledSchedule {
         &mut self,
         frames: usize,
         num_stream_outputs: usize,
-        read_outputs: impl FnOnce(&mut [&mut [f32]], SilenceMask),
+        read_outputs: impl FnOnce(&mut [&mut [f32]]),
     ) {
         let frames = frames.min(self.max_block_frames);
         let buffers_ptr = self.buffers.as_mut_ptr();
@@ -485,16 +485,10 @@ impl CompiledSchedule {
 
         let mut outputs: ArrayVec<&mut [f32], MAX_CHANNELS> = ArrayVec::new();
 
-        let mut silence_mask = SilenceMask::NONE_SILENT;
-
         let read_output_len = num_stream_outputs.min(graph_out_node.input_buffers.len());
 
         for i in 0..read_output_len {
             let buffer_index = graph_out_node.input_buffers[i].buffer_index;
-
-            if flag_mut(&mut self.buffer_flags, buffer_index).silent {
-                silence_mask.set_channel(i, true);
-            }
 
             // SAFETY: Input buffer indices within a single node are guaranteed
             // non-overlapping by the buffer allocator, and the buffer indices
@@ -507,7 +501,7 @@ impl CompiledSchedule {
             });
         }
 
-        (read_outputs)(outputs.as_mut_slice(), silence_mask);
+        (read_outputs)(outputs.as_mut_slice());
     }
 
     #[cfg(feature = "scheduled_events")]
