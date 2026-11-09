@@ -204,7 +204,7 @@ impl FirewheelProcessorInner {
                 .read_graph_outputs(
                     block_frames,
                     num_out_channels,
-                    |channels: &mut [&mut [f32]], silence_mask| {
+                    |channels: &mut [&mut [f32]]| {
                         validate_output(
                             channels,
                             &self.flags,
@@ -213,15 +213,11 @@ impl FirewheelProcessorInner {
                         );
 
                         for (ch_i, ch) in channels.iter().enumerate().take(num_out_channels) {
-                            if silence_mask.is_channel_silent(ch_i) {
-                                output.fill_frames_with(frames_processed, block_frames, &0.0);
-                            } else {
-                                output.copy_from_slice_to_channel(
-                                    ch_i,
-                                    frames_processed,
-                                    &ch[..block_frames],
-                                );
-                            }
+                            output.copy_from_slice_to_channel(
+                                ch_i,
+                                frames_processed,
+                                &ch[..block_frames],
+                            );
                         }
                     },
                 );
