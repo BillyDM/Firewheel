@@ -259,14 +259,15 @@ mod reflect {
     {
         fn get_type_registration() -> bevy_reflect::TypeRegistration {
             let mut registration = bevy_reflect::TypeRegistration::of::<Self>();
-            registration.insert:: <bevy_reflect::ReflectFromPtr>(bevy_reflect::CreateTypeData:: <Self> ::create_type_data(()));
+            registration.insert::<bevy_reflect::ReflectFromPtr>(
+                bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
+            );
             registration.insert::<bevy_reflect::ReflectFromReflect>(
                 bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
             );
-            registration
-                .insert::<bevy_reflect::prelude::ReflectDefault>(
-                    bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
-                );
+            registration.insert::<bevy_reflect::prelude::ReflectDefault>(
+                bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
+            );
             registration
         }
 
@@ -453,7 +454,9 @@ mod reflect {
             bevy_reflect::structs::FieldIter::new(self)
         }
 
-        fn to_dynamic_struct(&self) -> Result<bevy_reflect::structs::DynamicStruct, bevy_reflect::ReflectCloneError> {
+        fn to_dynamic_struct(
+            &self,
+        ) -> Result<bevy_reflect::structs::DynamicStruct, bevy_reflect::ReflectCloneError> {
             let mut dynamic: bevy_reflect::structs::DynamicStruct = Default::default();
             dynamic.set_represented_type(bevy_reflect::PartialReflect::get_represented_type_info(
                 self,

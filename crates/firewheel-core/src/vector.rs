@@ -189,7 +189,7 @@ impl From<Vec2> for glam_32::Vec2 {
 }
 
 #[cfg(feature = "glam-32")]
-impl From<Vec3> for glam_33::Vec3 {
+impl From<Vec3> for glam_32::Vec3 {
     fn from(value: Vec3) -> Self {
         Self::new(value.x, value.y, value.z)
     }
