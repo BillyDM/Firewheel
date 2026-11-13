@@ -259,14 +259,15 @@ mod reflect {
     {
         fn get_type_registration() -> bevy_reflect::TypeRegistration {
             let mut registration = bevy_reflect::TypeRegistration::of::<Self>();
-            registration.insert:: <bevy_reflect::ReflectFromPtr>(bevy_reflect::FromType:: <Self> ::from_type());
-            registration.insert::<bevy_reflect::ReflectFromReflect>(
-                bevy_reflect::FromType::<Self>::from_type(),
+            registration.insert::<bevy_reflect::ReflectFromPtr>(
+                bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
             );
-            registration
-                .insert::<bevy_reflect::prelude::ReflectDefault>(
-                    bevy_reflect::FromType::<Self>::from_type(),
-                );
+            registration.insert::<bevy_reflect::ReflectFromReflect>(
+                bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
+            );
+            registration.insert::<bevy_reflect::prelude::ReflectDefault>(
+                bevy_reflect::CreateTypeData::<Self>::create_type_data(()),
+            );
             registration
         }
 
@@ -453,16 +454,18 @@ mod reflect {
             bevy_reflect::structs::FieldIter::new(self)
         }
 
-        fn to_dynamic_struct(&self) -> bevy_reflect::structs::DynamicStruct {
+        fn to_dynamic_struct(
+            &self,
+        ) -> Result<bevy_reflect::structs::DynamicStruct, bevy_reflect::ReflectCloneError> {
             let mut dynamic: bevy_reflect::structs::DynamicStruct = Default::default();
             dynamic.set_represented_type(bevy_reflect::PartialReflect::get_represented_type_info(
                 self,
             ));
             dynamic.insert_boxed(
                 "value",
-                bevy_reflect::PartialReflect::to_dynamic(&self.value),
+                bevy_reflect::PartialReflect::to_dynamic(&self.value)?,
             );
-            dynamic
+            Ok(dynamic)
         }
 
         fn index_of_name(&self, name: &str) -> Option<usize> {
